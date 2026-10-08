@@ -8,7 +8,7 @@ const on = (host: string, pathname: string, me = ME, admin = ADMIN) => routeForH
 
 const ME_ONLY = ['/p', '/edit', '/signin', '/me', '/me/connections', '/t/AbCdEfGhIjKl', '/api/me', '/api/me/session', '/api/t/x/this-is-me', '/api/pass', '/api/pass/photo', '/api/signin/request'];
 const STAFF_ONLY = ['/', '/login', '/auth/callback', '/onboarding', '/admin', '/admin/new', '/admin/demo/participants', '/scan/demo', '/api/admin/events', '/api/admin/demo/dashboard', '/api/ingest/sheet', '/api/email/drain', '/api/retention', '/api/events/demo/checkpoints', '/api/scans/x/void'];
-const SHARED = ['/api/scan', '/api/tags/assign', '/api/stations', '/api/participants/0000/signin-code', '/api/admin/demo/participants/0000/hide-profile', '/_next/static/chunk.js', '/favicon.ico'];
+const SHARED = ['/api/events/demo/participants/search', '/api/scan', '/api/tags/assign', '/api/stations', '/api/participants/0000/signin-code', '/api/admin/demo/participants/0000/hide-profile', '/_next/static/chunk.js', '/favicon.ico'];
 
 describe('host routing (PLAN §5.1, I-23)', () => {
   it('T-HOST-01: with equal origins (dev) every route is reachable', () => {

@@ -1,0 +1,137 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+import type { Authenticate } from '@/lib/auth/session';
+import { requireStaffBySlug } from '@/lib/auth/staff';
+import type { Database } from '@/lib/db/types.gen';
+import { readParticipant } from '@/lib/participant/handlers';
+import { profileFields } from '@/lib/profile/load';
+import type { BadgeRole } from '@/lib/profile/schema';
+import { signedPhotoUrl } from '@/lib/storage/photos';
+import { isPublicId } from './tags';
+import { badgeView, type BadgeInput, type BadgeView, type StaffExtras, type Viewer } from './view';
+
+type Db = SupabaseClient<Database>;
+
+const SUGGESTION_WINDOW_MS = 2 * 60 * 1000;
+
+const tagViewSchema = z.object({
+  tag: z.object({ id: z.string(), eventId: z.string(), label: z.string().nullable(), retiredAt: z.string().nullable() }),
+  event: z.object({ slug: z.string(), name: z.string(), endsAt: z.string(), retentionDays: z.number() }),
+  assignment: z.object({ id: z.string(), participantId: z.string(), assignedAt: z.string(), assignedBy: z.string() }).nullable(),
+  lastHolderId: z.string().nullable(),
+});
+
+// PLAN §8.1: who is looking? Staff of THIS badge's event (Supabase session), else a participant
+// (pl_me cookie), else anonymous. A badge id never decides it (I-16).
+async function resolveViewer(db: Db, request: Request, authenticate: Authenticate, meOrigin: string, event: { id: string; slug: string }): Promise<Viewer> {
+  const user = await authenticate(request);
+  if (user) {
+    const staff = await requireStaffBySlug(db, user.id, event.slug);
+    if (staff) {
+      const { data: own } = await db.from('participants').select('id').eq('event_id', event.id).eq('staff_user_id', user.id).is('deleted_at', null).maybeSingle();
+      return { kind: 'staff', userId: user.id, eventId: event.id, role: staff.role, ...(own && { participantId: own.id }) };
+    }
+  }
+  const who = await readParticipant(db, request, meOrigin);
+  if (!who) return { kind: 'anonymous' };
+  const { data, error } = await db.from('participants').select('event_id').eq('id', who.participantId).single();
+  if (error) throw new Error(`participant load failed (${error.code})`);
+  return { kind: 'participant', participantId: who.participantId, eventId: data.event_id };
+}
+
+async function activeLabel(db: Db, participantId: string): Promise<string | null> {
+  const { data, error } = await db.from('tag_assignments').select('tags(label)').eq('participant_id', participantId).is('ended_at', null).maybeSingle();
+  if (error) throw new Error(`assignment load failed (${error.code})`);
+  return data?.tags.label ?? null;
+}
+
+// F20: the latest person this staff member admitted at the door in the last 2 minutes who has no badge.
+async function suggestion(db: Db, userId: string, eventId: string, now: Date): Promise<StaffExtras['suggestion']> {
+  const since = new Date(now.getTime() - SUGGESTION_WINDOW_MS).toISOString();
+  const { data, error } = await db
+    .from('scans')
+    .select('participant_id, scanned_at, participants(first_name, last_name), checkpoints!inner(kind)')
+    .eq('event_id', eventId)
+    .eq('scanned_by', userId)
+    .eq('checkpoints.kind', 'door')
+    .is('voided_at', null)
+    .gte('scanned_at', since)
+    .order('scanned_at', { ascending: false })
+    .limit(10);
+  if (error) throw new Error(`recent admissions load failed (${error.code})`);
+  if (data.length === 0) return null;
+  const { data: linked, error: linkError } = await db
+    .from('tag_assignments')
+    .select('participant_id')
+    .in('participant_id', data.map((s) => s.participant_id))
+    .is('ended_at', null);
+  if (linkError) throw new Error(`assignment load failed (${linkError.code})`);
+  const taken = new Set(linked.map((l) => l.participant_id));
+  const s = data.find((x) => !taken.has(x.participant_id));
+  return s ? { participantId: s.participant_id, name: `${s.participants.first_name} ${s.participants.last_name}`.trim(), admittedAt: s.scanned_at } : null;
+}
+
+/** Everything /t/<publicId> renders. Reads only (I-17; the session's last_seen_at refresh is allowed). */
+export async function loadBadgePage(deps: {
+  db: Db;
+  publicId: string;
+  request: Request;
+  authenticate: Authenticate;
+  meOrigin: string;
+  extraRoles: boolean;
+  now: Date;
+}): Promise<BadgeView> {
+  const { db, now } = deps;
+  if (!isPublicId(deps.publicId)) return { kind: 'not_found' };
+  const { data: raw, error } = await db.rpc('tag_view', { p_public_id: deps.publicId });
+  if (error) throw new Error(`tag_view failed (${error.code})`);
+  if (raw === null) return { kind: 'not_found' };
+  const tv = tagViewSchema.parse(raw);
+  const event = { id: tv.tag.eventId, ...tv.event };
+  const viewer = await resolveViewer(db, deps.request, deps.authenticate, deps.meOrigin, event);
+
+  let holder: BadgeInput['holder'] = null;
+  let holderRow: { status: string; photo_path: string | null; first_name: string; last_name: string; badge_role: string } | null = null;
+  if (tv.assignment) {
+    const { data, error: holderError } = await db
+      .from('participants')
+      .select('id, first_name, last_name, badge_role, status, photo_path, profiles(*)')
+      .eq('id', tv.assignment.participantId)
+      .single();
+    if (holderError) throw new Error(`holder load failed (${holderError.code})`);
+    holderRow = data;
+    holder = { participantId: data.id, firstName: data.first_name, lastName: data.last_name, badgeRole: data.badge_role as BadgeRole, fields: profileFields(data.profiles) };
+  }
+
+  let lastHolder: BadgeInput['lastHolder'] = null;
+  if (tv.tag.retiredAt && tv.lastHolderId) {
+    const { data, error: lastError } = await db.from('participants').select('id, first_name, last_name').eq('id', tv.lastHolderId).single();
+    if (lastError) throw new Error(`last holder load failed (${lastError.code})`);
+    lastHolder = { participantId: data.id, name: `${data.first_name} ${data.last_name}`.trim(), currentLabel: await activeLabel(db, data.id) };
+  }
+
+  let staffExtras: StaffExtras | undefined;
+  if (viewer.kind === 'staff') {
+    staffExtras = {
+      holder: holderRow && {
+        fullName: `${holderRow.first_name} ${holderRow.last_name}`.trim(),
+        badgeRole: holderRow.badge_role,
+        status: holderRow.status,
+        photoUrl: holderRow.photo_path ? await signedPhotoUrl(db, holderRow.photo_path) : null,
+      },
+      suggestion: tv.assignment || tv.tag.retiredAt ? null : await suggestion(db, viewer.userId, event.id, now),
+    };
+  }
+
+  return badgeView({
+    event,
+    tag: { id: tv.tag.id, label: tv.tag.label, retiredAt: tv.tag.retiredAt },
+    assignment: tv.assignment,
+    holder,
+    lastHolder,
+    viewer,
+    extraRoles: deps.extraRoles,
+    now,
+    ...(staffExtras && { staffExtras }),
+  });
+}

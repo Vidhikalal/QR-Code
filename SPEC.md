@@ -118,6 +118,7 @@ One deployment answers on two hosts: **ME** (`NEXT_PUBLIC_APP_ORIGIN`: passes, `
 - ADMIN host: everything except the participant-only paths (404).
 - Equal origins (dev) or any other host (preview deployments, dev tunnels): no filtering. Handlers authorize regardless.
 - The staff Supabase cookie uses `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` (e.g. `.yourclub.ca`) in every Supabase client, so a staff session from the ADMIN host is recognized on the ME host. The participant cookie stays host-only on ME.
+- `/api/events/:slug/participants/search` is also shared (the badge page's assign panel).
 - Redirects stay on the host the browser used: route handlers send a relative `Location`; `proxy.ts` builds an absolute URL from the `Host` header.
 
 ### Architectural principles
@@ -564,6 +565,21 @@ The drainer issues the pass (`issue_pass`) **and** a fresh edit key (`issue_prof
 - `/me` edits the profile (`GET/PATCH /api/me/profile`): text fields, links, visibility, "Ask me about…" for organizers/mentors, and the check-in photo (`POST /api/me/photo`: the §F5 pipeline and limits, locked after door check-in). The page shows **How others see you** from `toPublicProfile()`.
 - Organizers hide an abusive profile from the participant drawer (`POST /api/admin/:slug/participants/:id/hide-profile {hidden}`, audit `profile.hide` with `{hidden}` only). Hidden profiles show only the name.
 - **My badge profile** (admin nav) → `POST /api/staff/hop {slug}` → `ensure_staff_attendee` + `issue_signin_code(…, 'organizer_hop')` → `${APP_ORIGIN}/signin#<code>` → a participant session for their own badge row. Organizers always; volunteers only with `FEATURE_EXTRA_BADGE_ROLES`.
+
+### F19b — The badge page `/t/<publicId>` (v2)
+
+A server component on the ME host, rendered from `badgeView()` (`lib/badge/view.ts`, pure: every "who sees what" rule). The viewer is staff of **this badge's event** (Supabase session), else a participant (participant cookie; one from another event counts as anonymous), else anonymous. A badge id never decides anything (I-16).
+
+| Badge state | Anonymous / other event | Participant of the event | Owner | Staff of the event |
+|---|---|---|---|---|
+| Unknown id | 404 "Not a Passline badge" | same | — | same |
+| Not linked | "This badge isn't activated yet." | same | — | **Assign panel**: "Assign to {last person you admitted at the door in the last 2 minutes, N s ago}" + search; `PARTICIPANT_HAS_TAG` asks "Replace it?" |
+| Linked, public | Public profile + **Sign in to connect** | Public profile | Own full profile + **Edit my profile**, **Sign out** | **Staff panel** (photo, full name, role, status, label; Show sign-in code; Hide/Show profile (organizers); Unlink (organizers, or own link ≤ 120 s)) + public profile |
+| Linked, hidden | Name + "This profile is private" | same | Own full profile + "Only you can see this" | Staff panel + who hid it |
+| Retired | "This badge is no longer active." | same | "Replaced; your new one is {label}" | Deactivated time + current badge and holder |
+| After `ends_at + profile_retention_days` | "This badge was used at {event}." | same | same | + "Profile deleted on {date}" |
+
+Staff tapping their own badge get the owner view and the staff panel. Public parts only via `toPublicProfile()` (I-19). The page only reads; every action is a POST. **I-17 (decided in V4b): GET never changes event state; the `rate_limits` counter and the session's `last_seen_at` refresh are allowed.** `/t/*` is limited to 120 views/min per hashed IP in `proxy.ts` (429). The station button and involvement summary arrive with V5; Connect with V6.
 
 ### F13 — Platform admin bootstrap (v2)
 
@@ -1237,10 +1253,16 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-TAG-14 | `export-ids?count=200` | 200 unique reserved ids, CSV via `toCsv()` | I |
 | T-NFC-01…03 | Minted ids; `parseTagUrl`; `normalizeUid` | unique 12-char base64url; exact URL only; uppercase hex or null | U |
 | T-CONC2-04…06 | One badge × 10 people; 10 badges × one person; 9 parallel replacements | 1 + 9 `TAG_IN_USE`; 1 + 9 `PARTICIPANT_HAS_TAG`; exactly one active badge | I |
+| T-BADGE-01, -05, -06, -07 | `badgeView` for every cell of the F19b table; retired per viewer; after retention; organizer on own badge | as the table | U(+I) |
+| T-BADGE-02 | Deep key scan of every non-staff view | no email, photo, dietary, status, scans or staff keys | U+I |
+| T-BADGE-03 | E2 staff opens an E1 badge | non-staff view | I |
+| T-BADGE-04 | Unlinked badge; staff admitted someone 14 s ago | suggestion names them; none after 2 min, for other staff, or once linked | I |
+| T-BADGE-09 | 50 loads each as anonymous, participant, staff | no event-state change (row counts of every table except `rate_limits`) | I |
+| T-SEC2-03 | 121 badge-page requests/min from one IP | 429; other IPs unaffected | I |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
-| T-HOST-04 | Staff signs in on ADMIN | cookie `Domain=.passline.test`; a staff API on the ME host authorizes (the badge-page half lands with V4) | E |
+| T-HOST-04 | Staff signs in on ADMIN | cookie `Domain=.passline.test`; a staff API on the ME host authorizes; the badge page on ME shows the staff panel | E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1423,7 +1445,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges.
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET".
 
 ---
 

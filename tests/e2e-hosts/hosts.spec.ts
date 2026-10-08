@@ -1,14 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { latestMagicLink } from '../fixtures/mailpit';
-import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
+import { createStandardFixture, type Badges, type StandardFixture } from '../fixtures/standard';
 import { ADMIN, ME } from '../../playwright.hosts.config';
 
 // PLAN §5.1: two hostnames. Page navigations go through Chromium (which maps *.passline.test).
 test.describe.configure({ mode: 'serial' });
 
 let f: StandardFixture;
+let b: Badges;
 test.beforeAll(async () => {
   f = await createStandardFixture();
+  b = await f.addBadges();
 });
 test.afterAll(async () => {
   await f.close();
@@ -29,7 +31,7 @@ test('T-HOST-02 (E): staff pages are 404 on the ME host; participant pages are 4
   }
 });
 
-test('T-HOST-04 (cookie half): staff sign in on ADMIN; the session cookie is shared and authorizes a staff API on ME', async ({ page, context }) => {
+test('T-HOST-04: staff sign in on ADMIN; the shared session authorizes a staff API on ME and shows the badge page staff panel', async ({ page, context }) => {
   test.setTimeout(120_000);
   const email = f.staffEmail.org1;
   await page.goto(`${ADMIN}/login?next=/admin`);
@@ -52,4 +54,8 @@ test('T-HOST-04 (cookie half): staff sign in on ADMIN; the session cookie is sha
   }, f.p.A);
   expect(result.status).toBe(200);
   expect(result.body.url).toMatch(new RegExp(`^${ME.replaceAll('.', '\\.')}/signin#`));
+
+  // T-HOST-04 (badge half): the same staff session, tapping a badge on the ME host, gets the staff panel.
+  await page.goto(`${ME}/t/${b.tag.T1.publicId}`);
+  await expect(page.getByLabel('Staff panel')).toContainText('Ada Fixture');
 });

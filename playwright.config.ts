@@ -16,9 +16,12 @@ export default defineConfig({
   use: { baseURL: origin, trace: 'retain-on-failure' },
   globalSetup: './tests/e2e/global-setup.ts',
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /audit\// },
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: [/audit\//, /scanner-camera\.spec\.ts/] },
+    // T-SCUI-01 measures scan latency (1.5 s). It runs on its own after the main project, so other
+    // fake-camera specs decoding video in parallel can't skew the measurement. The budget is unchanged.
+    { name: 'timing', use: { ...devices['Desktop Chrome'] }, testMatch: /scanner-camera\.spec\.ts/, dependencies: ['chromium'] },
     // T-SEC-05 / T-PRIV-03: runs after every other e2e test and inspects what they left behind.
-    { name: 'audit', testMatch: /audit\/.*\.spec\.ts/, dependencies: ['chromium'] },
+    { name: 'audit', testMatch: /audit\/.*\.spec\.ts/, dependencies: ['chromium', 'timing'] },
   ],
   webServer: {
     // Server output is kept for T-SEC-05. Never reuse a running server: its log isn't ours.

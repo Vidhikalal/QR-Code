@@ -8,7 +8,7 @@ import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 import { VoidDialog } from '../dialog';
 import { fullName } from './name';
-import { SigninCodeDialog } from './signin-code-dialog';
+import { SigninCodeDialog } from '@/components/signin-code-dialog';
 
 interface Detail {
   profile: { public: PublicProfile; hiddenByStaff: boolean; hiddenByOwner: boolean } | null;

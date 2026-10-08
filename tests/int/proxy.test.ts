@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
-import { createProxy } from '@/lib/http/proxy';
+import { badgePageLimiter, createProxy } from '@/lib/http/proxy';
 import { requireEnv } from '../fixtures/db';
 
 // T-HOST-02 through the real proxy (Next 16 `proxy.ts`), with two hosts configured.
@@ -41,6 +41,24 @@ describe('proxy host separation (PLAN §5.1)', () => {
     expect((await asHost('me.club.test', '/login')).status).toBe(404);
     expect((await asHost('admin.club.test', '/me')).status).toBe(404);
     expect(passesThrough(await asHost('me.club.test', '/me'))).toBe(true);
+  });
+
+  it('T-SEC2-03: the 121st badge-page request in a minute from one IP gets 429; other IPs and paths are unaffected', async () => {
+    const ip = `198.18.${Date.now() % 250}.${Math.floor(Math.random() * 250)}`;
+    const limited = createProxy({
+      meOrigin: 'https://me.club.test',
+      adminOrigin: 'https://admin.club.test',
+      supabaseUrl: requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
+      supabaseAnonKey: requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
+      limitBadgePage: badgePageLimiter(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY')),
+    });
+    const hit = (from: string, path = '/t/AbCdEfGhIjKl') => limited(new NextRequest(`https://me.club.test${path}`, { headers: { 'x-forwarded-for': from } }));
+    const statuses: number[] = [];
+    for (let i = 0; i < 121; i++) statuses.push((await hit(ip)).status);
+    expect(statuses.slice(0, 120).every((s) => s === 200)).toBe(true);
+    expect(statuses[120]).toBe(429);
+    expect((await hit(`${ip}9`)).status).toBe(200);
+    expect((await hit(ip, '/me')).status).toBe(200);
   });
 
   it('T-HOST-01: a single host filters nothing', async () => {

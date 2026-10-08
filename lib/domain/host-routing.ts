@@ -7,6 +7,7 @@ const ME_ONLY = [/^\/p$/, /^\/edit$/, /^\/signin$/, /^\/me(\/.*)?$/, /^\/t(\/.*)
 
 // Served on both hosts.
 const SHARED = [
+  /^\/api\/events\/[^/]+\/participants\/search$/, // badge page assign panel (V4b)
   /^\/api\/scan$/,
   /^\/api\/tags(\/.*)?$/,
   /^\/api\/stations$/,
