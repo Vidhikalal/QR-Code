@@ -14,6 +14,10 @@ export const serverEnvSchema = z
     EMAIL_PROVIDER: z.enum(['console', 'resend']),
     RESEND_API_KEY: z.string().min(1).optional(),
     EMAIL_FROM: z.string().min(3).optional(),
+    // PLAN §2.3: a flagged-off feature has no routes (404) and no UI.
+    FEATURE_EXTRA_BADGE_ROLES: z.stringbool().default(false),
+    FEATURE_HUNT: z.stringbool().default(false),
+    FEATURE_SHIFTS: z.stringbool().default(false),
   })
   .superRefine((env, ctx) => {
     if (env.EMAIL_PROVIDER === 'resend') {

@@ -40,4 +40,15 @@ describe('lib/env (S0 smoke)', () => {
   it('rejects an app origin with a path or trailing slash', () => {
     expect(() => parseServerEnv({ ...valid, NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000/' })).toThrow(/APP_ORIGIN/);
   });
+
+  it('V0: feature flags default to false (PLAN §2.3)', () => {
+    const e = parseServerEnv(valid);
+    expect([e.FEATURE_EXTRA_BADGE_ROLES, e.FEATURE_HUNT, e.FEATURE_SHIFTS]).toEqual([false, false, false]);
+    expect(parseServerEnv({ ...valid, FEATURE_HUNT: '' }).FEATURE_HUNT).toBe(false);
+  });
+
+  it('V0: feature flags parse "true" and reject junk', () => {
+    expect(parseServerEnv({ ...valid, FEATURE_SHIFTS: 'true' }).FEATURE_SHIFTS).toBe(true);
+    expect(() => parseServerEnv({ ...valid, FEATURE_EXTRA_BADGE_ROLES: 'banana' })).toThrow(/FEATURE_EXTRA_BADGE_ROLES/);
+  });
 });

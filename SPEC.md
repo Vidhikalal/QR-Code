@@ -1250,12 +1250,14 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `FEATURE_EXTRA_BADGE_ROLES`, `FEATURE_HUNT`, `FEATURE_SHIFTS` | server | v2 feature flags (PLAN §2.3); default `false`. Off = no routes (404), no UI |
 
 ---
 
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19).
 
 ---
 
@@ -1337,7 +1339,7 @@ function syncRows_(sheet, cols, first, last) {
       ? JSON.parse(res.getContentText()).results.map(x => [x.result + ' ' + stamp])
       : rows.map(() => ['ERROR HTTP ' + code + ' ' + stamp]);
   } catch (err) {
-    out = rows.map(() => ['ERROR ' + String(err).slice(0, 80)]);
+    out = rows.map(() => ['ERROR ' + String(err).slice(0, 80) + ' ' + new Date().toISOString()]);
   }
   sheet.getRange(first, cols.sync, out.length, 1).setValues(out); // script edits don't re-fire onEdit
 }

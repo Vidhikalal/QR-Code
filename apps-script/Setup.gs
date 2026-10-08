@@ -12,15 +12,19 @@
  */
 const CONFIG = {
   // Your stable tunnel URL (README) or your deployed app, + /api/ingest/sheet
-  ENDPOINT: 'https://YOUR-MACHINE.YOUR-TAILNET.ts.net/api/ingest/sheet',
+  ENDPOINT: 'https://YOUR-TUNNEL.trycloudflare.com/api/ingest/sheet',
   EVENT_SLUG: 'test-2026',
   INGEST_SECRET: 'PASTE_SHEET_INGEST_SECRET_FROM_.env.local',
 };
 
-function setupTestForm() {
-  if (CONFIG.ENDPOINT.includes('YOUR-MACHINE') || CONFIG.INGEST_SECRET.length < 32) {
+function requireConfig_() {
+  if (CONFIG.ENDPOINT.includes('YOUR-TUNNEL') || CONFIG.INGEST_SECRET.length < 32) {
     throw new Error('Fill in CONFIG first (ENDPOINT and INGEST_SECRET).');
   }
+}
+
+function setupTestForm() {
+  requireConfig_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   if (ss.getSheets().some(s => s.getFormUrl())) {
     throw new Error('This spreadsheet already has a linked form. Run setup from a new, empty Sheet.');
@@ -69,10 +73,20 @@ function setupTestForm() {
   Logger.log('Responses land on the "' + SHEET_NAME + '" tab of this Sheet.');
 }
 
-/** Point the Sheet at a different app URL (e.g. moving from your tunnel to Vercel): edit CONFIG.ENDPOINT, run this. */
+/** After ANY CONFIG edit (new tunnel URL, event slug or secret): saves all three settings Code.gs reads. */
 function updateEndpoint() {
-  PropertiesService.getScriptProperties().setProperty('ENDPOINT', CONFIG.ENDPOINT);
-  Logger.log('ENDPOINT is now ' + CONFIG.ENDPOINT);
+  requireConfig_();
+  PropertiesService.getScriptProperties().setProperties({
+    ENDPOINT: CONFIG.ENDPOINT, EVENT_SLUG: CONFIG.EVENT_SLUG, INGEST_SECRET: CONFIG.INGEST_SECRET,
+  });
+  Logger.log('Now using ' + CONFIG.ENDPOINT + ' for event ' + CONFIG.EVENT_SLUG + '.');
+}
+
+/** Shows the settings Code.gs will actually use (never the secret). */
+function showEndpoint() {
+  const props = PropertiesService.getScriptProperties();
+  Logger.log('ENDPOINT: ' + (props.getProperty('ENDPOINT') || '(not set)'));
+  Logger.log('EVENT_SLUG: ' + (props.getProperty('EVENT_SLUG') || '(not set)'));
 }
 
 /**
@@ -93,9 +107,7 @@ function backfillApplicantIds() {
 
 /** For an EXISTING Sheet: set script properties from CONFIG and install both triggers (no new form). */
 function connectExistingSheet() {
-  if (CONFIG.ENDPOINT.includes('YOUR-MACHINE') || CONFIG.INGEST_SECRET.length < 32) {
-    throw new Error('Fill in CONFIG first (ENDPOINT and INGEST_SECRET).');
-  }
+  requireConfig_();
   PropertiesService.getScriptProperties().setProperties({
     ENDPOINT: CONFIG.ENDPOINT,
     EVENT_SLUG: CONFIG.EVENT_SLUG,

@@ -68,7 +68,7 @@ function syncRows_(sheet, cols, first, last) {
       ? JSON.parse(res.getContentText()).results.map(x => [x.result + ' ' + stamp])
       : rows.map(() => ['ERROR HTTP ' + code + ' ' + stamp]);
   } catch (err) {
-    out = rows.map(() => ['ERROR ' + String(err).slice(0, 80)]);
+    out = rows.map(() => ['ERROR ' + String(err).slice(0, 80) + ' ' + new Date().toISOString()]);
   }
   sheet.getRange(first, cols.sync, out.length, 1).setValues(out); // script edits don't re-fire onEdit
 }

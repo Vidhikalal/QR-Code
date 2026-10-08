@@ -4,6 +4,8 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 
 **@SPEC.md is the source of truth for behaviour.** This file is the source of truth for *how you work*. If they conflict on behaviour, SPEC.md wins. Stop and tell me about the conflict.
 
+**v2 is in progress.** For anything v2 changes, **@PLAN.md wins over SPEC.md** (PLAN §0.2) until each slice moves its decisions into SPEC.md. Read order for v2 work: this file → PLAN.md → the SPEC sections the task touches. Reference SQL lives in `docs/v2/reference-sql/`; copy it into a new migration in the slice that needs it (PLAN §6).
+
 ## Stack
 - Next.js (App Router) · TypeScript `strict` · pnpm
 - Supabase (Postgres, Auth, Storage) with the local stack via Docker
@@ -42,14 +44,26 @@ app/
   api/pass/, api/pass/photo/  pass page data, photo upload
   api/email/drain/            outbox drainer
   api/admin/...               organizer-only endpoints
+  (me)/                       v2 ME-host pages: edit, signin, me, me/connections, t/[publicId] (V2+)
 lib/
   domain/     PURE functions only, no I/O (token parsing, scan-codes, search normalization, csv, status transitions)
   db/         server-only Supabase client, typed queries, generated types
   auth/       requireStaff(eventId, role?) and session helpers
   email/      provider interface, console + resend impls, templates
   scanner/    QrScanner interface + implementation
+  -- v2 (PLAN §5.3), created in the slice named --
+  events/       create, list, join, settings (V1)
+  participant/  participant session cookie, in-app browser detection (V2)
+  profile/      toPublicProfile (pure), zod schema mirroring SQL checks (V3)
+  badge/        tag URL parsing, uid normalization, viewer matrix (V4)
+  nfc/          NfcReader interface + Web NFC impl (V4)
+  tags/         reserve, confirm, import, assign, unassign (V4)
+  connections/  record/list connections (V6)
+  leaderboard/  leaderboardAsOf (pure) + handlers (V7)
+  recap/        recap template + handlers (V8)
 supabase/migrations/  SQL migrations (never edit applied ones)
-apps-script/Code.gs   Google Sheet bridge (SPEC Appendix A)
+apps-script/Code.gs   Google Sheet bridge (SPEC Appendix A); Setup.gs form/Sheet setup helpers
+docs/v2/reference-sql/  v2 reference SQL (PLAN §6), copied into migrations slice by slice
 tests/unit | tests/int | tests/e2e | tests/fixtures | tests/assets (QR .y4m videos, EXIF images)
 ```
 
@@ -71,6 +85,17 @@ Each one has tests. If a task seems to require breaking one, **stop and ask**.
 - **I-13 CSV only via `toCsv()`.** It includes the BOM, quoting and the formula-injection guard.
 - **I-14 Sheet row identity is `Applicant ID`.** Never use a row number, and never use email as the key.
 - **I-15 Result codes are defined once.** `ScanCode` lives in `lib/domain/scan-codes.ts`. Changing a code means changing the SQL, TS, UI table (SPEC §10.2) and tests together.
+
+v2 invariants (PLAN §4):
+
+- **I-16 A badge identifies, never authorizes.** `tags.public_id` and `tags.uid` are public. No endpoint grants access, signs anyone in or records a check-in because a request carries a badge id. Authorization comes from a staff session (Supabase) or a participant session (cookie), checked server-side.
+- **I-17 GET never mutates.** Badge pages, pass pages and edit-link pages are opened by link previews, prefetchers and OS NFC handlers. Every state change is a `POST`/`PATCH`/`DELETE` triggered by a deliberate user action (or by the in-page Web NFC reader on the staff scanner).
+- **I-18 Edit keys, session values and sign-in codes are secrets** with the I-3 rules: sha256 only in the DB; never logged; the edit key and sign-in code travel only in a URL **fragment** or a POST body; the session value only in an `HttpOnly` cookie.
+- **I-19 The public profile has one shape.** Everything shown to non-staff about a badge holder goes through `toPublicProfile()` in `lib/profile/public.ts` (pure, unit-tested). It can never contain email, photo, dietary notes, status, scans, points of others beyond the leaderboard, or staff notes.
+- **I-20 One decision path per action, in SQL.** Scans → `record_scan()`; badge links → `assign_tag()` / `unassign_tag()`; connections → `record_connection()`; sessions → `open_profile_session()` / `redeem_signin_code()` / `session_participant()`. No read-then-write in TypeScript.
+- **I-21 Lock order is checkpoint → participant → tag.** Any new SQL that locks more than one of these follows it (deadlock freedom).
+- **I-22 Points are derived, never stored.** Leaderboards and personal points are computed from scans and connections as of a time (`points_as_of()`). No counters to drift.
+- **I-23 Host separation.** Staff pages answer only on the ADMIN host; participant pages only on the ME host (single host in dev). The staff actions the badge page needs (`/api/scan`, `/api/tags/*`, `/api/stations`, sign-in codes, hide profile) are served on both hosts and authorize exactly as on the ADMIN host. Every mutation on the ME host verifies `Origin` equals the ME origin.
 
 ## Workflow for every task
 1. **Locate.** Name the slice (SPEC §18), the SPEC sections involved, and the test IDs you will satisfy.
@@ -184,6 +209,15 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
 - **DST:** 2026-11-01 01:00–02:00 happens twice in Toronto. Bucket in UTC, label in local time.
 - **Serverless has no shared memory.** Rate limits, locks and queues live in Postgres.
 - **`sharp` strips metadata by default**, but you must call `.rotate()` to apply EXIF orientation *before* it's stripped. Otherwise photos come out sideways.
+- **A new enum value (`alter type … add value`) must be in its own migration.** It can't be used in the transaction that adds it.
+- **The outbox `ON CONFLICT` targets `(participant_id, kind_group)`** (v2) with the `status in ('pending','sending')` predicate repeated.
+- **Lock order is checkpoint → participant → tag** (I-21).
+- **Meals use `serving_no`; every other kind writes `serving_no = 1`.** Never write a meal row without the participant lock.
+- **Web NFC needs HTTPS, Chrome on Android, and a user gesture to start `scan()`.** There is no Web NFC on iOS. Never call `makeReadOnly()`: that lock is permanent.
+- **Cookies don't cross origins.** The scanner (ADMIN) and badge pages (ME) share only the Supabase cookie (parent domain) and server-side `staff_stations`, not `localStorage`.
+- **The edit-link page must strip the fragment with `history.replaceState`** before doing anything else.
+- **Opening a badge page must never write** (link previews, prefetch, OS NFC handlers).
+- **Playwright can't emulate NFC.** Inject the fake `NfcReader`; use the printed-QR path for camera e2e.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
