@@ -110,7 +110,12 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     setResult({ view, id, shownAt: performance.now() });
     playFeedback(view.sound);
     if (view.dismiss !== 'tap') {
-      setTimeout(() => setResult((r) => (r?.id === id ? null : r)), view.dismiss.autoMs);
+      setTimeout(() => {
+        setResult((r) => (r?.id === id ? null : r));
+        // Nothing was decoded while this was on screen: restart the window so a code still held in
+        // frame stays one scan (T-SCUI-02). Tap-dismissed problems don't, so "Rescan" works at once.
+        if (resultSeq.current === id) deduper.current.resumed(Date.now());
+      }, view.dismiss.autoMs);
     }
   }, [timezone]);
 

@@ -16,6 +16,20 @@ describe('decode dedupe (SPEC §10.2)', () => {
     expect(d.shouldHandle('A', 0)).toBe(true);
     expect(d.shouldHandle('A', 3001)).toBe(true);
   });
+
+  it('T-SCUI-02: time paused behind a result does not count; a slow first decode after resuming is still ignored', () => {
+    // Regression: green auto-dismisses after 2.5 s with no decodes meanwhile, leaving 0.5 s of window.
+    // A slow device (or a loaded CI box) took 1.9 s to decode again and recorded a second scan.
+    const d = createDeduper();
+    expect(d.shouldHandle('A', 0)).toBe(true);
+    d.resumed(2500);
+    expect(d.shouldHandle('A', 4400)).toBe(false);
+    // Taken out of frame while the result showed, and shown again 3 s after resuming: a new scan.
+    const e = createDeduper();
+    expect(e.shouldHandle('A', 0)).toBe(true);
+    e.resumed(2500);
+    expect(e.shouldHandle('A', 5600)).toBe(true);
+  });
 });
 
 describe('undo window (SPEC §10.3)', () => {

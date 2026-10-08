@@ -14,5 +14,10 @@ export function createDeduper(windowMs = DEDUPE_WINDOW_MS) {
       last = { text, seenAt: nowMs };
       return true;
     },
+    // Decoding is paused while a result is on screen, so nothing refreshes the window then. Called when
+    // an auto-dismissed result clears: the window restarts, as if the last code were seen just now.
+    resumed(nowMs: number): void {
+      if (last) last.seenAt = nowMs;
+    },
   };
 }
