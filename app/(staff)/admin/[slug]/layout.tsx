@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { requireStaffBySlug } from '@/lib/auth/staff';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { eventHome, listEventsFor } from '@/lib/events/queries';
 import styles from './admin.module.css';
 import { AdminNav } from './nav';
 
@@ -17,13 +18,18 @@ export default async function AdminLayout({ children, params }: { children: Reac
   if (!user) redirect(`/login?next=${encodeURIComponent(`/admin/${slug}`)}`);
   const staff = await requireStaffBySlug(db(), user.id, slug, 'organizer');
   if (!staff) forbidden();
-  const { data: event, error } = await db().from('events').select('name').eq('id', staff.eventId).single();
+  const [{ data: event, error }, events] = await Promise.all([
+    db().from('events').select('name').eq('id', staff.eventId).single(),
+    listEventsFor(db(), user.id),
+  ]);
   if (error) throw new Error(`event load failed (${error.code})`);
+  // Event switcher (PLAN §10.3): only events this user can open (staff on them).
+  const switcher = events.filter((e) => e.myRole).map((e) => ({ slug: e.slug, name: e.name, href: eventHome(e), role: e.myRole }));
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <div className={styles.eventName}>{event.name}</div>
-        <AdminNav slug={slug} />
+        <AdminNav slug={slug} events={switcher} />
       </header>
       <main className={styles.main}>{children}</main>
     </div>

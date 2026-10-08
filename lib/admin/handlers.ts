@@ -88,7 +88,19 @@ const walkInBody = z
 
 const inviteBody = z.object({ email: z.string().transform(normalizeEmail).pipe(z.email()), role: z.enum(['organizer', 'volunteer']) }).strict();
 
-type CheckpointRow = Database['public']['Tables']['checkpoints']['Row'];
+const settingsBody = z
+  .object({
+    leaderboardRefreshMinutes: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]),
+    organizerConnectionBonus: z.number().int().min(0).max(100),
+    organizersCompete: z.boolean(),
+    badgeUnlockPassword: z.string().min(4).max(32).nullable(),
+    profileRetentionDays: z.number().int().min(1).max(3650),
+  })
+  .partial()
+  .strict()
+  .refine((b) => Object.keys(b).length > 0);
+
+type CheckpointRow =Database['public']['Tables']['checkpoints']['Row'];
 const checkpointView = (c: CheckpointRow) => ({
   id: c.id,
   name: c.name,
@@ -516,6 +528,48 @@ export function createAdminApi(deps: AdminDeps) {
       if (error) throw new Error(`event update failed (${error.code})`);
       await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
       return json({ sheetId });
+    },
+
+    // GET /api/admin/[slug]/settings  (PLAN F14.3)
+    async getSettings(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const { data: e, error } = await db
+        .from('events')
+        .select('leaderboard_refresh_minutes, organizer_connection_bonus, organizers_compete, badge_unlock_password, profile_retention_days')
+        .eq('id', g.eventId)
+        .single();
+      if (error) throw new Error(`settings load failed (${error.code})`);
+      return json({
+        leaderboardRefreshMinutes: e.leaderboard_refresh_minutes,
+        organizerConnectionBonus: e.organizer_connection_bonus,
+        organizersCompete: e.organizers_compete,
+        badgeUnlockPassword: e.badge_unlock_password,
+        profileRetentionDays: e.profile_retention_days,
+      });
+    },
+
+    // PATCH /api/admin/[slug]/settings  (PLAN F14.3; ranges mirror the events table checks)
+    async updateSettings(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = settingsBody.safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const b = body.data;
+      const { error } = await db
+        .from('events')
+        .update({
+          leaderboard_refresh_minutes: b.leaderboardRefreshMinutes,
+          organizer_connection_bonus: b.organizerConnectionBonus,
+          organizers_compete: b.organizersCompete,
+          badge_unlock_password: b.badgeUnlockPassword,
+          profile_retention_days: b.profileRetentionDays,
+        })
+        .eq('id', g.eventId);
+      if (error) throw new Error(`settings update failed (${error.code})`);
+      // Key names only: the unlock password never reaches audit_log (I-11).
+      await audit(g.eventId, g.userId, 'event.settings', g.eventId, { changed: Object.keys(b).sort() });
+      return json({ code: 'UPDATED' });
     },
 
     // POST /api/admin/[slug]/sync  { dryRun }  (F10)

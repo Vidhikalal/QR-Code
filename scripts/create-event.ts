@@ -1,7 +1,8 @@
 // `pnpm event:create --slug hackday-2026 --name "Hack Day 2026" --venue "Bahen Centre" \
 //    --starts 2026-10-03T09:00 --ends 2026-10-03T18:00 --tz America/Toronto --organizer you@club.org`
 // Bootstraps an event, its door checkpoint (closed), and an invite for the first organizer, who then
-// signs in at /login with that email. The SPEC has no event-creation flow; this fills that gap.
+// signs in at /login with that email.
+// DEPRECATED (PLAN V1): platform admins create events at /admin/new (`pnpm admin:add <email>` first).
 import { parseArgs } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/db/types.gen';
@@ -15,6 +16,7 @@ function need(name: string): string {
 }
 
 async function main() {
+  console.warn('Note: `pnpm event:create` is deprecated. Run `pnpm admin:add <email>`, sign in, and use /admin/new.');
   const { values } = parseArgs({
     options: {
       slug: { type: 'string' },

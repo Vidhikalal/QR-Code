@@ -27,6 +27,7 @@
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "gen:qr-video": "tsx --env-file-if-exists=.env.local scripts/gen-qr-video.ts",
     "event:create": "tsx --env-file-if-exists=.env.local scripts/create-event.ts",
+    "admin:add": "tsx --env-file-if-exists=.env.local scripts/admin-add.ts",
     "load-test": "tsx --env-file=.env.test scripts/load-test.ts"
   },
   "dependencies": {

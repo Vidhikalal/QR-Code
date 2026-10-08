@@ -107,12 +107,11 @@ pnpm seed                          # "demo" event: 50 accepted people, Door/Lunc
 
 `pnpm db:reset` deletes the `demo` event too. **Always run `pnpm seed` straight after it**, or the Sheet gets `ERROR HTTP 404` and every earlier QR image scans as an unknown code. You'll also need to sign in again.
 
-To create an extra event with you as its organizer:
+To create more events in the browser, make yourself a **platform admin** once:
 ```bash
-pnpm event:create --slug test-2026 --name "Test Event" --venue "Home" \
-  --starts 2026-10-01T09:00 --ends 2026-10-01T18:00 --organizer you@example.com
+pnpm admin:add you@example.com     # after every db:reset
 ```
-Its Door checkpoint starts **closed**. Open it on the Checkpoints tab before scanning.
+Sign in with that email. `/admin` lists every event and has a **New event** button. You become the new event's organizer, and its Door checkpoint starts **closed**: open it on the Checkpoints tab before scanning. On events you don't staff, use **Join as organizer**. (`pnpm event:create` still works but is deprecated.)
 
 When you're done, press Ctrl+C in tabs 1 and 2, then run `supabase stop`.
 
@@ -125,7 +124,7 @@ Every sign-in email goes to the local mail catcher, **Mailpit**, at `http://127.
 
 Accounts you can use:
 - `organizer@example.test` and `volunteer@example.test`, which `pnpm seed` invites to `demo`;
-- the `--organizer` email you gave `event:create`, for that event.
+- the email you gave `pnpm admin:add`: it sees every event at `/admin`.
 
 Links work once and expire; if one fails, request a new one.
 

@@ -16,7 +16,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           ✕ That sign-in link didn&apos;t work or has expired. Request a new one.
         </p>
       )}
-      <LoginForm next={safeNextPath(next, '/')} />
+      <LoginForm next={safeNextPath(next, '/admin')} />
     </main>
   );
 }

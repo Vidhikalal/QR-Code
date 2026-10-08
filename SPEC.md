@@ -310,6 +310,15 @@ end $$;
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
 
+### 5.2 Platform admins and event settings (v2, migration `v2_admin_events`)
+
+- `platform_admins(email PK, user_id UNIQUE NULL)`. Added with `pnpm admin:add <email>`; `consume_platform_admin(user, verified_email)` links `user_id` at sign-in, next to `consume_staff_invites`.
+- **Admins are not super-users in SQL.** `record_scan()` and every other function still check `event_staff`. `create_event()` makes the creating admin an organizer; on other events an admin presses **Join as organizer** (`join_event_as_admin`).
+- New `events` columns: `created_by`, `organizers_compete` (default false), `organizer_connection_bonus` (0–100, default 2), `leaderboard_refresh_minutes` (0/15/30/60, default 60; 0 = live), `leaderboard_frozen_at`, `badge_unlock_password` (4–32), `recap_message` (≤ 2000), `profile_retention_days` (1–3650, default 30).
+- `events_slug_not_reserved`: a slug can't be `new` or `events`, because those names are routes (`/admin/new`, `/api/admin/events`).
+- `create_event(admin, slug, name, venue, starts_at, ends_at, timezone)` → `CREATED | FORBIDDEN | INVALID_TIMEZONE | INVALID_DATES | SLUG_TAKEN`. One transaction: the event, its single Door (closed) and the admin's organizer row. The IANA zone is validated by Postgres.
+- `list_events_for(user)`: every event for an admin (role null where not staff), otherwise the events the user staffs.
+
 ---
 
 ## 6. Tokens, passes & QR codes
@@ -495,6 +504,19 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 ### F12 — Walk-ins
 
 An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional.
+
+### F13 — Platform admin bootstrap (v2)
+
+1. `pnpm admin:add ade@yourclub.ca` inserts into `platform_admins`. It refuses a non-local Supabase without `--yes`.
+2. The admin signs in (magic link). `/auth/callback` calls `consume_platform_admin` and `consume_staff_invites`.
+3. After sign-in with no `next`, staff land on `/admin`: the events list.
+
+### F14 — Create and configure an event (v2)
+
+1. `/admin/new` (platform admins only): name, slug (suggested from the name, editable), venue, start, end, time zone (default `America/Toronto`). Start and end are wall-clock times **in that time zone** (I-8). The server validates with zod, converts with `zonedToUtc()`, then calls `create_event()`.
+2. On `CREATED`, the admin lands on `/admin/<slug>/checkpoints`.
+3. `/admin/<slug>/settings`: leaderboard refresh, organizer bonus, organizers compete, badge unlock password, profile retention days. The audit row lists the changed key names only, never the password.
+4. Staff are invited on the Staff tab as before (F9).
 
 ---
 
@@ -726,7 +748,10 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `GET /api/events/:slug/participants/search?q=` | staff | Manual lookup (§10.4) |
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
-| `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
+| `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export, settings |
+| `POST /api/admin/events` | platform admin | `{slug,name,venue,startsAt,endsAt,timezone}` (local times) → `create_event` code; non-admins 403 before validation (F14) |
+| `POST /api/admin/events/:id/join` | platform admin | `join_event_as_admin` → `JOINED`; 404 unknown event |
+| `GET/PATCH /api/admin/:slug/settings` | organizer | Event settings (§5.2); out-of-range values 400 |
 
 ---
 
@@ -802,14 +827,19 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 
 ## 11. Admin UI (`/admin/[slug]`, organizer only)
 
+The header of every `/admin/[slug]` page has an **event switcher** (the user's events from `list_events_for`; volunteer events open the scanner) and an **All events** link.
+
 | Page | Contents |
 |------|----------|
+| `/admin` (any staff) | Events list: name, start and end in the event's time zone, your role. Platform admins see every event, **New event**, and **Join as organizer** on events they don't staff. |
+| `/admin/new` (platform admin) | Create event form (F14). |
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
 | Participants | Search/filter by status, pass state, photo, scans. Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
+| Settings | Leaderboard refresh, organizer bonus, organizers compete, badge unlock password (masked, Reveal), profile retention days (F14). |
 
 ---
 
@@ -1071,13 +1101,29 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 ### 14.10 Admin — `T-ADM`
 | ID | Scenario | Expected | L |
 |----|----------|----------|---|
-| T-ADM-01 | Volunteer requests every `/admin/*` page and `/api/admin/*` route | 403 server-side | I+E |
+| T-ADM-01 | Volunteer requests every `/admin/[slug]/*` page and `/api/admin/*` route (`/admin` itself is the events list for all staff, F13) | 403 server-side | I+E |
 | T-ADM-02 | Toggle checkpoint open → scan → close → scan | applies on the very next scan | I |
 | T-ADM-03 | Add walk-in with "check in now" | participant `walk_in`, live manual door scan | I |
 | T-ADM-04 | Delete a checkpoint that has scans | blocked with message | I |
 | T-ADM-05 | Delete participant | tombstone per §5.1; counts unchanged; token → `REVOKED` | I |
 | T-ADM-06 | Door closed, now = `starts_at − 20 min` | dashboard warning visible | E |
 | T-ADM-07 | 31 `NOT_FOUND` from vol1 in 5 min | 429 for vol1; alert on dashboard | I |
+
+### 14.10a Events and admins — `T-EVT` (v2)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-EVT-01 | Non-admin calls `create_event` | `FORBIDDEN` | I |
+| T-EVT-02 | Timezone `Mars/Olympus` | `INVALID_TIMEZONE` | I |
+| T-EVT-03 | `ends_at ≤ starts_at` | `INVALID_DATES` | I |
+| T-EVT-04 | Valid create (SQL, and in the browser) | `CREATED`; exactly one Door, closed; creator is organizer | I+E |
+| T-EVT-05 | Same slug again; reserved slug | `SLUG_TAKEN`; check violation | I |
+| T-EVT-06 | `consume_platform_admin(user, ' Admin@Club.ca ')` | links `user_id` | I |
+| T-EVT-07 | `list_events_for` admin vs user with no events | all events vs none | I |
+| T-EVT-08 | Join as organizer: admin / non-admin / unknown event | `JOINED` + organizer row / 403 / 404 | I |
+| T-EVT-09 | Settings PATCH: refresh 45, bonus 101, password 3 chars | 400 each; audit lists key names only | I |
+| T-EVT-10 | Volunteer opens `/admin/new`; non-admin `POST /api/admin/events` | 403 | I+E |
+| T-EVT-11 | Event switcher | lists only `list_events_for` results | E |
+| T-EVT-12 | Meal with points 5; Seconds open on a custom checkpoint (lands with V5) | rejected by constraint | I |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1257,7 +1303,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated.
 
 ---
 

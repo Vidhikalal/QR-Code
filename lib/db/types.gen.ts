@@ -200,10 +200,18 @@ export type Database = {
       }
       events: {
         Row: {
+          badge_unlock_password: string | null
           created_at: string
+          created_by: string | null
           ends_at: string
           id: string
+          leaderboard_frozen_at: string | null
+          leaderboard_refresh_minutes: number
           name: string
+          organizer_connection_bonus: number
+          organizers_compete: boolean
+          profile_retention_days: number
+          recap_message: string | null
           sheet_id: string | null
           slug: string
           starts_at: string
@@ -211,10 +219,18 @@ export type Database = {
           venue: string
         }
         Insert: {
+          badge_unlock_password?: string | null
           created_at?: string
+          created_by?: string | null
           ends_at: string
           id?: string
+          leaderboard_frozen_at?: string | null
+          leaderboard_refresh_minutes?: number
           name: string
+          organizer_connection_bonus?: number
+          organizers_compete?: boolean
+          profile_retention_days?: number
+          recap_message?: string | null
           sheet_id?: string | null
           slug: string
           starts_at: string
@@ -222,10 +238,18 @@ export type Database = {
           venue: string
         }
         Update: {
+          badge_unlock_password?: string | null
           created_at?: string
+          created_by?: string | null
           ends_at?: string
           id?: string
+          leaderboard_frozen_at?: string | null
+          leaderboard_refresh_minutes?: number
           name?: string
+          organizer_connection_bonus?: number
+          organizers_compete?: boolean
+          profile_retention_days?: number
+          recap_message?: string | null
           sheet_id?: string | null
           slug?: string
           starts_at?: string
@@ -336,6 +360,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      platform_admins: {
+        Row: {
+          added_at: string
+          email: string
+          user_id: string | null
+        }
+        Insert: {
+          added_at?: string
+          email: string
+          user_id?: string | null
+        }
+        Update: {
+          added_at?: string
+          email?: string
+          user_id?: string | null
+        }
+        Relationships: []
       }
       rate_limits: {
         Row: {
@@ -622,9 +664,25 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      consume_platform_admin: {
+        Args: { p_email: string; p_user_id: string }
+        Returns: boolean
+      }
       consume_staff_invites: {
         Args: { p_email: string; p_user_id: string }
         Returns: number
+      }
+      create_event: {
+        Args: {
+          p_admin_id: string
+          p_ends_at: string
+          p_name: string
+          p_slug: string
+          p_starts_at: string
+          p_timezone: string
+          p_venue: string
+        }
+        Returns: Json
       }
       delete_checkpoint: {
         Args: { p_actor: string; p_checkpoint_id: string; p_event_id: string }
@@ -676,9 +734,26 @@ export type Database = {
         }
         Returns: string
       }
+      is_platform_admin: { Args: { p_user_id: string }; Returns: boolean }
       issue_pass: {
         Args: { p_participant_id: string; p_token_hash: string }
         Returns: string
+      }
+      join_event_as_admin: {
+        Args: { p_admin_id: string; p_event_id: string }
+        Returns: string
+      }
+      list_events_for: {
+        Args: { p_user_id: string }
+        Returns: {
+          ends_at: string
+          id: string
+          my_role: Database["public"]["Enums"]["staff_role"]
+          name: string
+          slug: string
+          starts_at: string
+          timezone: string
+        }[]
       }
       pass_lookup: { Args: { p_token_hash: string }; Returns: Json }
       rate_limit_hit: {

@@ -9,3 +9,11 @@ export async function consumeInvites(db: SupabaseClient<Database>, user: { id: s
   if (error) throw new Error(`consume_staff_invites failed (${error.code})`);
   return data;
 }
+
+// PLAN F13: link a pre-registered platform admin (pnpm admin:add) to this account on sign-in.
+export async function consumePlatformAdmin(db: SupabaseClient<Database>, user: { id: string; email: string | null }): Promise<boolean> {
+  if (!user.email) return false;
+  const { data, error } = await db.rpc('consume_platform_admin', { p_user_id: user.id, p_email: normalizeEmail(user.email) });
+  if (error) throw new Error(`consume_platform_admin failed (${error.code})`);
+  return data;
+}

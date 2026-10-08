@@ -64,6 +64,10 @@ export interface StandardFixture {
   voidScan(scanId: string, staff: string, reason?: string): Promise<VoidResult>;
   addParticipant(eventId: string, opts?: { status?: string; withPass?: boolean }): Promise<{ id: string; token?: string }>;
   checkIn(participantId: string, token?: string): Promise<void>;
+  /** A fresh signed-up user with a display name and no event roles. */
+  addUser(label: string): Promise<{ id: string; email: string }>;
+  /** A fresh user linked as a platform admin (PLAN §6.2). Not staff on any event. */
+  addPlatformAdmin(): Promise<{ id: string; email: string }>;
   close(): Promise<void>;
 }
 
@@ -228,6 +232,20 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     if (r.code !== 'ACCEPTED') throw new Error(`fixture check-in failed: ${r.code}`);
   };
 
+  let users = 0;
+  const addUser = async (label: string) => {
+    users += 1;
+    const email = `${label}${users}@${slug}.test`;
+    const id = await createStaffUser(email);
+    await pool.query('insert into staff_profiles (user_id, display_name) values ($1, $2)', [id, `${label} ${users}`]);
+    return { id, email };
+  };
+  const addPlatformAdmin = async () => {
+    const u = await addUser('admin');
+    await pool.query('insert into platform_admins (email, user_id) values ($1, $2)', [u.email, u.id]);
+    return u;
+  };
+
   return {
     slug,
     e1,
@@ -244,6 +262,8 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     voidScan,
     addParticipant,
     checkIn,
+    addUser,
+    addPlatformAdmin,
     close: () => pool.end(),
   };
 }

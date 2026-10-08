@@ -42,9 +42,11 @@ $$);
 - [ ] After a minute, `select * from cron.job_run_details order by start_time desc limit 5;` shows successful runs.
 
 ### Your event
-- [ ] Create it with production env vars loaded in your shell:
-      `pnpm event:create --slug <slug> --name "<name>" --venue "<venue>" --starts 2026-10-03T09:00 --ends 2026-10-03T18:00 --organizer <you@club.org>`
-- [ ] Sign in at `/login` with that email and set your display name. `/admin/<slug>` should open.
+- [ ] Make yourself a platform admin, with production env vars loaded in your shell:
+      `pnpm admin:add <you@club.org> --yes` (`--yes` because the target isn't local).
+- [ ] Sign in at `/login` with that email and set your display name. `/admin` lists events.
+- [ ] **New event** → name, slug, venue, start, end, time zone. You land on its Checkpoints tab.
+- [ ] Settings tab: leaderboard refresh, organizer bonus, badge unlock password, profile retention.
 - [ ] Add checkpoints (meals, sessions, custom) on the Checkpoints tab. They start closed.
 
 ### Google Sheet + Apps Script (SPEC Appendix A)
