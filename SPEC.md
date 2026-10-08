@@ -319,6 +319,16 @@ end $$;
 - `create_event(admin, slug, name, venue, starts_at, ends_at, timezone)` → `CREATED | FORBIDDEN | INVALID_TIMEZONE | INVALID_DATES | SLUG_TAKEN`. One transaction: the event, its single Door (closed) and the admin's organizer row. The IANA zone is validated by Postgres.
 - `list_events_for(user)`: every event for an admin (role null where not staff), otherwise the events the user staffs.
 
+### 5.3 Profiles, edit keys and participant sessions (v2, migrations `v2_profiles`, `v2_outbox`)
+
+- `participants.badge_role` (`participant` | `organizer` | `mentor` | `judge` | `volunteer`, default `participant`) and `participants.staff_user_id` (an organizer's own badge row; unique per event). `source` also allows `staff`.
+- `profiles` (1:1, created by the first edit key and copying the form's LinkedIn): nickname, pronouns, program, year, bio, LinkedIn/GitHub/website (https only), Discord, "Ask me about…" (≤ 5 labels), `visibility`, `hidden_by_staff_at`. Never email, photo, dietary notes or status.
+- `profile_keys`: sha256 of each edit key. **Several may be active**: every pass or profile-link email carries a fresh key, and older emailed links keep working until the owner rotates (`revoke_reason` `rotated` | `status_change` | `deleted` | `retention`).
+- `participant_sessions`: sha256 of the cookie value, `expires_at`, `revoked_at`. A session is valid only while the person is `accepted` and not deleted (`_eligible`), so a withdrawal signs them out everywhere.
+- `signin_codes`: 2-minute single-use codes (used from V2b).
+- `email_outbox.kind` adds `profile_link` and `recap`; the generated `kind_group` (`pass` for the two pass kinds) makes the in-flight index **one per participant per kind group**, so a pending pass email never blocks a profile link. `ingest_sheet_row` and `enqueue_pass` changed only their `ON CONFLICT` target.
+- The §5.1 tombstone (`delete_participant`) also deletes the profile, revokes edit keys (`deleted`), ends sessions and deletes sign-in codes.
+
 ---
 
 ## 6. Tokens, passes & QR codes
@@ -504,6 +514,22 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 ### F12 — Walk-ins
 
 An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional.
+
+### F16 — Acceptance email carries a profile link (v2)
+
+The drainer issues the pass (`issue_pass`) **and** a fresh edit key (`issue_profile_key`), each committed before the send (I-10 extended). The email adds **Set up your profile** → `${APP_ORIGIN}/edit#<key>`. A `profile_link` email (§12) issues only a key.
+
+### F17 — Opening the edit link (v2)
+
+1. `/edit` is a static client page. It reads `location.hash`, immediately calls `history.replaceState(null, '', '/edit')`, then `POST /api/me/session {key}`.
+2. The server rate-limits (30/min per hashed IP) and calls `open_profile_session`. `OPENED` sets the session cookie (`pl_me` on http, `__Host-pl_me` on https; `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`, `PARTICIPANT_SESSION_DAYS`) and returns `{code, next: '/me'}`. `KEY_REVOKED` → "This link was replaced". Unknown keys and ineligible people both answer `LINK_INVALID`.
+3. `/me` shows a banner when the user agent is an in-app browser (Gmail, Outlook, Instagram, LinkedIn, Facebook, Android WebView): the cookie lives in that app, not in the browser a badge tap opens.
+
+### F18 — Sign out and rotation (v2; more recovery paths arrive with V2b)
+
+- **Sign out** (`DELETE /api/me/session`): this device only.
+- **Get a new link** (`POST /api/me/rotate`, confirm dialog): `rotate_profile_keys` revokes every key and session, `request_profile_link` queues a `profile_link` email (drained right after the response), and the cookie is cleared.
+- Every participant mutation requires `Origin` = `APP_ORIGIN` (403 otherwise).
 
 ### F13 — Platform admin bootstrap (v2)
 
@@ -752,6 +778,10 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/admin/events` | platform admin | `{slug,name,venue,startsAt,endsAt,timezone}` (local times) → `create_event` code; non-admins 403 before validation (F14) |
 | `POST /api/admin/events/:id/join` | platform admin | `join_event_as_admin` → `JOINED`; 404 unknown event |
 | `GET/PATCH /api/admin/:slug/settings` | organizer | Event settings (§5.2); out-of-range values 400 |
+| `POST /api/me/session` | edit key in body; 30/min/IP; `Origin` check | F17; sets the participant cookie |
+| `DELETE /api/me/session` | participant cookie; `Origin` check | F18 sign out this device |
+| `POST /api/me/rotate` | participant cookie; `Origin` check | F18 Get a new link |
+| `GET /api/me` | participant cookie | `/me` summary (first name, event) |
 
 ---
 
@@ -862,6 +892,8 @@ The header of every `/admin/[slug]` page has an **event switcher** (the user's e
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
 - **Disable open and click tracking.** Tracking rewrites links, which leaks fragments into redirect logs, and adds pixels.
+- **Profile link (v2, PLAN §12.1):** after "Open your pass", a **Set up your profile** button to `/edit#<key>` with "This link is personal. Anyone with it can edit your profile." In both the HTML and plain-text parts.
+- **`profile_link` email (v2):** subject `Your {Event} profile link`; greeting, one button to `/edit#<fresh key>`, "If you didn't ask for this, you can ignore it." No images.
 - **Dev/test:** `EMAIL_PROVIDER=console` writes `.eml`-style output to `./.mail/` and never calls the network. It also saves each QR image to `./.mail/qr/<Event>-<First>.png` (never overwriting: `-2`, `-3`… on repeats) so passes can be shown to a scanner without opening the email. The label travels as `EmailMessage.fileLabel`, which real providers never send.
 
 ---
@@ -1125,6 +1157,24 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-EVT-11 | Event switcher | lists only `list_events_for` results | E |
 | T-EVT-12 | Meal with points 5; Seconds open on a custom checkpoint (lands with V5) | rejected by constraint | I |
 
+### 14.10b Profiles, sessions and outbox kinds — `T-PROF`, `T-SESS`, `T-OUT` (v2; full list in PLAN §15)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-PROF-01 | Two pass emails → two keys; open with each | both `OPENED` | I |
+| T-PROF-02 | First key for someone with a form LinkedIn | profile created with that LinkedIn | I |
+| T-PROF-07 | Rotate | old keys `KEY_REVOKED`; every session signed out; the emailed new key opens | I+E |
+| T-SESS-01 | Unknown key | `KEY_NOT_FOUND` (SQL), `LINK_INVALID` (API) | I |
+| T-SESS-02 | Sign out device A | A signed out, B still signed in | I |
+| T-SESS-03 | Withdrawn in the Sheet | sessions signed out; keys `NOT_ELIGIBLE` | I |
+| T-SESS-04 | Session past `expires_at` | signed out | I |
+| T-SESS-05 | Cookie attributes | `HttpOnly`, `SameSite=Lax`, `Path=/`, no `Domain`; `__Host-` + `Secure` on https | U+I |
+| T-SESS-06 | `/edit#key` | hash removed before the POST; the key is never in the server log | E |
+| T-SESS-10 | In-app browser user agents | detected / not detected; banner on `/me` | U+E |
+| T-SESS-11 | 31 session attempts in a minute from one IP | 31st → 429 | I |
+| T-SEC2-06 | Participant mutation with a foreign or missing `Origin` | 403, no writes | I |
+| T-OUT-01..03, 05 | Outbox kind groups; secrets committed before send | per PLAN §15.10 | I |
+| T-ADM-05 (v2) | Tombstone | profile deleted; keys revoked `deleted`; sessions ended | I |
+
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
 |----|----------|----------|---|
@@ -1296,6 +1346,7 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `PARTICIPANT_SESSION_DAYS` | server | v2 participant session lifetime in days (1–365, default 30) |
 | `FEATURE_EXTRA_BADGE_ROLES`, `FEATURE_HUNT`, `FEATURE_SHIFTS` | server | v2 feature flags (PLAN §2.3); default `false`. Off = no routes (404), no UI |
 
 ---
@@ -1303,7 +1354,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated.
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19).
 
 ---
 

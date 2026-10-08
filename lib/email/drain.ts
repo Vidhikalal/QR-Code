@@ -2,10 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
-import { generateToken, sha256hex } from '@/lib/domain/token';
+import { generateSecret, generateToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
 import { ProviderError, type EmailProvider } from './provider';
-import { renderPassEmail } from './templates/pass';
+import { renderPassEmail, type RenderedEmail } from './templates/pass';
+import { renderProfileLinkEmail } from './templates/profile-link';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -53,6 +54,20 @@ async function finish(db: Db, args: FinishArgs): Promise<void> {
   if (error) throw new Error(`finish_outbox failed (${error.code})`);
 }
 
+async function issuePass(db: Db, participantId: string): Promise<string> {
+  const token = generateToken();
+  const { error } = await db.rpc('issue_pass', { p_participant_id: participantId, p_token_hash: sha256hex(token) });
+  if (error) throw new Error(`issue_pass failed (${error.code})`);
+  return token;
+}
+
+async function issueProfileKey(db: Db, participantId: string): Promise<string> {
+  const key = generateSecret();
+  const { error } = await db.rpc('issue_profile_key', { p_participant_id: participantId, p_key_hash: sha256hex(key) });
+  if (error) throw new Error(`issue_profile_key failed (${error.code})`);
+  return key;
+}
+
 async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<keyof DrainResult, 'claimed'>> {
   let providerId: string;
   try {
@@ -68,22 +83,30 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
       return 'cancelled';
     }
 
-    // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
-    const token = generateToken();
-    const { error: issueError } = await opts.db.rpc('issue_pass', {
-      p_participant_id: row.participant_id,
-      p_token_hash: sha256hex(token),
-    });
-    if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
-
-    // 3. Render and send.
-    const passUrl = `${opts.appOrigin}/p#${token}`;
-    const email = renderPassEmail({
-      firstName: p.first_name,
-      event: { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone },
-      passUrl,
-      qrPng: await renderQrPng(passUrl),
-    });
+    // 2–3. Issue every secret the email carries, each committed in its own transaction BEFORE the
+    // send (I-10), then render. Every email gets a fresh edit key; older keys stay valid (PLAN D9).
+    const editUrl = `${opts.appOrigin}/edit#${await issueProfileKey(opts.db, row.participant_id)}`;
+    let email: RenderedEmail;
+    switch (row.kind) {
+      case 'pass_issued':
+      case 'pass_reissued': {
+        const passUrl = `${opts.appOrigin}/p#${await issuePass(opts.db, row.participant_id)}`;
+        email = renderPassEmail({
+          firstName: p.first_name,
+          event: { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone },
+          passUrl,
+          qrPng: await renderQrPng(passUrl),
+          editUrl,
+        });
+        break;
+      }
+      case 'profile_link':
+        email = renderProfileLinkEmail({ firstName: p.first_name, eventName: p.events.name, editUrl });
+        break;
+      default:
+        // 'recap' arrives with PLAN slice V8; nothing can enqueue it before then.
+        throw new Error(`no template for outbox kind ${row.kind}`);
+    }
     ({ id: providerId } = await opts.provider.send({
       to: p.email,
       from: opts.from,

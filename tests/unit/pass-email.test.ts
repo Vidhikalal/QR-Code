@@ -6,6 +6,7 @@ const base = {
   event: { name: 'Hack Day 2026', venue: 'Bahen Centre, Room 1180', startsAt: '2026-10-03T13:00:00Z', timezone: 'America/Toronto' },
   passUrl: 'https://passline.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN',
   qrPng: Buffer.from('fake-png'),
+  editUrl: 'https://passline.example.com/edit#Ab3_-xYz0123456789abcdefGHIJKLMNopqrstuvwxy',
 };
 
 describe('pass email template (SPEC §12)', () => {
@@ -24,6 +25,16 @@ describe('pass email template (SPEC §12)', () => {
     // §12 order: greeting, event, time, venue, QR, link.
     const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'cid:qr', 'Open your pass'].map((s) => m.html.indexOf(s));
     expect(order.every((v, i) => v >= 0 && (i === 0 || v > (order[i - 1] ?? 0)))).toBe(true);
+  });
+
+  it('T-MAIL-07 (v2): a "Set up your profile" link to /edit#key follows the pass link, in both parts (PLAN §12.1)', () => {
+    const m = renderPassEmail(base);
+    for (const part of [m.html, m.text]) {
+      expect(part).toContain(base.editUrl);
+      expect(part).toContain('Set up your profile');
+      expect(part).toContain('This link is personal. Anyone with it can edit your profile.');
+      expect(part.indexOf('Set up your profile')).toBeGreaterThan(part.indexOf(base.passUrl));
+    }
   });
 
   it('T-MAIL-07: local time uses the event timezone, not the device (EST after DST ends)', () => {

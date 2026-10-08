@@ -138,6 +138,8 @@ With `EMAIL_PROVIDER=console`, nothing is really emailed:
 | **The QR image alone** | **`.mail/qr/<Event>-<First>.png`**, e.g. `Demo-Hack-Day-Ada.png` |
 | QR images for the seeded demo people | `.seed/Demo-Hack-Day-<First>.png` |
 
+Every pass email also has a **Set up your profile** link (`/edit#…`). Opening it signs that person in at `localhost:3000/me` with a cookie, so use a private window if you're also signed in as staff in the same browser and want to keep the two apart. **Get a new link** on `/me` sends a `Your … profile link` email to `.mail/`.
+
 Folders starting with a dot are hidden in Finder. Open them from the terminal with `open .mail/qr` or `open .seed`.
 
 Files are never overwritten. A second person with the same first name, or a resent pass, gets `-2`, `-3`, and so on. **The highest number is the newest code**; after a resend, the older file is how you test the "old code" screen. Images left over from before a `pnpm db:reset` belong to deleted people and scan as unknown codes; `pnpm clean:dev` clears them.

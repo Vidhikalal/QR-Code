@@ -125,6 +125,7 @@ export type Database = {
           created_at: string
           id: string
           kind: string
+          kind_group: string | null
           last_error: string | null
           locked_until: string | null
           next_attempt_at: string
@@ -138,6 +139,7 @@ export type Database = {
           created_at?: string
           id?: string
           kind: string
+          kind_group?: string | null
           last_error?: string | null
           locked_until?: string | null
           next_attempt_at?: string
@@ -151,6 +153,7 @@ export type Database = {
           created_at?: string
           id?: string
           kind?: string
+          kind_group?: string | null
           last_error?: string | null
           locked_until?: string | null
           next_attempt_at?: string
@@ -258,8 +261,50 @@ export type Database = {
         }
         Relationships: []
       }
+      participant_sessions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          last_seen_at: string
+          participant_id: string
+          revoked_at: string | null
+          session_hash: string
+          via: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          last_seen_at?: string
+          participant_id: string
+          revoked_at?: string | null
+          session_hash: string
+          via: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          last_seen_at?: string
+          participant_id?: string
+          revoked_at?: string | null
+          session_hash?: string
+          via?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_sessions_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       participants: {
         Row: {
+          badge_role: string
           created_at: string
           deleted_at: string | null
           dietary_notes: string | null
@@ -275,10 +320,12 @@ export type Database = {
           photo_updated_at: string | null
           search_text: string
           source: string
+          staff_user_id: string | null
           status: Database["public"]["Enums"]["participant_status"]
           updated_at: string
         }
         Insert: {
+          badge_role?: string
           created_at?: string
           deleted_at?: string | null
           dietary_notes?: string | null
@@ -294,10 +341,12 @@ export type Database = {
           photo_updated_at?: string | null
           search_text: string
           source: string
+          staff_user_id?: string | null
           status: Database["public"]["Enums"]["participant_status"]
           updated_at?: string
         }
         Update: {
+          badge_role?: string
           created_at?: string
           deleted_at?: string | null
           dietary_notes?: string | null
@@ -313,6 +362,7 @@ export type Database = {
           photo_updated_at?: string | null
           search_text?: string
           source?: string
+          staff_user_id?: string | null
           status?: Database["public"]["Enums"]["participant_status"]
           updated_at?: string
         }
@@ -378,6 +428,100 @@ export type Database = {
           user_id?: string | null
         }
         Relationships: []
+      }
+      profile_keys: {
+        Row: {
+          id: string
+          issued_at: string
+          key_hash: string
+          participant_id: string
+          revoke_reason: string | null
+          revoked_at: string | null
+        }
+        Insert: {
+          id?: string
+          issued_at?: string
+          key_hash: string
+          participant_id: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+        }
+        Update: {
+          id?: string
+          issued_at?: string
+          key_hash?: string
+          participant_id?: string
+          revoke_reason?: string | null
+          revoked_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profile_keys_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          ask_me_about: string[]
+          bio: string | null
+          discord_handle: string | null
+          github_url: string | null
+          hidden_by_staff_at: string | null
+          linkedin_url: string | null
+          nickname: string | null
+          participant_id: string
+          program: string | null
+          pronouns: string | null
+          updated_at: string
+          visibility: string
+          website_url: string | null
+          year_label: string | null
+        }
+        Insert: {
+          ask_me_about?: string[]
+          bio?: string | null
+          discord_handle?: string | null
+          github_url?: string | null
+          hidden_by_staff_at?: string | null
+          linkedin_url?: string | null
+          nickname?: string | null
+          participant_id: string
+          program?: string | null
+          pronouns?: string | null
+          updated_at?: string
+          visibility?: string
+          website_url?: string | null
+          year_label?: string | null
+        }
+        Update: {
+          ask_me_about?: string[]
+          bio?: string | null
+          discord_handle?: string | null
+          github_url?: string | null
+          hidden_by_staff_at?: string | null
+          linkedin_url?: string | null
+          nickname?: string | null
+          participant_id?: string
+          program?: string | null
+          pronouns?: string | null
+          updated_at?: string
+          visibility?: string
+          website_url?: string | null
+          year_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: true
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       rate_limits: {
         Row: {
@@ -529,6 +673,44 @@ export type Database = {
           },
         ]
       }
+      signin_codes: {
+        Row: {
+          code_hash: string
+          created_at: string
+          created_by: string
+          expires_at: string
+          participant_id: string
+          purpose: string
+          used_at: string | null
+        }
+        Insert: {
+          code_hash: string
+          created_at?: string
+          created_by: string
+          expires_at: string
+          participant_id: string
+          purpose: string
+          used_at?: string | null
+        }
+        Update: {
+          code_hash?: string
+          created_at?: string
+          created_by?: string
+          expires_at?: string
+          participant_id?: string
+          purpose?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signin_codes_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_invites: {
         Row: {
           email: string
@@ -593,6 +775,11 @@ export type Database = {
       }
     }
     Functions: {
+      _eligible: {
+        Args: { pa: Database["public"]["Tables"]["participants"]["Row"] }
+        Returns: boolean
+      }
+      _labels_ok: { Args: { a: string[] }; Returns: boolean }
       _prior: {
         Args: { me: string; s: Database["public"]["Tables"]["scans"]["Row"] }
         Returns: Json
@@ -649,6 +836,7 @@ export type Database = {
           created_at: string
           id: string
           kind: string
+          kind_group: string | null
           last_error: string | null
           locked_until: string | null
           next_attempt_at: string
@@ -692,9 +880,21 @@ export type Database = {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
         Returns: Json
       }
+      end_profile_session: {
+        Args: { p_session_hash: string }
+        Returns: undefined
+      }
       enqueue_pass: {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
         Returns: string
+      }
+      enqueue_recaps: {
+        Args: { p_actor: string; p_event_id: string }
+        Returns: number
+      }
+      ensure_staff_attendee: {
+        Args: { p_event_id: string; p_user_id: string }
+        Returns: Json
       }
       event_metrics: {
         Args: { p_event_id: string; p_now?: string }
@@ -739,6 +939,19 @@ export type Database = {
         Args: { p_participant_id: string; p_token_hash: string }
         Returns: string
       }
+      issue_profile_key: {
+        Args: { p_key_hash: string; p_participant_id: string }
+        Returns: string
+      }
+      issue_signin_code: {
+        Args: {
+          p_code_hash: string
+          p_created_by: string
+          p_participant_id: string
+          p_purpose: string
+        }
+        Returns: string
+      }
       join_event_as_admin: {
         Args: { p_admin_id: string; p_event_id: string }
         Returns: string
@@ -754,6 +967,10 @@ export type Database = {
           starts_at: string
           timezone: string
         }[]
+      }
+      open_profile_session: {
+        Args: { p_key_hash: string; p_session_hash: string; p_ttl: string }
+        Returns: Json
       }
       pass_lookup: { Args: { p_token_hash: string }; Returns: Json }
       rate_limit_hit: {
@@ -772,12 +989,24 @@ export type Database = {
         }
         Returns: Json
       }
+      redeem_signin_code: {
+        Args: { p_code_hash: string; p_session_hash: string; p_ttl: string }
+        Returns: Json
+      }
       remove_staff: {
         Args: { p_actor: string; p_event_id: string; p_user_id: string }
         Returns: string
       }
+      request_profile_link: {
+        Args: { p_participant_id: string }
+        Returns: string
+      }
       revoke_pass: {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
+        Returns: string
+      }
+      rotate_profile_keys: {
+        Args: { p_new_key_hash: string; p_participant_id: string }
         Returns: string
       }
       search_participants: {
@@ -792,6 +1021,7 @@ export type Database = {
           status: Database["public"]["Enums"]["participant_status"]
         }[]
       }
+      session_participant: { Args: { p_session_hash: string }; Returns: string }
       void_scan: {
         Args: { p_reason: string; p_scan_id: string; p_staff_user_id: string }
         Returns: Json

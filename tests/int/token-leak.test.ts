@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ingestClient, sheetRow } from '../fixtures/ingest';
-import { onlyEmailTo, tokenFromEmail } from '../fixtures/mail';
+import { editKeyFromEmail, onlyEmailTo, tokenFromEmail } from '../fixtures/mail';
+import { participantClient } from '../fixtures/participant-api';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 let f: StandardFixture;
@@ -25,14 +26,35 @@ describe('token secrecy (I-3)', () => {
         where table_schema = 'public' and data_type in ('text', 'character varying', 'jsonb', 'json', 'ARRAY', 'USER-DEFINED')`,
     );
     expect(cols.length).toBeGreaterThan(10);
-    const hits: string[] = [];
-    for (const c of cols) {
-      const { rows } = await f.pool.query<{ n: number }>(
-        `select count(*)::int as n from public.${JSON.stringify(c.table_name)} where ${JSON.stringify(c.column_name)}::text like '%' || $1 || '%'`,
-        [token],
-      );
-      if ((rows[0]?.n ?? 0) > 0) hits.push(`${c.table_name}.${c.column_name}`);
-    }
-    expect(hits).toEqual([]);
+    expect(await columnsContaining(token)).toEqual([]);
+  });
+
+  it('T-SEC2-04 (partial): the edit key and the session cookie value appear in no column either (I-18)', async () => {
+    const c = ingestClient();
+    const row = sheetRow(f.slug);
+    expect(await c.ingest(f.slug, [row])).toEqual(['PASS_QUEUED']);
+    await c.drain();
+    const key = editKeyFromEmail(onlyEmailTo(c.mail.sent, row.email));
+    const cookie = await participantClient().signIn(key);
+    const sessionValue = cookie.split('=')[1] ?? '';
+    expect(sessionValue).toHaveLength(43);
+    expect(await columnsContaining(key)).toEqual([]);
+    expect(await columnsContaining(sessionValue)).toEqual([]);
   });
 });
+
+async function columnsContaining(secret: string): Promise<string[]> {
+  const { rows: cols } = await f.pool.query<{ table_name: string; column_name: string }>(
+    `select table_name, column_name from information_schema.columns
+      where table_schema = 'public' and data_type in ('text', 'character varying', 'jsonb', 'json', 'ARRAY', 'USER-DEFINED')`,
+  );
+  const hits: string[] = [];
+  for (const c of cols) {
+    const { rows } = await f.pool.query<{ n: number }>(
+      `select count(*)::int as n from public.${JSON.stringify(c.table_name)} where ${JSON.stringify(c.column_name)}::text like '%' || $1 || '%'`,
+      [secret],
+    );
+    if ((rows[0]?.n ?? 0) > 0) hits.push(`${c.table_name}.${c.column_name}`);
+  }
+  return hits;
+}

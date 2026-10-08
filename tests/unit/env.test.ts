@@ -51,4 +51,10 @@ describe('lib/env (S0 smoke)', () => {
     expect(parseServerEnv({ ...valid, FEATURE_SHIFTS: 'true' }).FEATURE_SHIFTS).toBe(true);
     expect(() => parseServerEnv({ ...valid, FEATURE_EXTRA_BADGE_ROLES: 'banana' })).toThrow(/FEATURE_EXTRA_BADGE_ROLES/);
   });
+
+  it('V2a: PARTICIPANT_SESSION_DAYS defaults to 30 and must be a whole number of days', () => {
+    expect(parseServerEnv(valid).PARTICIPANT_SESSION_DAYS).toBe(30);
+    expect(parseServerEnv({ ...valid, PARTICIPANT_SESSION_DAYS: '7' }).PARTICIPANT_SESSION_DAYS).toBe(7);
+    expect(() => parseServerEnv({ ...valid, PARTICIPANT_SESSION_DAYS: '1.5' })).toThrow(/PARTICIPANT_SESSION_DAYS/);
+  });
 });

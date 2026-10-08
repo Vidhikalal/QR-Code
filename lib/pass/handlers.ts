@@ -5,6 +5,7 @@ import type { Database } from '@/lib/db/types.gen';
 import { sniffImage } from '@/lib/domain/image';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
+import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
 import { PHOTO_BUCKET, photoPath, signedPhotoUrl } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
@@ -39,17 +40,7 @@ async function lookupToken(db: Db, token: string): Promise<PassLookup | null> {
   return data === null ? null : lookupSchema.parse(data);
 }
 
-async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
-  const { data, error } = await db.rpc('rate_limit_hit', { p_key: key, p_window_seconds: windowSeconds, p_limit: limit });
-  if (error) throw new Error(`rate_limit_hit failed (${error.code})`);
-  return data;
-}
-
-// The IP is only used hashed, so no raw address is stored (I-11).
-function ipKey(request: Request): string {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-  return `pass:ip:${sha256hex(ip).slice(0, 32)}`;
-}
+const ipKey = (request: Request) => `pass:ip:${hashedClientIp(request)}`;
 
 const passBody = z.object({ token: z.string().max(512) }).strict();
 

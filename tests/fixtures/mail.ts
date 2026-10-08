@@ -29,6 +29,13 @@ export function tokenFromEmail(m: EmailMessage): string {
   return match[1];
 }
 
+// The profile edit key from the "Set up your profile" link (PLAN §12.1): /edit#<43 chars>.
+export function editKeyFromEmail(m: EmailMessage): string {
+  const match = /\/edit#([A-Za-z0-9_-]{43})/.exec(m.text);
+  if (!match?.[1]) throw new Error('no edit link in email');
+  return match[1];
+}
+
 // drainOutbox() drains every due row in the database, including rows other test files left pending,
 // so assertions must only look at mail addressed to the test's own participants.
 export function sentTo(sent: EmailMessage[], address: string): EmailMessage[] {

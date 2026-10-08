@@ -8,6 +8,8 @@ const API_DIR = join(process.cwd(), 'app', 'api');
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 // Routes with their own authentication (SPEC T-SEC-04): they must still refuse an anonymous call.
 const SELF_AUTH = new Set(['/api/pass', '/api/pass/photo', '/api/ingest/sheet', '/api/email/drain']);
+// ME-host participant routes (PLAN §9.2): no Origin → 403 (CSRF check first), no session → 401.
+const PARTICIPANT = new Set(['/api/me', '/api/me/session', '/api/me/rotate']);
 
 function routeFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -41,6 +43,7 @@ describe('route authorization (SPEC §14.12)', () => {
         const res = await (handler as Handler)(new Request(url, init), { params });
         const label = `${method} ${path} → ${res.status}`;
         if (SELF_AUTH.has(path)) expect([400, 401, 404], label).toContain(res.status);
+        else if (PARTICIPANT.has(path)) expect([401, 403], label).toContain(res.status);
         else expect(res.status, label).toBe(401);
         checked.push(label);
       }

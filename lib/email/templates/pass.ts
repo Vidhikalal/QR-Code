@@ -7,6 +7,8 @@ export interface PassEmailInput {
   event: { name: string; venue: string; startsAt: string; timezone: string };
   passUrl: string;
   qrPng: Buffer;
+  /** PLAN §12.1: `${ME_ORIGIN}/edit#${key}`, a fresh edit key per email. */
+  editUrl: string;
 }
 
 export interface RenderedEmail {
@@ -16,8 +18,8 @@ export interface RenderedEmail {
   inlineImages: InlineImage[];
 }
 
-// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, tips, photo link,
-// organizer contact, privacy line. The QR is an inline cid: attachment, never a data: URI.
+// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, profile link (PLAN §12.1),
+// tips, photo link, organizer contact, privacy line. The QR is an inline cid: attachment, never a data: URI.
 export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
   const e = {
@@ -26,6 +28,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     when: escapeHtml(when),
     venue: escapeHtml(input.event.venue),
     url: escapeHtml(input.passUrl),
+    edit: escapeHtml(input.editUrl),
   };
 
   const html = `<!doctype html>
@@ -35,6 +38,8 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
 <p><strong>When:</strong> ${e.when}<br><strong>Where:</strong> ${e.venue}</p>
 <p><img src="cid:qr" width="300" height="300" alt="Your check-in QR code" style="display:block;background:#ffffff"></p>
 <p><a href="${e.url}">Open your pass</a></p>
+<p><a href="${e.edit}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">Set up your profile</a><br>
+<span style="font-size:14px">This link is personal. Anyone with it can edit your profile.</span></p>
 <ul>
 <li>Turn your screen brightness up at the door.</li>
 <li>A screenshot of this code works fine.</li>
@@ -54,6 +59,9 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     `Where: ${input.event.venue}`,
     '',
     `Open your pass (shows your QR code): ${input.passUrl}`,
+    '',
+    `Set up your profile: ${input.editUrl}`,
+    'This link is personal. Anyone with it can edit your profile.',
     '',
     'Tips: turn your screen brightness up at the door. A screenshot of the code works fine. This code is personal; don\'t share it.',
     '',
