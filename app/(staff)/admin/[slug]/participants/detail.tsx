@@ -1,6 +1,8 @@
 'use client';
 
 import Image from 'next/image';
+import { PublicProfileCard } from '@/components/public-profile-card';
+import type { PublicProfile } from '@/lib/profile/public';
 import { useCallback, useState } from 'react';
 import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
@@ -9,6 +11,7 @@ import { fullName } from './name';
 import { SigninCodeDialog } from './signin-code-dialog';
 
 interface Detail {
+  profile: { public: PublicProfile; hiddenByStaff: boolean; hiddenByOwner: boolean } | null;
   participant: {
     id: string;
     firstName: string;
@@ -52,6 +55,12 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
   }, [api, props.slug, props.id]);
 
   useLoad(load);
+
+  async function setHidden(hidden: boolean) {
+    const r = await api<{ code: string }>(adminUrl(props.slug, `/participants/${props.id}/hide-profile`), { method: 'POST', body: { hidden } });
+    setMessage(r.ok ? (hidden ? '✓ Profile hidden. Others now see only the name.' : '✓ Profile visible again.') : `✕ ${errorText(r)}`);
+    await load();
+  }
 
   async function voidScan(scanId: string, reason: string) {
     setVoiding(null);
@@ -116,6 +125,22 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
         <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
           {message}
         </p>
+      )}
+      {detail.profile && (
+        <>
+          <h3>Public profile</h3>
+          <p className={styles.muted}>
+            {detail.profile.hiddenByStaff ? 'Hidden by an organizer.' : detail.profile.hiddenByOwner ? 'Hidden by its owner.' : 'Visible to anyone who taps their badge.'}
+          </p>
+          <div style={{ maxWidth: 420 }}>
+            <PublicProfileCard profile={detail.profile.public} />
+          </div>
+          <div className={styles.actions} style={{ marginTop: 8 }}>
+            <button type="button" className={`${detail.profile.hiddenByStaff ? styles.secondary : styles.danger} ${styles.small}`} onClick={() => void setHidden(!detail.profile?.hiddenByStaff)}>
+              {detail.profile.hiddenByStaff ? 'Show profile' : 'Hide profile'}
+            </button>
+          </div>
+        </>
       )}
       <h3>Scan history</h3>
       {detail.scans.length === 0 ? (

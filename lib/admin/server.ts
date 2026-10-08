@@ -15,6 +15,7 @@ function adminApi(): AdminApi {
     authenticate: cookieAuthenticator,
     scheduleDrain: (task) => after(task),
     drain: () => drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom() }),
+    extraRoles: env().FEATURE_EXTRA_BADGE_ROLES,
     sheetReader: (sheetId) => {
       const serviceAccount = env().GOOGLE_SERVICE_ACCOUNT_JSON;
       return serviceAccount ? googleSheetReader(sheetId, serviceAccount) : null;

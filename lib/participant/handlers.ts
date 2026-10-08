@@ -5,6 +5,10 @@ import { normalizeEmail } from '@/lib/domain/normalize';
 import { generateSecret, sha256hex } from '@/lib/domain/token';
 import { fromOrigin } from '@/lib/http/origin';
 import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
+import { isCheckedIn, MAX_PHOTO_REQUEST_BYTES, storeParticipantPhoto } from '@/lib/photo/process';
+import { loadProfile } from '@/lib/profile/load';
+import { profilePatchSchema, TOPIC_ROLES, type ProfilePatch } from '@/lib/profile/schema';
+import { signedPhotoUrl } from '@/lib/storage/photos';
 import { clearParticipantCookie, readSessionValue, serializeParticipantCookie } from './session';
 
 type Db = SupabaseClient<Database>;
@@ -14,6 +18,8 @@ export interface ParticipantDeps {
   /** The ME origin (NEXT_PUBLIC_APP_ORIGIN): cookie naming and the Origin check. */
   meOrigin: string;
   sessionDays: number;
+  /** FEATURE_EXTRA_BADGE_ROLES (PLAN Q2): Discord handles editable and shown. */
+  extraRoles?: boolean;
   /** Runs the outbox drainer after the response (Next.js `after()`), so a new link goes out promptly. */
   scheduleDrain?: () => void;
 }
@@ -139,6 +145,49 @@ export function createParticipantApi(deps: ParticipantDeps) {
       return json({ code: 'ROTATED' }, 200, clearParticipantCookie(meOrigin));
     },
 
+    // GET /api/me/profile  (PLAN §10.4: the /me form, plus the "How others see you" preview)
+    async getProfile(request: Request) {
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      return json(await profileView(db, who.participantId, deps.extraRoles ?? false));
+    },
+
+    // PATCH /api/me/profile  (own profile only: there is no participant id anywhere in this API)
+    async updateProfile(request: Request) {
+      if (!fromOrigin(request, meOrigin)) return forbidden();
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      const current = await loadProfile(db, who.participantId, { extraRoles: deps.extraRoles ?? false });
+      if (!current) return unauthorized();
+      const body = profilePatchSchema({ badgeRole: current.badgeRole, extraRoles: deps.extraRoles ?? false }).safeParse(await request.json().catch(() => undefined));
+      if (!body.success) return json({ error: 'invalid_request', fields: body.error.issues.map((i) => i.path.join('.')) }, 400);
+      const { error } = await db
+        .from('profiles')
+        .upsert({ participant_id: who.participantId, ...profileColumns(body.data), updated_at: new Date().toISOString() }, { onConflict: 'participant_id' });
+      // The table's checks are the authority; the schema mirrors them, so this is a backstop.
+      if (error?.code === '23514') return json({ error: 'invalid_request' }, 400);
+      if (error) throw new Error(`profile update failed (${error.code})`);
+      return json(await profileView(db, who.participantId, deps.extraRoles ?? false));
+    },
+
+    // POST /api/me/photo  (multipart { file }; SPEC F5 pipeline and limits, locked after door check-in)
+    async uploadPhoto(request: Request) {
+      if (!fromOrigin(request, meOrigin)) return forbidden();
+      if (Number(request.headers.get('content-length') ?? 0) > MAX_PHOTO_REQUEST_BYTES) return json({ error: 'too_large' }, 413);
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      const form = await request.formData().catch(() => null);
+      const file = form?.get('file');
+      if (!(file instanceof File)) return json({ error: 'invalid_body' }, 400);
+      if (!(await withinLimit(db, `photo:p:${who.participantId}`, 3600, 10))) return json({ error: 'rate_limited' }, 429);
+      if (await isCheckedIn(db, who.participantId)) return json({ error: 'PHOTO_LOCKED' }, 409);
+      const { data: pa, error } = await db.from('participants').select('event_id').eq('id', who.participantId).single();
+      if (error) throw new Error(`participant load failed (${error.code})`);
+      const stored = await storeParticipantPhoto(db, { eventId: pa.event_id, participantId: who.participantId }, file);
+      if (!stored.ok) return json({ error: stored.error }, stored.status);
+      return json({ ok: true, photoUpdatedAt: stored.photoUpdatedAt });
+    },
+
     // GET /api/me  (the minimal /me page data; the full profile arrives in V3)
     async me(request: Request) {
       const who = await readParticipant(db, request, meOrigin);
@@ -147,6 +196,59 @@ export function createParticipantApi(deps: ParticipantDeps) {
     },
   };
 }
+
+const COLUMNS = {
+  nickname: 'nickname',
+  pronouns: 'pronouns',
+  program: 'program',
+  yearLabel: 'year_label',
+  bio: 'bio',
+  linkedinUrl: 'linkedin_url',
+  githubUrl: 'github_url',
+  websiteUrl: 'website_url',
+  discordHandle: 'discord_handle',
+  askMeAbout: 'ask_me_about',
+  visibility: 'visibility',
+} as const;
+
+function profileColumns(patch: ProfilePatch): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(patch).map(([k, v]) => [COLUMNS[k as keyof typeof COLUMNS], v]));
+}
+
+/** The /me page's data: own editable fields, the public preview, and the photo state. */
+export async function profileView(db: Db, participantId: string, extraRoles: boolean) {
+  const loaded = await loadProfile(db, participantId, { extraRoles });
+  if (!loaded) throw new Error('participant vanished');
+  const { data: pa, error } = await db.from('participants').select('first_name, photo_path, events(name)').eq('id', participantId).single();
+  if (error) throw new Error(`participant load failed (${error.code})`);
+  const { hiddenByStaffAt, ...editable } = loaded.fields ?? EMPTY_PROFILE;
+  return {
+    firstName: pa.first_name,
+    event: { name: pa.events.name },
+    badgeRole: loaded.badgeRole,
+    canEditTopics: TOPIC_ROLES.includes(loaded.badgeRole),
+    canEditDiscord: extraRoles,
+    profile: editable,
+    hiddenByStaff: hiddenByStaffAt !== null,
+    public: loaded.public,
+    photo: { url: pa.photo_path ? await signedPhotoUrl(db, pa.photo_path) : null, locked: await isCheckedIn(db, participantId) },
+  };
+}
+
+const EMPTY_PROFILE = {
+  nickname: null,
+  pronouns: null,
+  program: null,
+  yearLabel: null,
+  bio: null,
+  linkedinUrl: null,
+  githubUrl: null,
+  websiteUrl: null,
+  discordHandle: null,
+  askMeAbout: [],
+  visibility: 'public',
+  hiddenByStaffAt: null,
+} as const;
 
 export async function participantSummary(db: Db, participantId: string): Promise<{ firstName: string; event: { name: string } }> {
   const { data, error } = await db.from('participants').select('first_name, events(name)').eq('id', participantId).single();

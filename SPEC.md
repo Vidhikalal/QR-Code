@@ -337,6 +337,9 @@ end $$;
 - `signin_codes`: 2-minute single-use codes (used from V2b).
 - `email_outbox.kind` adds `profile_link` and `recap`; the generated `kind_group` (`pass` for the two pass kinds) makes the in-flight index **one per participant per kind group**, so a pending pass email never blocks a profile link. `ingest_sheet_row` and `enqueue_pass` changed only their `ON CONFLICT` target.
 - The §5.1 tombstone (`delete_participant`) also deletes the profile, revokes edit keys (`deleted`), ends sessions and deletes sign-in codes.
+- `ensure_staff_attendee(event, user, search_text)` creates or adopts a staff member's own badge row (`source = 'staff'`, `badge_role` organizer/volunteer, `accepted`). The app passes `toSearchText(display_name)` (I-12).
+- **Public profile (I-19):** everything non-staff see about a badge holder comes from `toPublicProfile()` (`lib/profile/public.ts`): display name (nickname, else "First L."), role label, pronouns/program/year/bio, LinkedIn/GitHub/website, "Ask me about…" (organizers and mentors only), Discord (only with `FEATURE_EXTRA_BADGE_ROLES`). Hidden by the owner **or** by staff (staff wins) → name and label only. Never email, photo, dietary notes, status, scans or ids. `components/public-profile-card.tsx` renders it as text.
+- `lib/profile/schema.ts` mirrors every `profiles` check for friendly 400s; the database stays the authority (T-PROF-03/04 share one case table).
 
 ---
 
@@ -547,6 +550,12 @@ The drainer issues the pass (`issue_pass`) **and** a fresh edit key (`issue_prof
 | Lost the email, has the address | `/signin` → event + email → `POST /api/signin/request` → `request_profile_link` | Always `{code:'SENT_IF_REGISTERED'}` (no enumeration). 3/h per address, 20/h per IP. The email goes only to the address on file. |
 | No access to email | Staff → Participants → **Show sign-in code** → `POST /api/participants/:id/signin-code` (`issue_signin_code(…, 'staff_handoff')`) → QR of `${APP_ORIGIN}/signin#<code>`, valid 2 minutes, single use | Any staff member of the person's event. The participant scans it with their own camera; `/signin` strips the fragment, then `POST /api/me/session/code` (`redeem_signin_code`). |
 | Link from the error page | `/edit` errors offer **Email me a link** → `/signin` | |
+
+### F15 — Profiles and the organizer's badge profile (v2)
+
+- `/me` edits the profile (`GET/PATCH /api/me/profile`): text fields, links, visibility, "Ask me about…" for organizers/mentors, and the check-in photo (`POST /api/me/photo`: the §F5 pipeline and limits, locked after door check-in). The page shows **How others see you** from `toPublicProfile()`.
+- Organizers hide an abusive profile from the participant drawer (`POST /api/admin/:slug/participants/:id/hide-profile {hidden}`, audit `profile.hide` with `{hidden}` only). Hidden profiles show only the name.
+- **My badge profile** (admin nav) → `POST /api/staff/hop {slug}` → `ensure_staff_attendee` + `issue_signin_code(…, 'organizer_hop')` → `${APP_ORIGIN}/signin#<code>` → a participant session for their own badge row. Organizers always; volunteers only with `FEATURE_EXTRA_BADGE_ROLES`.
 
 ### F13 — Platform admin bootstrap (v2)
 
@@ -801,6 +810,10 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `GET /api/me` | participant cookie | `/me` summary (first name, event) |
 | `POST /api/me/session/code` | sign-in code in body; 30/min/IP; `Origin` check | F18b; `OPENED` sets the cookie, else `CODE_INVALID` |
 | `POST /api/signin/request` | public; `Origin` check; 3/h per address, 20/h per IP | F18b; always `SENT_IF_REGISTERED` |
+| `GET/PATCH /api/me/profile` | participant cookie (PATCH: `Origin` check) | F15; own profile only, no ids in the API |
+| `POST /api/me/photo` | participant cookie; `Origin` check; 10/h | F15; 409 `PHOTO_LOCKED` after door check-in |
+| `POST /api/admin/:slug/participants/:id/hide-profile` | organizer (both hosts) | F15 abuse switch |
+| `POST /api/staff/hop` | staff of the event (organizers; volunteers with `FEATURE_EXTRA_BADGE_ROLES`) | F15 My badge profile → `{url}` |
 | `POST /api/participants/:id/signin-code` | staff of the person's event (both hosts) | F18b; `{url, expiresAt}`; 403 other event, 409 not eligible |
 
 ---
@@ -925,7 +938,7 @@ All metrics exclude voided scans, `is_test` participants and deleted participant
 | Metric | Definition |
 |--------|------------|
 | Accepted | participants with `status = accepted` |
-| Checked in | distinct participants with a live door scan |
+| Checked in | distinct participants with a live door scan (v2: attendees only, i.e. `badge_role = 'participant'`; staff badge rows are excluded from accepted, checked in, no-shows and arrivals) |
 | Check-in rate | checked in ÷ accepted |
 | No-shows | accepted without a live door scan (list) |
 | Meal uptake | live scans at meal M ÷ checked in |
@@ -1197,6 +1210,13 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SESS-07 | Staff hand-off: other-event staff; redeem twice; expired | 403; `OPENED` then `CODE_INVALID`; `CODE_INVALID` | I+E |
 | T-SESS-08 | Email me a link: registered vs unknown | byte-identical responses; only the registered address gets a link; 4th in an hour → 429 | I+E |
 | T-CONC2-07 | One sign-in code redeemed 10× in parallel | 1 `OPENED`, 9 `CODE_INVALID` | I |
+| T-PROF-03/04 | Shared case table through the DB checks and through `lib/profile/schema.ts` | identical accept/reject | I+U |
+| T-PROF-05 | `PATCH /api/me/profile` without/with a session | 401; only the caller's own profile changes | I |
+| T-PROF-06 | `POST /api/me/photo` after door check-in | 409 `PHOTO_LOCKED` | I |
+| T-PROF-08/09 | Hidden by owner; owner public + staff hidden | name only; staff hide wins | U+I |
+| T-SESS-09 | `organizer_hop` code by someone else / by the owner | `FORBIDDEN` / `ISSUED` | I |
+| T-BADGE-02 (profile part) | Deep key scan of every `toPublicProfile` output | no email, photo, dietary, status, scans or id keys | U |
+| T-SEC2-05 | Profile fields with `<img onerror>` / `"><script>` | rendered as text on `/me` and in the admin drawer | E |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1383,7 +1403,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects.
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13).
 
 ---
 

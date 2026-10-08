@@ -16,3 +16,12 @@
 .dialog h2 { margin-top: 0; }
 .field { display: grid; gap: 4px; font-size: 14px; margin: 10px 0; }
 .input { min-height: 44px; padding: 0 10px; font: inherit; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.textarea { min-height: 96px; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 10px; background: #fff; resize: vertical; }
+.fieldError { color: var(--bad); font-weight: 600; }
+.fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 12px 0; }
+.radio { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+.radio input { width: 20px; height: 20px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chips li { display: inline-flex; align-items: center; gap: 4px; padding: 0 0 0 10px; border-radius: 999px; background: #f3f4f6; }
+.chipRemove { min-height: 44px; min-width: 44px; padding: 0; background: transparent; color: var(--fg); border: 0; font-size: 20px; }
+.photo { display: block; width: 160px; height: 160px; object-fit: cover; border-radius: 12px; margin: 8px 0; }

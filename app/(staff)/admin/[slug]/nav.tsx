@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import styles from './admin.module.css';
 
 const TABS = [
@@ -19,6 +20,26 @@ export interface SwitcherEvent {
   name: string;
   href: string;
   role: string | null;
+}
+
+// PLAN F15: the organizer's own badge profile on the ME host, via a one-time sign-in code.
+function BadgeProfileButton({ slug }: { slug: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle');
+  async function hop() {
+    setState('busy');
+    const res = await fetch('/api/staff/hop', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug }) }).catch(() => null);
+    const data = (await res?.json().catch(() => ({}))) as { url?: string };
+    if (res?.ok && data.url) window.location.assign(data.url);
+    else setState('failed');
+  }
+  return (
+    <>
+      <button type="button" className={`${styles.secondary} ${styles.small}`} disabled={state === 'busy'} onClick={() => void hop()}>
+        My badge profile
+      </button>
+      {state === 'failed' && <span role="status">✕ Couldn’t open your profile. Try again.</span>}
+    </>
+  );
 }
 
 export function AdminNav({ slug, events }: { slug: string; events: SwitcherEvent[] }) {
@@ -50,6 +71,7 @@ export function AdminNav({ slug, events }: { slug: string; events: SwitcherEvent
         <Link href="/admin" className={styles.tab}>
           All events
         </Link>
+        <BadgeProfileButton slug={slug} />
       </div>
       <nav aria-label="Admin" className={styles.nav}>
         {TABS.map(([path, label]) => {

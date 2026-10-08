@@ -893,7 +893,7 @@ export type Database = {
         Returns: number
       }
       ensure_staff_attendee: {
-        Args: { p_event_id: string; p_user_id: string }
+        Args: { p_event_id: string; p_search_text: string; p_user_id: string }
         Returns: Json
       }
       event_metrics: {

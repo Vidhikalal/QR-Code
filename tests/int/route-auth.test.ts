@@ -9,7 +9,7 @@ const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 // Routes with their own authentication (SPEC T-SEC-04): they must still refuse an anonymous call.
 const SELF_AUTH = new Set(['/api/pass', '/api/pass/photo', '/api/ingest/sheet', '/api/email/drain']);
 // ME-host participant routes (PLAN §9.2): no Origin → 403 (CSRF check first), no session → 401.
-const PARTICIPANT = new Set(['/api/me', '/api/me/session', '/api/me/rotate', '/api/me/session/code', '/api/signin/request']);
+const PARTICIPANT = new Set(['/api/me', '/api/me/session', '/api/me/rotate', '/api/me/session/code', '/api/signin/request', '/api/me/profile', '/api/me/photo']);
 
 function routeFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

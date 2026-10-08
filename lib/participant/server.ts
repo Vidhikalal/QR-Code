@@ -16,6 +16,7 @@ function participantApi(): ParticipantApi {
     db: db(),
     meOrigin,
     sessionDays: env().PARTICIPANT_SESSION_DAYS,
+    extraRoles: env().FEATURE_EXTRA_BADGE_ROLES,
     scheduleDrain: () => after(() => drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: meOrigin, from: emailFrom() })),
   });
 }

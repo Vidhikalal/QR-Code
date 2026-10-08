@@ -1,0 +1,11 @@
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.name { margin: 0; font-size: 22px; line-height: 1.25; overflow-wrap: anywhere; }
+.label { display: inline-block; margin-top: 4px; font-size: 13px; font-weight: 700; padding: 2px 10px; border-radius: 999px; background: #dbeafe; color: #1e3a8a; }
+.meta { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.bio { margin: 10px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+.links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; color: var(--accent); text-decoration: none; font-weight: 600; }
+.topics { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.topics li { padding: 4px 10px; border-radius: 999px; background: #f3f4f6; font-size: 14px; }
+.private { margin: 8px 0 0; color: var(--muted); }
+.event { margin: 0 0 6px; color: var(--muted); font-size: 13px; }

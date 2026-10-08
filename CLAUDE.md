@@ -66,6 +66,7 @@ lib/
 supabase/migrations/  SQL migrations (never edit applied ones)
 apps-script/Code.gs   Google Sheet bridge (SPEC Appendix A); Setup.gs form/Sheet setup helpers
 docs/v2/reference-sql/  v2 reference SQL (PLAN §6), copied into migrations slice by slice
+components/           shared React components across route groups (e.g. PublicProfileCard, I-19)
 tests/unit | tests/int | tests/e2e | tests/fixtures | tests/assets (QR .y4m videos, EXIF images)
 ```
 

@@ -1,19 +1,15 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import sharp from 'sharp';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
-import { sniffImage } from '@/lib/domain/image';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
 import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
-import { PHOTO_BUCKET, photoPath, signedPhotoUrl } from '@/lib/storage/photos';
+import { MAX_PHOTO_REQUEST_BYTES, storeParticipantPhoto } from '@/lib/photo/process';
+import { signedPhotoUrl } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
 
-const MB = 1024 * 1024;
-export const MAX_PHOTO_BYTES = 8 * MB;
-const MAX_PHOTO_REQUEST_BYTES = MAX_PHOTO_BYTES + 64 * 1024; // multipart overhead
-const MAX_INPUT_PIXELS = 60_000_000; // generous for 48 MP phones; stops decompression bombs
+export { MAX_PHOTO_BYTES } from '@/lib/photo/process';
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: NO_STORE });
@@ -96,32 +92,9 @@ export function createPhotoHandler(deps: { db: Db }) {
     if (passState(found) !== 'active' || !found) return json({ error: 'not_found' }, 404);
     if (!(await withinLimit(deps.db, `photo:pass:${found.pass.id}`, 3600, 10))) return json({ error: 'rate_limited' }, 429);
     if (found.checkedIn) return json({ error: 'PHOTO_LOCKED' }, 409);
-    if (file.size > MAX_PHOTO_BYTES) return json({ error: 'too_large' }, 413);
-
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (!sniffImage(bytes)) return json({ error: 'unsupported_type' }, 415);
-
-    let output: Buffer;
-    try {
-      // .rotate() applies EXIF orientation BEFORE metadata is stripped (sharp strips by default).
-      output = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
-        .rotate()
-        .resize(512, 512, { fit: 'cover' })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-    } catch {
-      return json({ error: 'unsupported_type' }, 415);
-    }
-
-    const path = photoPath(found.participant.eventId, found.participant.id);
-    const upload = await deps.db.storage.from(PHOTO_BUCKET).upload(path, output, { contentType: 'image/jpeg', upsert: true });
-    if (upload.error) throw new Error(`photo upload failed (${upload.error.name})`);
-    const photoUpdatedAt = new Date().toISOString();
-    const { error } = await deps.db
-      .from('participants')
-      .update({ photo_path: path, photo_updated_at: photoUpdatedAt })
-      .eq('id', found.participant.id);
-    if (error) throw new Error(`photo_path update failed (${error.code})`);
+    const stored = await storeParticipantPhoto(deps.db, { eventId: found.participant.eventId, participantId: found.participant.id }, file);
+    if (!stored.ok) return json({ error: stored.error }, stored.status);
+    const { photoUpdatedAt } = stored;
     return json({ ok: true, photoUpdatedAt });
   };
 }

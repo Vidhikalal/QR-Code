@@ -5,9 +5,15 @@ import { serviceClient } from './mail';
 export const ME_ORIGIN = 'http://localhost:3100';
 
 // Calls the participant handlers the way a browser on the ME host would: Origin header, cookie jar.
-export function participantClient(meOrigin = ME_ORIGIN) {
+export function participantClient(meOrigin = ME_ORIGIN, opts: { extraRoles?: boolean } = {}) {
   const scheduled: number[] = [];
-  const api = createParticipantApi({ db: serviceClient(), meOrigin, sessionDays: 30, scheduleDrain: () => scheduled.push(Date.now()) });
+  const api = createParticipantApi({
+    db: serviceClient(),
+    meOrigin,
+    sessionDays: 30,
+    extraRoles: opts.extraRoles ?? false,
+    scheduleDrain: () => scheduled.push(Date.now()),
+  });
   // A distinct client IP per client, so the per-IP rate limit never couples test files.
   const ip = `203.0.113.${randomBytes(1)[0]}-${randomBytes(4).toString('hex')}`;
 
@@ -37,5 +43,16 @@ export function participantClient(meOrigin = ME_ORIGIN) {
     return r.setCookie.split(';')[0] ?? '';
   }
 
-  return { api, call, signIn, ip, scheduled };
+  /** POST /api/me/photo as multipart, the way the /me page sends it. */
+  async function uploadPhoto(cookie: string, bytes: Uint8Array, o: { origin?: string | null } = {}) {
+    const form = new FormData();
+    form.set('file', new File([Buffer.from(bytes)], 'photo.jpg', { type: 'image/jpeg' }));
+    const headers: Record<string, string> = { cookie, 'x-forwarded-for': ip };
+    const origin = o.origin === undefined ? meOrigin : o.origin;
+    if (origin !== null) headers.origin = origin;
+    const res = await api.uploadPhoto(new Request(`${meOrigin}/api/me/photo`, { method: 'POST', headers, body: form }));
+    return { status: res.status, body: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+  }
+
+  return { api, call, signIn, uploadPhoto, ip, scheduled };
 }

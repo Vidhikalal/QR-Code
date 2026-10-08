@@ -9,6 +9,7 @@ import { formatEventDateTime } from '@/lib/domain/event-time';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
 import { syncSheet } from '@/lib/ingest/sync';
+import { loadProfile } from '@/lib/profile/load';
 import { PHOTO_BUCKET, signedPhotoUrl } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
@@ -23,6 +24,8 @@ export interface AdminDeps {
   now?: () => Date;
   /** Builds a reader for a linked Sheet, or null when Sync now isn't configured. */
   sheetReader?: (sheetId: string) => (() => Promise<string[][]>) | null;
+  /** FEATURE_EXTRA_BADGE_ROLES (PLAN Q2), for the public profile preview. */
+  extraRoles?: boolean;
 }
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -329,7 +332,13 @@ export function createAdminApi(deps: AdminDeps) {
         .order('scanned_at');
       if (scanError) throw new Error(`scans load failed (${scanError.code})`);
       const names = await staffNames(scans.map((s) => s.scanned_by));
+      const profile = await loadProfile(db, id, { extraRoles: deps.extraRoles ?? false, eventId: g.eventId });
       return json({
+        profile: profile && {
+          public: profile.public,
+          hiddenByStaff: profile.fields?.hiddenByStaffAt != null,
+          hiddenByOwner: profile.fields?.visibility === 'hidden',
+        },
         participant: {
           id: p.id,
           firstName: p.first_name,
@@ -356,6 +365,25 @@ export function createAdminApi(deps: AdminDeps) {
           voidReason: s.void_reason,
         })),
       });
+    },
+
+    // POST /api/admin/[slug]/participants/[id]/hide-profile { hidden }  (PLAN §6.3 abuse switch; both hosts, I-23)
+    async hideProfile(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return notFound();
+      const body = z.object({ hidden: z.boolean() }).strict().safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const { data: p, error } = await db.from('participants').select('id').eq('id', id).eq('event_id', g.eventId).is('deleted_at', null).maybeSingle();
+      if (error) throw new Error(`participant load failed (${error.code})`);
+      if (!p) return notFound();
+      const { error: upsertError } = await db
+        .from('profiles')
+        .upsert({ participant_id: id, hidden_by_staff_at: body.data.hidden ? now().toISOString() : null }, { onConflict: 'participant_id' });
+      if (upsertError) throw new Error(`profile hide failed (${upsertError.code})`);
+      await audit(g.eventId, g.userId, 'profile.hide', id, { hidden: body.data.hidden });
+      return json({ code: body.data.hidden ? 'HIDDEN' : 'SHOWN' });
     },
 
     // POST /api/admin/[slug]/participants  (F12 walk-in)
