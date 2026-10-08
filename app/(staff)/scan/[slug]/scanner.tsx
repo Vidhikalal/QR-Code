@@ -71,6 +71,23 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   // When scanning actually became possible (camera ready AND a checkpoint chosen); T-SCUI-01 timing.
   const activeAt = cameraReadyAt !== null && checkpointSetAt !== null ? Math.max(cameraReadyAt, checkpointSetAt) : null;
 
+  // PLAN §6.6: tell the server which checkpoint this staff member is working, so a badge page opened on
+  // the ME host (no shared localStorage) can offer the right station button. Never blocks scanning.
+  // Sent 3 s later (debounced) so it never competes with the first scan's request (PLAN G2 budget).
+  const [stationWarning, setStationWarning] = useState(false);
+  const stationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveStation = useCallback((checkpointId: string) => {
+    if (stationTimer.current) clearTimeout(stationTimer.current);
+    stationTimer.current = setTimeout(() => {
+      void fetch('/api/stations', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ checkpointId }) })
+        .then((res) => setStationWarning(!res.ok))
+        .catch(() => setStationWarning(true));
+    }, 3000);
+  }, []);
+  useEffect(() => () => {
+    if (stationTimer.current) clearTimeout(stationTimer.current);
+  }, []);
+
   // Checkpoints for this event; restore this device's last choice (§10.1).
   useEffect(() => {
     let stale = false;
@@ -84,12 +101,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       if (saved && list.some((c) => c.id === saved)) {
         setCheckpointId(saved);
         setCheckpointSetAt(performance.now());
+        saveStation(saved);
       } else setPickerOpen(true);
     });
     return () => {
       stale = true;
     };
-  }, [slug, toLogin]);
+  }, [slug, toLogin, saveStation]);
 
   // Keep the session cookie fresh during a long shift (access tokens expire hourly).
   useEffect(() => {
@@ -215,6 +233,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     setCheckpointSetAt(performance.now());
     setPickerOpen(false);
     setLastOwn(null);
+    saveStation(id);
   }
 
   async function undo(reason: string) {
@@ -256,6 +275,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           </span>
           <span className={styles.bannerName}>{checkpoint?.name ?? 'No checkpoint selected'}</span>
         </span>
+        {stationWarning && (
+          <span className={styles.bannerKind} role="status">
+            ! Station not saved: badge pages won’t show this checkpoint
+          </span>
+        )}
         <button type="button" className={styles.bannerButton} onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
           Change
         </button>

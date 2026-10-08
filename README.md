@@ -137,6 +137,7 @@ With `EMAIL_PROVIDER=console`, nothing is really emailed:
 | The full pass email | `.mail/*.eml`. Double-click to open it in Apple Mail. |
 | **The QR image alone** | **`.mail/qr/<Event>-<First>.png`**, e.g. `Demo-Hack-Day-Ada.png` |
 | QR images for the seeded demo people | `.seed/Demo-Hack-Day-<First>.png` |
+| Printed-badge QRs (60 seeded badges, the first 20 linked to people) | `.seed/badges/Demo-Hack-Day-B-0001.png` … |
 
 Every pass email also has a **Set up your profile** link (`/edit#…`). Opening it signs that person in at `localhost:3000/me` with a cookie, so use a private window if you're also signed in as staff in the same browser and want to keep the two apart. **Get a new link** on `/me` sends a `Your … profile link` email to `.mail/`.
 

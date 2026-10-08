@@ -1,4 +1,5 @@
-// `pnpm seed`: a demo event with 50 fake accepted participants and their QR PNGs in ./.seed/.
+// `pnpm seed`: a demo event with 50 fake accepted participants and their QR PNGs in ./.seed/, plus 60
+// badges (B-0001…) with the first 20 linked, and their printed-QR PNGs in ./.seed/badges/.
 // Local Supabase only. Uses supabase-js directly (no server-only modules) so it runs under tsx.
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -8,6 +9,8 @@ import { writeUniqueFile } from '@/lib/dev/files';
 import { toFileLabel } from '@/lib/domain/file-label';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { generateToken, sha256hex } from '@/lib/domain/token';
+import { randomBytes } from 'node:crypto';
+import { tagUrl } from '@/lib/badge/tags';
 import { renderQrPng } from '@/lib/qr/render';
 
 const SLUG = 'demo';
@@ -57,11 +60,20 @@ async function main() {
   if (cps.error) throw cps.error;
 
   // Dev staff: sign in at /login with these addresses; the links land in Mailpit (http://127.0.0.1:54324).
-  const invites = await db.from('staff_invites').insert([
-    { event_id: eventId, email: normalizeEmail('organizer@example.test'), role: 'organizer' },
-    { event_id: eventId, email: normalizeEmail('volunteer@example.test'), role: 'volunteer' },
-  ]);
+  // The organizer account is created now (badges must be registered and linked by a staff member); the
+  // volunteer is an invite, consumed on first sign-in as in production.
+  const organizerEmail = normalizeEmail('organizer@example.test');
+  const created = await db.auth.admin.createUser({ email: organizerEmail, email_confirm: true });
+  const organizerId =
+    created.data.user?.id ?? (await db.auth.admin.listUsers({ perPage: 1000 })).data.users.find((u) => u.email === organizerEmail)?.id;
+  if (!organizerId) throw new Error(`could not create ${organizerEmail}: ${created.error?.message ?? 'unknown'}`);
+  const prof = await db.from('staff_profiles').upsert({ user_id: organizerId, display_name: 'Demo Organizer' });
+  if (prof.error) throw prof.error;
+  const org = await db.from('event_staff').insert({ event_id: eventId, user_id: organizerId, role: 'organizer' });
+  if (org.error) throw org.error;
+  const invites = await db.from('staff_invites').insert([{ event_id: eventId, email: normalizeEmail('volunteer@example.test'), role: 'volunteer' }]);
   if (invites.error) throw invites.error;
+  const participantIds: string[] = [];
 
   // .seed/ only ever holds this script's output; clear images from earlier runs so names start at 1.
   const dir = join(process.cwd(), '.seed');
@@ -86,14 +98,35 @@ async function main() {
       .select('id')
       .single();
     if (p.error) throw p.error;
+    participantIds.push(p.data.id);
     const token = generateToken();
     const pass = await db.rpc('issue_pass', { p_participant_id: p.data.id, p_token_hash: sha256hex(token) });
     if (pass.error) throw pass.error;
     // "<Event>-<First>.png", with -2, -3… for repeated first names (same scheme as .mail/qr/).
     await writeUniqueFile(dir, toFileLabel(EVENT_NAME, first), '.png', await renderQrPng(`${origin}/p#${token}`));
   }
+  // PLAN §11.5: 60 badges through the real SQL functions (reserve → confirm with a fake chip serial);
+  // the first 20 are linked to the first 20 people. Printed QRs make NFC-less testing possible.
+  const badgeDir = join(dir, 'badges');
+  for (let i = 0; i < 60; i++) {
+    const publicId = randomBytes(9).toString('base64url');
+    const reserved = await db.rpc('reserve_tag', { p_event_id: eventId, p_staff_id: organizerId, p_public_id: publicId });
+    if (reserved.error) throw reserved.error;
+    const label = (reserved.data as { label?: string }).label ?? `B-${i + 1}`;
+    const uid = `04${randomBytes(6).toString('hex').toUpperCase()}`;
+    const confirmed = await db.rpc('register_tag', { p_event_id: eventId, p_staff_id: organizerId, p_public_id: publicId, p_uid: uid });
+    if (confirmed.error || confirmed.data !== 'REGISTERED') throw new Error(`register_tag: ${confirmed.error?.message ?? String(confirmed.data)}`);
+    const who = participantIds[i];
+    if (i < 20 && who) {
+      // p_uid is SQL null (look the badge up by public id); the generated types call every argument a string.
+      const linked = await db.rpc('assign_tag', { p_event_id: eventId, p_staff_id: organizerId, p_participant_id: who, p_public_id: publicId, p_uid: null as unknown as string });
+      if (linked.error) throw linked.error;
+    }
+    await writeUniqueFile(badgeDir, toFileLabel(EVENT_NAME, label), '.png', await renderQrPng(tagUrl(origin, publicId)));
+  }
+  console.log(`Badges: 60 registered (B-0001…B-0060), 20 linked. Printed QRs: .seed/badges/${toFileLabel(EVENT_NAME)}-B-0001.png …`);
   console.log(`Seeded event "${SLUG}" with 4 checkpoints and 50 participants. QR codes: .seed/${toFileLabel(EVENT_NAME)}-<First>.png`);
-  console.log('Staff invites: organizer@example.test, volunteer@example.test (sign-in links arrive in Mailpit at http://127.0.0.1:54324).');
+  console.log('Staff: organizer@example.test (organizer), volunteer@example.test (invite). Sign-in links arrive in Mailpit at http://127.0.0.1:54324.');
 }
 
 main().catch((err: unknown) => {

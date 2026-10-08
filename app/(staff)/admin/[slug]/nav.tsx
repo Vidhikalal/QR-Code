@@ -9,6 +9,7 @@ const TABS = [
   ['', 'Dashboard'],
   ['/participants', 'Participants'],
   ['/checkpoints', 'Checkpoints'],
+  ['/badges', 'Badges'],
   ['/staff', 'Staff'],
   ['/sync', 'Sync'],
   ['/export', 'Export'],

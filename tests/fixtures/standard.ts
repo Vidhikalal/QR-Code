@@ -44,6 +44,18 @@ export interface ScanArgs {
 }
 
 type Who = 'A' | 'B' | 'C' | 'Rv' | 'Wd' | 'T' | 'X' | 'N';
+export type BadgeName = 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | 'T6' | 'T7' | 'T8' | 'T9';
+export interface Badge {
+  id: string;
+  publicId: string;
+  uid: string;
+  label: string;
+}
+export interface Badges {
+  tag: Record<BadgeName, Badge>;
+  /** org1's own badge row (ensure_staff_attendee), wearing T3. */
+  orgRow: string;
+}
 type Staff = 'org1' | 'vol1' | 'vol2' | 'vol3';
 
 export interface StandardFixture {
@@ -66,6 +78,11 @@ export interface StandardFixture {
   checkIn(participantId: string, token?: string): Promise<void>;
   /** A fresh signed-up user with a display name and no event roles. */
   addUser(label: string): Promise<{ id: string; email: string }>;
+  /**
+   * PLAN §15.1 badges, created on demand: T1–T8 registered on E1 (T1, T2, T3 linked to A, B and org1's
+   * own badge row), T9 on E2. Uids are fake 7-byte serials.
+   */
+  addBadges(): Promise<Badges>;
   /** A fresh user linked as a platform admin (PLAN §6.2). Not staff on any event. */
   addPlatformAdmin(): Promise<{ id: string; email: string }>;
   close(): Promise<void>;
@@ -232,6 +249,29 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     if (r.code !== 'ACCEPTED') throw new Error(`fixture check-in failed: ${r.code}`);
   };
 
+  const addBadges = async (): Promise<Badges> => {
+    const make = async (eventId: string, n: number): Promise<Badge> => {
+      const publicId = randomBytes(9).toString('base64url');
+      const uid = `04${randomBytes(6).toString('hex').toUpperCase()}`;
+      const label = `T${n}`;
+      const row = await one<{ id: string }>(
+        `insert into tags (event_id, public_id, uid, label, registered_by) values ($1, $2, $3, $4, $5) returning id`,
+        [eventId, publicId, uid, label, staff.org1],
+      );
+      return { id: row.id, publicId, uid, label };
+    };
+    const tag = {} as Record<BadgeName, Badge>;
+    for (let n = 1; n <= 8; n++) tag[`T${n}` as BadgeName] = await make(e1.id, n);
+    tag.T9 = await make(e2.id, 9);
+    const org = await one<{ r: { participantId: string } }>('select ensure_staff_attendee($1, $2, $3) as r', [e1.id, staff.org1, 'org one']);
+    const orgRow = org.r.participantId;
+    for (const [who, t] of [[p.A, tag.T1], [p.B, tag.T2], [orgRow, tag.T3]] as const) {
+      const r = await one<{ r: { code: string } }>('select assign_tag($1, $2, $3, $4, null, false) as r', [e1.id, staff.org1, who, t.publicId]);
+      if (r.r.code !== 'ASSIGNED') throw new Error(`fixture badge link failed: ${r.r.code}`);
+    }
+    return { tag, orgRow };
+  };
+
   let users = 0;
   const addUser = async (label: string) => {
     users += 1;
@@ -263,6 +303,7 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     addParticipant,
     checkIn,
     addUser,
+    addBadges,
     addPlatformAdmin,
     close: () => pool.end(),
   };

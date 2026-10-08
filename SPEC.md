@@ -341,6 +341,14 @@ end $$;
 - **Public profile (I-19):** everything non-staff see about a badge holder comes from `toPublicProfile()` (`lib/profile/public.ts`): display name (nickname, else "First L."), role label, pronouns/program/year/bio, LinkedIn/GitHub/website, "Ask me about…" (organizers and mentors only), Discord (only with `FEATURE_EXTRA_BADGE_ROLES`). Hidden by the owner **or** by staff (staff wins) → name and label only. Never email, photo, dietary notes, status, scans or ids. `components/public-profile-card.tsx` renders it as text.
 - `lib/profile/schema.ts` mirrors every `profiles` check for friendly 400s; the database stays the authority (T-PROF-03/04 share one case table).
 
+### 5.4 Badges (v2, migration `v2_tags`)
+
+- `tags`: one row per NFC badge, single-event. `public_id` (12 base64url chars, minted by the server, in the URL `${APP_ORIGIN}/t/<public_id>` written on the tag), `uid` (the chip serial, uppercase hex; null while reserved), `label` (`B-0001`… sequential per event, unique per event), `retired_at` / `retire_reason` (`replaced` | `damaged`). A badge id identifies, never authorizes (I-16).
+- `tag_assignments`: badge ↔ person links. Composite same-event FKs; at most one active link per badge and per person. `end_reason` `replaced` | `unassigned` | `participant_removed`.
+- Functions: `reserve_tag` (organizer; event-row lock assigns the next label), `register_tag` (reserve with uid null, confirm with the uid; `REGISTERED | ALREADY_REGISTERED | UID_CONFLICT | PUBLIC_ID_CONFLICT | FORBIDDEN`), `assign_tag` (participant lock, then tag lock (I-21); `ASSIGNED | ALREADY_ASSIGNED | TAG_IN_USE | PARTICIPANT_HAS_TAG | TAG_NOT_FOUND | TAG_WRONG_EVENT | TAG_RETIRED | NOT_FOUND | NOT_ACCEPTED | FORBIDDEN`; `replace` ends and retires the old badge), `unassign_tag` (volunteers: own link ≤ 120 s; organizers: any), `tag_view`.
+- `staff_stations(user, event, checkpoint)` + `set_staff_station`: the checkpoint a staff member is working, saved by the scanner's picker, so a badge page on the ME host can offer the right action.
+- The §5.1 tombstone also ends the person's badge link (`participant_removed`).
+
 ---
 
 ## 6. Tokens, passes & QR codes
@@ -814,6 +822,12 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/me/photo` | participant cookie; `Origin` check; 10/h | F15; 409 `PHOTO_LOCKED` after door check-in |
 | `POST /api/admin/:slug/participants/:id/hide-profile` | organizer (both hosts) | F15 abuse switch |
 | `POST /api/staff/hop` | staff of the event (organizers; volunteers with `FEATURE_EXTRA_BADGE_ROLES`) | F15 My badge profile → `{url}` |
+| `GET /api/admin/:slug/tags` | organizer | Badges page: counts (registered / linked / not linked / deactivated / reserved) and list |
+| `POST /api/admin/:slug/tags/reserve` · `/confirm` | organizer; reserve 600/h | Register flow: server-minted id + label, then the chip serial |
+| `POST /api/admin/:slug/tags/import` | organizer; CSV ≤ 1 MB, ≤ 2,000 rows | Vendor list; per-row codes in order |
+| `GET /api/admin/:slug/tags/export-ids?count=` | organizer; 1–1,000 | Reserves ids → CSV `url,public_id,label` via `toCsv()` |
+| `POST /api/tags/assign` · `/api/tags/unassign` | staff of the event (both hosts) | Link / replace / undo a badge |
+| `POST /api/stations` | staff of the event (both hosts) | Save the scanner's current checkpoint |
 | `POST /api/participants/:id/signin-code` | staff of the person's event (both hosts) | F18b; `{url, expiresAt}`; 403 other event, 409 not eligible |
 
 ---
@@ -902,6 +916,7 @@ The header of every `/admin/[slug]` page has an **event switcher** (the user's e
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
+| Badges | Counts, list with holder, **Import CSV** (per-row results), **Export ids** for a vendor, **Print sheet** (`/badges/print`: one QR of the badge URL plus the label per badge, opaque white, print layout). |
 | Settings | Leaderboard refresh, organizer bonus, organizers compete, badge unlock password (masked, Reveal), profile retention days (F14). |
 
 ---
@@ -1217,6 +1232,11 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SESS-09 | `organizer_hop` code by someone else / by the owner | `FORBIDDEN` / `ISSUED` | I |
 | T-BADGE-02 (profile part) | Deep key scan of every `toPublicProfile` output | no email, photo, dietary, status, scans or id keys | U |
 | T-SEC2-05 | Profile fields with `<img onerror>` / `"><script>` | rendered as text on `/me` and in the admin drawer | E |
+| T-TAG-01…12 | `assign_tag`, `register_tag`, `unassign_tag` scenarios | per PLAN §15.6 | I |
+| T-TAG-13 | CSV import with good, duplicate and malformed rows; 2,001 rows | per-row codes; 400 | I+E |
+| T-TAG-14 | `export-ids?count=200` | 200 unique reserved ids, CSV via `toCsv()` | I |
+| T-NFC-01…03 | Minted ids; `parseTagUrl`; `normalizeUid` | unique 12-char base64url; exact URL only; uppercase hex or null | U |
+| T-CONC2-04…06 | One badge × 10 people; 10 badges × one person; 9 parallel replacements | 1 + 9 `TAG_IN_USE`; 1 + 9 `PARTICIPANT_HAS_TAG`; exactly one active badge | I |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1403,7 +1423,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges.
 
 ---
 

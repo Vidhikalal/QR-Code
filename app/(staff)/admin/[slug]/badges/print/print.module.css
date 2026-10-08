@@ -1,0 +1,11 @@
+.sheet { background: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.card { margin: 0; padding: 10px; border: 1px dashed #bbb; text-align: center; break-inside: avoid; }
+.card img { display: block; margin: 0 auto; background: #fff; image-rendering: pixelated; }
+.card figcaption { font-weight: 700; font-size: 18px; margin-top: 4px; }
+.screenOnly { color: #555; }
+@media print {
+  :global(header), .screenOnly { display: none !important; }
+  .grid { grid-template-columns: repeat(4, 1fr); gap: 6mm; }
+  .card { border-color: #ddd; }
+}

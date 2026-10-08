@@ -752,6 +752,137 @@ export type Database = {
         }
         Relationships: []
       }
+      staff_stations: {
+        Row: {
+          checkpoint_id: string
+          event_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          checkpoint_id: string
+          event_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          checkpoint_id?: string
+          event_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_stations_checkpoint_id_event_id_fkey"
+            columns: ["checkpoint_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "checkpoints"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "staff_stations_checkpoint_id_event_id_fkey"
+            columns: ["checkpoint_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "v_checkpoint_counts"
+            referencedColumns: ["checkpoint_id", "event_id"]
+          },
+        ]
+      }
+      tag_assignments: {
+        Row: {
+          assigned_at: string
+          assigned_by: string
+          end_reason: string | null
+          ended_at: string | null
+          ended_by: string | null
+          event_id: string
+          id: string
+          participant_id: string
+          tag_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by: string
+          end_reason?: string | null
+          ended_at?: string | null
+          ended_by?: string | null
+          event_id: string
+          id?: string
+          participant_id: string
+          tag_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string
+          end_reason?: string | null
+          ended_at?: string | null
+          ended_by?: string | null
+          event_id?: string
+          id?: string
+          participant_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tag_assignments_participant_id_event_id_fkey"
+            columns: ["participant_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "tag_assignments_tag_id_event_id_fkey"
+            columns: ["tag_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id", "event_id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          event_id: string
+          id: string
+          label: string | null
+          public_id: string
+          registered_at: string
+          registered_by: string | null
+          retire_reason: string | null
+          retired_at: string | null
+          uid: string | null
+        }
+        Insert: {
+          event_id: string
+          id?: string
+          label?: string | null
+          public_id: string
+          registered_at?: string
+          registered_by?: string | null
+          retire_reason?: string | null
+          retired_at?: string | null
+          uid?: string | null
+        }
+        Update: {
+          event_id?: string
+          id?: string
+          label?: string | null
+          public_id?: string
+          registered_at?: string
+          registered_by?: string | null
+          retire_reason?: string | null
+          retired_at?: string | null
+          uid?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       v_checkpoint_counts: {
@@ -779,11 +910,32 @@ export type Database = {
         Args: { pa: Database["public"]["Tables"]["participants"]["Row"] }
         Returns: boolean
       }
+      _find_tag: {
+        Args: { p_public_id: string; p_uid: string }
+        Returns: {
+          event_id: string
+          id: string
+          label: string | null
+          public_id: string
+          registered_at: string
+          registered_by: string | null
+          retire_reason: string | null
+          retired_at: string | null
+          uid: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "tags"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       _labels_ok: { Args: { a: string[] }; Returns: boolean }
       _prior: {
         Args: { me: string; s: Database["public"]["Tables"]["scans"]["Row"] }
         Returns: Json
       }
+      _tag_holder: { Args: { p_participant_id: string }; Returns: Json }
       _who: {
         Args: {
           k: Database["public"]["Enums"]["checkpoint_kind"]
@@ -828,6 +980,17 @@ export type Database = {
           source: string
           status: Database["public"]["Enums"]["participant_status"]
         }[]
+      }
+      assign_tag: {
+        Args: {
+          p_event_id: string
+          p_participant_id: string
+          p_public_id: string
+          p_replace?: boolean
+          p_staff_id: string
+          p_uid: string
+        }
+        Returns: Json
       }
       claim_outbox: {
         Args: { p_limit?: number }
@@ -993,6 +1156,16 @@ export type Database = {
         Args: { p_code_hash: string; p_session_hash: string; p_ttl: string }
         Returns: Json
       }
+      register_tag: {
+        Args: {
+          p_event_id: string
+          p_label?: string
+          p_public_id: string
+          p_staff_id: string
+          p_uid: string
+        }
+        Returns: string
+      }
       remove_staff: {
         Args: { p_actor: string; p_event_id: string; p_user_id: string }
         Returns: string
@@ -1000,6 +1173,10 @@ export type Database = {
       request_profile_link: {
         Args: { p_participant_id: string }
         Returns: string
+      }
+      reserve_tag: {
+        Args: { p_event_id: string; p_public_id: string; p_staff_id: string }
+        Returns: Json
       }
       revoke_pass: {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
@@ -1022,6 +1199,15 @@ export type Database = {
         }[]
       }
       session_participant: { Args: { p_session_hash: string }; Returns: string }
+      set_staff_station: {
+        Args: { p_checkpoint_id: string; p_user_id: string }
+        Returns: string
+      }
+      tag_view: { Args: { p_public_id: string }; Returns: Json }
+      unassign_tag: {
+        Args: { p_assignment_id: string; p_staff_id: string }
+        Returns: string
+      }
       void_scan: {
         Args: { p_reason: string; p_scan_id: string; p_staff_user_id: string }
         Returns: Json
