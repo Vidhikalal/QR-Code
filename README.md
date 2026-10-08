@@ -176,7 +176,7 @@ For a Sheet to connect:
    If your questions are worded differently, edit the values in `HEADERS` rather than renaming columns. Google's built-in "Collect email addresses" setting already produces `Email Address`.
 3. **Status** is Accepted, Waitlisted, Rejected or Withdrawn. Blank means undecided.
 4. **Settings:**
-   - `ENDPOINT`: app URL + `/api/ingest/sheet`
+   - `ENDPOINT`: app URL + `/api/ingest/sheet` (in production, the **admin** host)
    - `EVENT_SLUG`: an event that exists **right now** (after a reset, only `demo`, and only once you've re-seeded)
    - `INGEST_SECRET`: the same value as `SHEET_INGEST_SECRET` in `.env.local`
 5. **Exactly one pair of triggers** (On form submit, On edit). Check at [script.google.com/home/triggers](https://script.google.com/home/triggers). Leftover triggers from an older script keep calling old addresses; delete them.

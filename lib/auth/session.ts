@@ -1,6 +1,7 @@
 import 'server-only';
 import { createServerClient, parseCookieHeader } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { AUTH_COOKIE_DOMAIN, authCookieOptions } from '@/lib/auth/cookie-options';
 import { env } from '@/lib/env';
 
 export interface SessionUser {
@@ -17,6 +18,7 @@ export const cookieAuthenticator: Authenticate = async (request) => {
   const jar = parseCookieHeader(request.headers.get('cookie') ?? '');
   if (!jar.some((c) => c.name.startsWith('sb-'))) return null;
   const supabase = createServerClient(env().NEXT_PUBLIC_SUPABASE_URL, env().NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+    ...authCookieOptions(AUTH_COOKIE_DOMAIN),
     cookies: {
       getAll: () => jar.map((c) => ({ name: c.name, value: c.value ?? '' })),
       setAll: () => undefined, // refreshed cookies are written by proxy.ts, not by API routes
@@ -30,6 +32,7 @@ export const cookieAuthenticator: Authenticate = async (request) => {
 export async function supabaseForRequest() {
   const store = await cookies();
   return createServerClient(env().NEXT_PUBLIC_SUPABASE_URL, env().NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+    ...authCookieOptions(AUTH_COOKIE_DOMAIN),
     cookies: {
       getAll: () => store.getAll(),
       setAll: (toSet) => {

@@ -41,3 +41,12 @@ export async function listEventsFor(db: Db, userId: string): Promise<EventListIt
 export function eventHome(e: Pick<EventListItem, 'slug' | 'myRole'>): string {
   return e.myRole === 'volunteer' ? `/scan/${e.slug}` : `/admin/${e.slug}`;
 }
+
+/** /signin's event picker: events that ended at most 30 days ago or haven't ended. Names only. */
+export async function signinEvents(db: Db, now: Date = new Date()): Promise<Array<{ slug: string; name: string }>> {
+  const since = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  // The 50 most recent, soonest first (PostgREST caps unbounded selects, which would cut the newest).
+  const { data, error } = await db.from('events').select('slug, name, starts_at').gte('ends_at', since).order('starts_at', { ascending: false }).limit(50);
+  if (error) throw new Error(`events load failed (${error.code})`);
+  return data.reverse().map(({ slug, name }) => ({ slug, name }));
+}

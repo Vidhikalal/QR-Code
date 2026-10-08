@@ -159,8 +159,9 @@ site_url = "http://localhost:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-# Passline: the magic-link callback on the dev server (3000) and the e2e server (3100).
-additional_redirect_urls = ["http://localhost:3000/auth/callback**", "http://localhost:3100/auth/callback**"]
+# Passline: the magic-link callback on the dev server (3000), the e2e server (3100), and the two-host
+# e2e server's ADMIN host (3101; playwright.hosts.config.ts maps *.passline.test to 127.0.0.1).
+additional_redirect_urls = ["http://localhost:3000/auth/callback**", "http://localhost:3100/auth/callback**", "http://admin.passline.test:3101/auth/callback**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.

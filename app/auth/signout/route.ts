@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { redirectTo } from '@/lib/http/redirect';
 import { supabaseForRequest } from '@/lib/auth/session';
 import { route } from '@/lib/http/route';
 
-export const POST = route(async (request) => {
+export const POST = route(async () => {
   await (await supabaseForRequest()).auth.signOut();
-  return NextResponse.redirect(new URL('/login', request.url), { status: 303 });
+  return redirectTo('/login', 303);
 });

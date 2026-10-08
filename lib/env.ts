@@ -5,6 +5,10 @@ import { z } from 'zod';
 export const serverEnvSchema = z
   .object({
     NEXT_PUBLIC_APP_ORIGIN: z.url().refine((u) => new URL(u).origin === u, 'must be a bare origin, no trailing slash'),
+    // PLAN §5.1: the staff host. Defaults to NEXT_PUBLIC_APP_ORIGIN (single host in dev).
+    NEXT_PUBLIC_ADMIN_ORIGIN: z.url().refine((u) => new URL(u).origin === u, 'must be a bare origin, no trailing slash').optional(),
+    // Parent domain shared by both hosts, e.g. ".yourclub.ca", so staff sessions reach the ME host.
+    NEXT_PUBLIC_AUTH_COOKIE_DOMAIN: z.string().regex(/^\.?[a-z0-9.-]+$/, 'a domain like .yourclub.ca').optional(),
     NEXT_PUBLIC_SUPABASE_URL: z.url(),
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
@@ -30,6 +34,9 @@ export const serverEnvSchema = z
   });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
+
+/** The staff (ADMIN) origin: NEXT_PUBLIC_ADMIN_ORIGIN, else the ME origin. */
+export const adminOrigin = (e: ServerEnv): string => e.NEXT_PUBLIC_ADMIN_ORIGIN ?? e.NEXT_PUBLIC_APP_ORIGIN;
 
 export function parseServerEnv(source: Record<string, string | undefined>): ServerEnv {
   // Empty strings in .env files mean "unset".

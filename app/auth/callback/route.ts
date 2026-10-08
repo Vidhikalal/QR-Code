@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
 import { consumeInvites, consumePlatformAdmin } from '@/lib/auth/invites';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { supabaseForRequest } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { redirectTo } from '@/lib/http/redirect';
 import { route } from '@/lib/http/route';
 
 // SPEC F9 / PLAN F13: finish the magic-link sign-in, consume invites and platform-admin status for
@@ -15,12 +15,12 @@ export const GET = route(async (request) => {
   const { data, error } = code ? await supabase.auth.exchangeCodeForSession(code) : { data: null, error: true };
   const user = data?.user;
   if (error || !user) {
-    return NextResponse.redirect(new URL(`/login?error=link&next=${encodeURIComponent(next)}`, url.origin));
+    return redirectTo(`/login?error=link&next=${encodeURIComponent(next)}`);
   }
   const who = { id: user.id, email: user.email ?? null };
   await consumeInvites(db(), who);
   await consumePlatformAdmin(db(), who);
   const { data: profile } = await db().from('staff_profiles').select('user_id').eq('user_id', user.id).maybeSingle();
   const target = profile ? next : `/onboarding?next=${encodeURIComponent(next)}`;
-  return NextResponse.redirect(new URL(target, url.origin));
+  return redirectTo(target);
 });

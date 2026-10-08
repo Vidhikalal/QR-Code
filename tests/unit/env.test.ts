@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseServerEnv } from '@/lib/env';
+import { adminOrigin, parseServerEnv } from '@/lib/env';
 
 const valid = {
   NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000',
@@ -56,5 +56,13 @@ describe('lib/env (S0 smoke)', () => {
     expect(parseServerEnv(valid).PARTICIPANT_SESSION_DAYS).toBe(30);
     expect(parseServerEnv({ ...valid, PARTICIPANT_SESSION_DAYS: '7' }).PARTICIPANT_SESSION_DAYS).toBe(7);
     expect(() => parseServerEnv({ ...valid, PARTICIPANT_SESSION_DAYS: '1.5' })).toThrow(/PARTICIPANT_SESSION_DAYS/);
+  });
+
+  it('V2b: the ADMIN origin defaults to the ME origin; both must be bare origins', () => {
+    expect(adminOrigin(parseServerEnv(valid))).toBe('http://localhost:3000');
+    expect(adminOrigin(parseServerEnv({ ...valid, NEXT_PUBLIC_ADMIN_ORIGIN: 'https://admin.club.test' }))).toBe('https://admin.club.test');
+    expect(() => parseServerEnv({ ...valid, NEXT_PUBLIC_ADMIN_ORIGIN: 'https://admin.club.test/' })).toThrow(/ADMIN_ORIGIN/);
+    expect(parseServerEnv({ ...valid, NEXT_PUBLIC_AUTH_COOKIE_DOMAIN: '.club.test' }).NEXT_PUBLIC_AUTH_COOKIE_DOMAIN).toBe('.club.test');
+    expect(() => parseServerEnv({ ...valid, NEXT_PUBLIC_AUTH_COOKIE_DOMAIN: 'https://club.test' })).toThrow(/AUTH_COOKIE_DOMAIN/);
   });
 });

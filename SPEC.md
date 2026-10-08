@@ -111,6 +111,15 @@ Google Form ──► Google Sheet ──(Apps Script onEdit, HMAC-signed POST)�
 | Image processing | `sharp` | Resize, auto-orient, strip metadata |
 | Tests | Vitest (unit + integration), Playwright (e2e), pgTAP optional | See §14 |
 
+### 4.1 Two hostnames (v2, PLAN §5.1, I-23)
+
+One deployment answers on two hosts: **ME** (`NEXT_PUBLIC_APP_ORIGIN`: passes, `/edit`, `/signin`, `/me`, badge pages) and **ADMIN** (`NEXT_PUBLIC_ADMIN_ORIGIN`: everything staff). `proxy.ts` decides by the request's `Host` header (`routeForHost()`, `lib/domain/host-routing.ts`):
+- ME host: participant pages and APIs (`/p`, `/edit`, `/signin`, `/me/**`, `/t/**`, `/api/me/**`, `/api/t/**`, `/api/pass/**`, `/api/signin/**`), the staff APIs a badge page needs (`/api/scan`, `/api/tags/**`, `/api/stations`, `/api/participants/*/signin-code`, `/api/admin/*/participants/*/hide-profile`) and `/_next/**`. Anything else is 404.
+- ADMIN host: everything except the participant-only paths (404).
+- Equal origins (dev) or any other host (preview deployments, dev tunnels): no filtering. Handlers authorize regardless.
+- The staff Supabase cookie uses `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` (e.g. `.yourclub.ca`) in every Supabase client, so a staff session from the ADMIN host is recognized on the ME host. The participant cookie stays host-only on ME.
+- Redirects stay on the host the browser used: route handlers send a relative `Location`; `proxy.ts` builds an absolute URL from the `Host` header.
+
 ### Architectural principles
 
 1. **The browser never queries Supabase tables.** All data access goes through Next.js route handlers or server actions. These use a server-only service-role client **after** an explicit authorization check. RLS is enabled on every table with **no policies** (deny-all), so a leaked anon key exposes nothing. DECISION: this centralizes authorization in app code, which is easier to reason about than per-table policies for a small team. The cost is that route-level authorization tests are mandatory (T-SEC-04).
@@ -531,6 +540,14 @@ The drainer issues the pass (`issue_pass`) **and** a fresh edit key (`issue_prof
 - **Get a new link** (`POST /api/me/rotate`, confirm dialog): `rotate_profile_keys` revokes every key and session, `request_profile_link` queues a `profile_link` email (drained right after the response), and the cookie is cleared.
 - Every participant mutation requires `Origin` = `APP_ORIGIN` (403 otherwise).
 
+### F18b — Recovery without the original link (v2)
+
+| Situation | Path | Notes |
+|---|---|---|
+| Lost the email, has the address | `/signin` → event + email → `POST /api/signin/request` → `request_profile_link` | Always `{code:'SENT_IF_REGISTERED'}` (no enumeration). 3/h per address, 20/h per IP. The email goes only to the address on file. |
+| No access to email | Staff → Participants → **Show sign-in code** → `POST /api/participants/:id/signin-code` (`issue_signin_code(…, 'staff_handoff')`) → QR of `${APP_ORIGIN}/signin#<code>`, valid 2 minutes, single use | Any staff member of the person's event. The participant scans it with their own camera; `/signin` strips the fragment, then `POST /api/me/session/code` (`redeem_signin_code`). |
+| Link from the error page | `/edit` errors offer **Email me a link** → `/signin` | |
+
 ### F13 — Platform admin bootstrap (v2)
 
 1. `pnpm admin:add ade@yourclub.ca` inserts into `platform_admins`. It refuses a non-local Supabase without `--yes`.
@@ -782,6 +799,9 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `DELETE /api/me/session` | participant cookie; `Origin` check | F18 sign out this device |
 | `POST /api/me/rotate` | participant cookie; `Origin` check | F18 Get a new link |
 | `GET /api/me` | participant cookie | `/me` summary (first name, event) |
+| `POST /api/me/session/code` | sign-in code in body; 30/min/IP; `Origin` check | F18b; `OPENED` sets the cookie, else `CODE_INVALID` |
+| `POST /api/signin/request` | public; `Origin` check; 3/h per address, 20/h per IP | F18b; always `SENT_IF_REGISTERED` |
+| `POST /api/participants/:id/signin-code` | staff of the person's event (both hosts) | F18b; `{url, expiresAt}`; 403 other event, 409 not eligible |
 
 ---
 
@@ -1174,6 +1194,13 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC2-06 | Participant mutation with a foreign or missing `Origin` | 403, no writes | I |
 | T-OUT-01..03, 05 | Outbox kind groups; secrets committed before send | per PLAN §15.10 | I |
 | T-ADM-05 (v2) | Tombstone | profile deleted; keys revoked `deleted`; sessions ended | I |
+| T-SESS-07 | Staff hand-off: other-event staff; redeem twice; expired | 403; `OPENED` then `CODE_INVALID`; `CODE_INVALID` | I+E |
+| T-SESS-08 | Email me a link: registered vs unknown | byte-identical responses; only the registered address gets a link; 4th in an hour → 429 | I+E |
+| T-CONC2-07 | One sign-in code redeemed 10× in parallel | 1 `OPENED`, 9 `CODE_INVALID` | I |
+| T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
+| T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
+| T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
+| T-HOST-04 | Staff signs in on ADMIN | cookie `Domain=.passline.test`; a staff API on the ME host authorizes (the badge-page half lands with V4) | E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1347,6 +1374,8 @@ Each slice ends with its tests green in CI and a short demo.
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
 | `PARTICIPANT_SESSION_DAYS` | server | v2 participant session lifetime in days (1–365, default 30) |
+| `NEXT_PUBLIC_ADMIN_ORIGIN` | client+server | v2 staff host (§4.1); defaults to `NEXT_PUBLIC_APP_ORIGIN` |
+| `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` | client+server | v2 parent domain for the staff session cookie (§4.1), e.g. `.yourclub.ca`; empty in dev. (PLAN called it `AUTH_COOKIE_DOMAIN`; the browser client needs it, so it is `NEXT_PUBLIC_`.) |
 | `FEATURE_EXTRA_BADGE_ROLES`, `FEATURE_HUNT`, `FEATURE_SHIFTS` | server | v2 feature flags (PLAN §2.3); default `false`. Off = no routes (404), no UI |
 
 ---
@@ -1354,7 +1383,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects.
 
 ---
 

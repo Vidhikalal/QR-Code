@@ -21,7 +21,8 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 | Lint | `pnpm lint` |
 | Unit tests | `pnpm test:unit` |
 | Integration tests (needs local Supabase) | `pnpm test:int` |
-| E2E | `pnpm test:e2e` |
+| E2E | `pnpm test:e2e` (main config, then the two-host config) |
+| E2E, two hostnames only (`*.passline.test` → 127.0.0.1, port 3101) | `pnpm test:e2e:hosts` |
 | Everything CI runs | `pnpm check` (typecheck + lint + unit + int) |
 | Start/stop local DB | `supabase start` / `supabase stop` |
 | Reset DB (re-run all migrations + seed) | `pnpm db:reset` (`supabase db reset`) |
@@ -218,6 +219,7 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
 - **Cookies don't cross origins.** The scanner (ADMIN) and badge pages (ME) share only the Supabase cookie (parent domain) and server-side `staff_stations`, not `localStorage`.
 - **The edit-link page must strip the fragment with `history.replaceState`** before doing anything else.
 - **Opening a badge page must never write** (link previews, prefetch, OS NFC handlers).
+- **In `proxy.ts`, read the `Host` header, not `request.nextUrl.host`.** `next dev` rewrites `nextUrl` and `request.url` to the address it listens on (`localhost:3101`), so host checks and absolute redirects built from them are wrong behind two hostnames. In route handlers, redirect with a relative `Location` (`redirectTo()` in `lib/http/redirect.ts`). In `proxy.ts` itself, Next only follows **absolute** redirects, so build them from the `Host` header.
 - **Playwright can't emulate NFC.** Inject the fake `NfcReader`; use the printed-QR path for camera e2e.
 
 <!-- BEGIN:nextjs-agent-rules -->

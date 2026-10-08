@@ -14,3 +14,5 @@
 .dialog { border: 0; border-radius: 16px; padding: 20px; width: min(92vw, 420px); color: var(--fg); }
 .dialog::backdrop { background: rgba(0, 0, 0, 0.5); }
 .dialog h2 { margin-top: 0; }
+.field { display: grid; gap: 4px; font-size: 14px; margin: 10px 0; }
+.input { min-height: 44px; padding: 0 10px; font: inherit; border: 1px solid var(--line); border-radius: 10px; background: #fff; }

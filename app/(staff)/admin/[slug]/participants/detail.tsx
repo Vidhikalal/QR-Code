@@ -6,6 +6,7 @@ import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 import { VoidDialog } from '../dialog';
 import { fullName } from './name';
+import { SigninCodeDialog } from './signin-code-dialog';
 
 interface Detail {
   participant: {
@@ -38,6 +39,7 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
   const [timezone, setTimezone] = useState<string>('UTC');
   const [voiding, setVoiding] = useState<Detail['scans'][number] | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [showCode, setShowCode] = useState(false);
 
   const load = useCallback(async () => {
     const [d, e] = await Promise.all([
@@ -102,6 +104,14 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
           )}
         </dl>
       </div>
+      {p.status === 'accepted' && (
+        <div className={styles.actions}>
+          <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setShowCode(true)}>
+            Show sign-in code
+          </button>
+        </div>
+      )}
+      {showCode && <SigninCodeDialog participantId={p.id} name={name} onClose={() => setShowCode(false)} />}
       {message && (
         <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
           {message}

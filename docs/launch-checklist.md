@@ -21,13 +21,18 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 ### Vercel
 - [ ] Import the repo. Set the function region to match Supabase (§15).
 - [ ] Environment variables (SPEC §19):
-      `NEXT_PUBLIC_APP_ORIGIN`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+      `NEXT_PUBLIC_APP_ORIGIN` (the **ME** host, e.g. `https://me.yourclub.ca`; it goes into every QR and badge, so pick it once),
+      `NEXT_PUBLIC_ADMIN_ORIGIN` (the staff host, e.g. `https://admin.yourclub.ca`), `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` (e.g. `.yourclub.ca`),
+      `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
       `SHEET_INGEST_SECRET` and `DRAIN_SECRET` (`openssl rand -hex 32` each), `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
       `EMAIL_FROM`, and optionally `GOOGLE_SERVICE_ACCOUNT_JSON` for Sync now.
-- [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
+- [ ] Add both hostnames to the Vercel project (one deployment answers on both).
+- [ ] In Supabase Auth → URL configuration, allow `https://<admin-host>/auth/callback**`.
+- [ ] Deploy, then open `https://<admin-host>/login` (loads) and `https://<me-host>/login` (404: staff pages only answer on the admin host).
+- [ ] Turning on `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` after staff have signed in: they sign in once more.
 
 ### Scheduler (outbox drain every minute, retention daily)
-In the Supabase SQL editor, enable `pg_cron` and `pg_net` (Database → Extensions), then run the following. Replace `<origin>` and `<DRAIN_SECRET>` with your values; store the secret in Vault if you prefer:
+In the Supabase SQL editor, enable `pg_cron` and `pg_net` (Database → Extensions), then run the following. Replace `<origin>` with the **ADMIN** origin and `<DRAIN_SECRET>` with your values; store the secret in Vault if you prefer:
 
 ```sql
 select cron.schedule('passline-drain', '* * * * *', $$
@@ -51,7 +56,7 @@ $$);
 
 ### Google Sheet + Apps Script (SPEC Appendix A)
 - [ ] Add the columns `Applicant ID`, `Status` (with data validation) and `Sync Status`.
-- [ ] Paste `apps-script/Code.gs`, set the script properties `ENDPOINT=<origin>/api/ingest/sheet`, `EVENT_SLUG` and `INGEST_SECRET` (= `SHEET_INGEST_SECRET`), and add the two installable triggers.
+- [ ] Paste `apps-script/Code.gs`, set the script properties `ENDPOINT=<admin-origin>/api/ingest/sheet`, `EVENT_SLUG` and `INGEST_SECRET` (= `SHEET_INGEST_SECRET`), and add the two installable triggers.
 - [ ] For Sync now: share the Sheet (view only) with the service-account email, then link it on `/admin/<slug>/sync`.
 
 ---

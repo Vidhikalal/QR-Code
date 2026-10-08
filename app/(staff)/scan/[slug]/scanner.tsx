@@ -1,6 +1,7 @@
 'use client';
 
 import { createBrowserClient } from '@supabase/ssr';
+import { AUTH_COOKIE_DOMAIN, authCookieOptions } from '@/lib/auth/cookie-options';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { parseScannedText } from '@/lib/domain/scanned-text';
@@ -92,7 +93,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
   // Keep the session cookie fresh during a long shift (access tokens expire hourly).
   useEffect(() => {
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '');
+    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '', authCookieOptions(AUTH_COOKIE_DOMAIN));
     void supabase.auth.getSession();
     return () => void supabase.auth.stopAutoRefresh();
   }, []);

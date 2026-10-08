@@ -1,32 +1,19 @@
-import { createServerClient } from '@supabase/ssr';
-import { NextResponse, type NextRequest } from 'next/server';
+import type { NextRequest } from 'next/server';
+import { createProxy } from '@/lib/http/proxy';
 
-// Next.js 16 "proxy" (formerly middleware). Refreshes the Supabase session cookie on staff pages and
-// sends signed-out visitors to /login with a way back. Authorization is NOT done here: every route
-// handler checks the session and requireStaff() itself.
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
-  const supabase = createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '', {
-    cookies: {
-      getAll: () => request.cookies.getAll(),
-      setAll: (toSet, headers) => {
-        for (const { name, value } of toSet) request.cookies.set(name, value);
-        response = NextResponse.next({ request });
-        for (const { name, value, options } of toSet) response.cookies.set(name, value, options);
-        for (const [key, value] of Object.entries(headers)) response.headers.set(key, value);
-      },
-    },
-  });
-  const { data } = await supabase.auth.getUser();
+// See lib/http/proxy.ts. Runs on every path except Next's static files (host separation needs that).
+const handler = createProxy({
+  meOrigin: process.env.NEXT_PUBLIC_APP_ORIGIN ?? 'http://localhost:3000',
+  adminOrigin: process.env.NEXT_PUBLIC_ADMIN_ORIGIN || process.env.NEXT_PUBLIC_APP_ORIGIN || 'http://localhost:3000',
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? '',
+  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
+  cookieDomain: process.env.NEXT_PUBLIC_AUTH_COOKIE_DOMAIN || undefined,
+});
 
-  if (!data.user) {
-    const login = new URL('/login', request.url);
-    login.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
-    return NextResponse.redirect(login);
-  }
-  return response;
+export function proxy(request: NextRequest) {
+  return handler(request);
 }
 
 export const config = {
-  matcher: ['/scan/:path*', '/admin/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import styles from '../me.module.css';
@@ -50,7 +51,12 @@ export function EditLink() {
             <p role="alert" className={`${styles.alert} ${styles.alertBad}`}>
               ✕ {MESSAGES[state]}
             </p>
-            <p className={styles.muted}>Lost the email? Ask an organizer at the event.</p>
+            <div className={styles.actions}>
+              <Link href="/signin" className="button">
+                Email me a link
+              </Link>
+            </div>
+            <p className={styles.muted}>No access to your email? A staff member at the event can sign you in.</p>
           </>
         )}
       </div>

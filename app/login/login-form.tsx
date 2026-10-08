@@ -2,6 +2,7 @@
 
 import { createBrowserClient } from '@supabase/ssr';
 import { useState } from 'react';
+import { AUTH_COOKIE_DOMAIN, authCookieOptions } from '@/lib/auth/cookie-options';
 import styles from './login.module.css';
 
 export function LoginForm({ next }: { next: string }) {
@@ -11,7 +12,7 @@ export function LoginForm({ next }: { next: string }) {
     e.preventDefault();
     const email = String(new FormData(e.currentTarget).get('email') ?? '').trim();
     setState('sending');
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '');
+    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '', authCookieOptions(AUTH_COOKIE_DOMAIN));
     const redirect = new URL('/auth/callback', window.location.origin);
     redirect.searchParams.set('next', next);
     const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect.toString() } });

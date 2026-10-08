@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
+import { normalizeEmail } from '@/lib/domain/normalize';
 import { generateSecret, sha256hex } from '@/lib/domain/token';
 import { fromOrigin } from '@/lib/http/origin';
 import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
@@ -23,6 +24,11 @@ const json = (body: unknown, status = 200, cookie?: string) =>
 
 const keyBody = z.object({ key: z.string().min(1).max(512) }).strict();
 const openResult = z.object({ code: z.enum(['OPENED', 'KEY_NOT_FOUND', 'KEY_REVOKED', 'NOT_ELIGIBLE']) });
+const codeBody = z.object({ code: z.string().min(1).max(512) }).strict();
+const redeemResult = z.object({ code: z.enum(['OPENED', 'CODE_INVALID', 'NOT_ELIGIBLE']) });
+const linkBody = z
+  .object({ eventSlug: z.string().min(1).max(40), email: z.string().max(320).transform(normalizeEmail).pipe(z.email()) })
+  .strict();
 
 // Resolves the session cookie through session_participant() (I-20): valid, unexpired, unrevoked, and
 // the person still accepted and not deleted. Null otherwise.
@@ -61,6 +67,51 @@ export function createParticipantApi(deps: ParticipantDeps) {
       if (code === 'KEY_REVOKED') return json({ code });
       // Unknown key and ineligible person look the same from outside.
       return json({ code: 'LINK_INVALID' });
+    },
+
+    // POST /api/me/session/code { code }  (a staff hand-off or organizer-hop sign-in code, F18)
+    async redeemCode(request: Request) {
+      if (!fromOrigin(request, meOrigin)) return forbidden();
+      if (!(await withinLimit(db, `me-session:ip:${hashedClientIp(request)}`, 60, 30))) return json({ error: 'rate_limited' }, 429);
+      const body = codeBody.safeParse(await request.json().catch(() => undefined));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      const value = generateSecret();
+      const { data, error } = await db.rpc('redeem_signin_code', {
+        p_code_hash: sha256hex(body.data.code),
+        p_session_hash: sha256hex(value),
+        p_ttl: `${deps.sessionDays} days`,
+      });
+      if (error) throw new Error(`redeem_signin_code failed (${error.code})`);
+      const { code } = redeemResult.parse(data);
+      if (code === 'OPENED') return json({ code, next: '/me' }, 200, serializeParticipantCookie(value, meOrigin, deps.sessionDays));
+      return json({ code: 'CODE_INVALID' });
+    },
+
+    // POST /api/signin/request { eventSlug, email }  ("Email me a link", F18). The answer never says
+    // whether the address is registered (T-SESS-08); the email goes only to the address on file.
+    async requestLink(request: Request) {
+      if (!fromOrigin(request, meOrigin)) return forbidden();
+      const body = linkBody.safeParse(await request.json().catch(() => undefined));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      const { eventSlug, email } = body.data;
+      const limited =
+        !(await withinLimit(db, `signin-request:ip:${hashedClientIp(request)}`, 3600, 20)) ||
+        !(await withinLimit(db, `signin-request:email:${sha256hex(email).slice(0, 32)}`, 3600, 3));
+      if (limited) return json({ error: 'rate_limited' }, 429);
+      const { data: person, error } = await db
+        .from('participants')
+        .select('id, events!inner(slug)')
+        .eq('events.slug', eventSlug)
+        .eq('email', email)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (error) throw new Error(`participant lookup failed (${error.code})`);
+      if (person) {
+        const { data: queued, error: linkError } = await db.rpc('request_profile_link', { p_participant_id: person.id });
+        if (linkError) throw new Error(`request_profile_link failed (${linkError.code})`);
+        if (queued === 'QUEUED') deps.scheduleDrain?.();
+      }
+      return json({ code: 'SENT_IF_REGISTERED' });
     },
 
     // DELETE /api/me/session  (sign out this device only)
