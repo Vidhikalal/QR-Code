@@ -64,3 +64,11 @@
 .choice[aria-pressed='true'] { border-color: var(--accent); outline: 2px solid var(--accent); }
 .dialogActions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .secondary { background: #fff; color: var(--accent); }
+.resultChoices { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 420px; }
+.choice, .choiceDanger { flex: 1; min-height: 56px; font-size: 18px; }
+.choice { background: #fff; color: #111; border-color: #fff; }
+.choiceDanger { background: #111; color: #fff; border-color: #fff; }
+.prompt { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: #1e3a8a; color: #fff; padding: 16px; display: grid; gap: 8px; box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3); }
+.promptTitle { font-size: 24px; font-weight: 800; margin: 0; }
+.promptDetail { margin: 0; font-size: 16px; }
+.nfcState { font-size: 14px; padding: 0 12px; }

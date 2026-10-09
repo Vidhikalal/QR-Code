@@ -83,7 +83,7 @@ export function createScanHandler(deps: ApiDeps) {
     const [recent, notFound, checkpoint] = await Promise.all([
       recentAttempts(deps.db, user.id, 60),
       recentAttempts(deps.db, user.id, 300, 'NOT_FOUND'),
-      deps.db.from('checkpoints').select('event_id').eq('id', body.checkpointId).maybeSingle(),
+      deps.db.from('checkpoints').select('event_id, kind').eq('id', body.checkpointId).maybeSingle(),
     ]);
     if (recent >= SCANS_PER_MINUTE || notFound >= NOT_FOUND_PER_5_MIN) return json({ error: 'rate_limited' }, 429);
 
@@ -115,9 +115,24 @@ export function createScanHandler(deps: ApiDeps) {
     });
     if (logError) console.error(JSON.stringify({ level: 'error', msg: 'scan_attempts insert failed', error: sanitizeError(logError.code) }));
 
+    // PLAN F20: at the door, say whether the admitted person already wears a badge, so the scanner can
+    // offer "Tap a blank badge". Display data only; record_scan() made the decision (I-2).
+    let badge: { hasBadge: boolean; badgeLabel: string | null } | null = null;
+    if (result.code === 'ACCEPTED' && checkpoint.data?.kind === 'door' && result.participant) {
+      const { data: link, error: linkError } = await deps.db
+        .from('tag_assignments')
+        .select('tags(label)')
+        .eq('participant_id', result.participant.id)
+        .is('ended_at', null)
+        .maybeSingle();
+      if (linkError) throw new Error(`badge lookup failed (${linkError.code})`);
+      badge = { hasBadge: link !== null, badgeLabel: link?.tags.label ?? null };
+    }
+
     const { participant, ...rest } = result;
     return json({
       ...rest,
+      ...badge,
       ...(participant && {
         participant: {
           id: participant.id,

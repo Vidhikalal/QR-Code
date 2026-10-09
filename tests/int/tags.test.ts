@@ -247,7 +247,9 @@ describe('tag APIs (PLAN §9.2)', () => {
     const n = await f.addParticipant(f.e1.id);
     const t = await makeTag();
     const r = await call('assign', volJwt, { body: { eventSlug: f.slug, participantId: n.id, tagUid: t.uid.match(/../g)?.join(':').toLowerCase() } });
-    expect(r.body).toMatchObject({ code: 'ASSIGNED' });
+    expect(r.body).toMatchObject({ code: 'ASSIGNED', tagLabel: null }); // makeTag() badges have no label
+    const labelled = await call('assign', volJwt, { body: { eventSlug: f.slug, participantId: (await f.addParticipant(f.e1.id)).id, tagPublicId: b.tag.T8.publicId } });
+    expect(labelled.body).toMatchObject({ code: 'ASSIGNED', tagLabel: 'T8' });
     const undo = await call('unassign', volJwt, { body: { assignmentId: (r.body as { assignmentId: string }).assignmentId } });
     expect(undo.body).toEqual({ code: 'UNASSIGNED' });
     expect((await call('assign', volJwt, { body: { eventSlug: f.slug, participantId: n.id } })).status).toBe(400);

@@ -98,7 +98,11 @@ export function Badges({ slug }: { slug: string }) {
           Print sheet
         </Link>
       </div>
-      <p className={styles.muted}>Register badges with an Android phone’s NFC: coming with the badge page.</p>
+      <p>
+        <Link className={`${styles.linkButton} ${styles.small}`} href={`/admin/${slug}/badges/register`}>
+          Register on this phone (Android NFC)
+        </Link>
+      </p>
 
       {imported && (
         <div className={styles.tableWrap}>

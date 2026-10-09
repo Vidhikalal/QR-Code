@@ -39,6 +39,9 @@ export const scanResponseSchema = z.object({
   revokeReason: z.string().nullable().optional(),
   otherEvent: z.string().nullable().optional(),
   capacity: z.number().optional(),
+  // PLAN F20: door ACCEPTED only.
+  hasBadge: z.boolean().optional(),
+  badgeLabel: z.string().nullable().optional(),
   serverTime: z.string(),
 });
 

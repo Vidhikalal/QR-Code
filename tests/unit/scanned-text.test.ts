@@ -15,13 +15,13 @@ function malformed(raw: string, origin = ORIGIN) {
 describe('parseScannedText (SPEC §6.4)', () => {
   it('T-TOK-02: parses ${APP_ORIGIN}/p#<token>', () => {
     expect(TOKEN).toHaveLength(32);
-    expect(parseScannedText(`${ORIGIN}/p#${TOKEN}`, ORIGIN)).toEqual({ ok: true, token: TOKEN });
+    expect(parseScannedText(`${ORIGIN}/p#${TOKEN}`, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
   });
 
   it('T-TOK-03: parses a bare 32-char token, with or without surrounding whitespace', () => {
-    expect(parseScannedText(TOKEN, ORIGIN)).toEqual({ ok: true, token: TOKEN });
-    expect(parseScannedText(`  \n${TOKEN}\t `, ORIGIN)).toEqual({ ok: true, token: TOKEN });
-    expect(parseScannedText(` ${ORIGIN}/p#${TOKEN}\n`, ORIGIN)).toEqual({ ok: true, token: TOKEN });
+    expect(parseScannedText(TOKEN, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
+    expect(parseScannedText(`  \n${TOKEN}\t `, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
+    expect(parseScannedText(` ${ORIGIN}/p#${TOKEN}\n`, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
   });
 
   it('T-TOK-04: other origins, http in prod, wrong paths, wrong lengths, bad chars, extra params are MALFORMED', () => {
@@ -54,6 +54,18 @@ describe('parseScannedText (SPEC §6.4)', () => {
   });
 
   it('T-TOK-02: a dev http origin works when APP_ORIGIN is http', () => {
-    expect(parseScannedText(`http://localhost:3000/p#${TOKEN}`, 'http://localhost:3000')).toEqual({ ok: true, token: TOKEN });
+    expect(parseScannedText(`http://localhost:3000/p#${TOKEN}`, 'http://localhost:3000')).toEqual({ ok: true, kind: 'pass', token: TOKEN });
+  });
+
+  it('T-NFC-04: a badge URL parses as a badge; passes, bare tokens and junk keep their meaning', () => {
+    const id = 'AbCdEf012_-x';
+    expect(parseScannedText(`${ORIGIN}/t/${id}`, ORIGIN)).toEqual({ ok: true, kind: 'badge', publicId: id });
+    expect(parseScannedText(` ${ORIGIN}/t/${id}/\n`, ORIGIN)).toEqual({ ok: true, kind: 'badge', publicId: id });
+    expect(parseScannedText(`${ORIGIN}/p#${TOKEN}`, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
+    expect(parseScannedText(TOKEN, ORIGIN)).toEqual({ ok: true, kind: 'pass', token: TOKEN });
+    malformed(`https://evil.example.com/t/${id}`);
+    malformed(`${ORIGIN}/t/${id}?x=1`);
+    malformed(id); // a bare 12-char id is not a badge URL
+    malformed('hello');
   });
 });

@@ -404,6 +404,7 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 1. Trim whitespace.
 2. If `raw` matches `^${APP_ORIGIN}/p#([A-Za-z0-9_-]{32})$`, return the captured token.
 3. Else if `raw` matches `^[A-Za-z0-9_-]{32}$`, return it (manual paste or printed fallback).
+   - v2: a badge URL `${APP_ORIGIN}/t/<12 chars>` (a badge's printed QR, §11.5 of PLAN) returns `{ ok: true, kind: 'badge', publicId }`; passes return `{ ok: true, kind: 'pass', token }`.
 4. Anything else returns `MALFORMED`. This includes other origins, `http:` in production, extra query or fragment parameters, Wi-Fi QR codes, vCards, and strings over 2 KB. `MALFORMED` MUST NOT trigger a network request, and parsing MUST NOT throw.
 
 ---
@@ -580,6 +581,15 @@ A server component on the ME host, rendered from `badgeView()` (`lib/badge/view.
 | After `ends_at + profile_retention_days` | "This badge was used at {event}." | same | same | + "Profile deleted on {date}" |
 
 Staff tapping their own badge get the owner view and the staff panel. Public parts only via `toPublicProfile()` (I-19). The page only reads; every action is a POST. **I-17 (decided in V4b): GET never changes event state; the `rate_limits` counter and the session's `last_seen_at` refresh are allowed.** `/t/*` is limited to 120 views/min per hashed IP in `proxy.ts` (429). The station button and involvement summary arrive with V5; Connect with V6.
+
+### F20 — Door: pass, then badge (v2)
+
+- A door `ACCEPTED` from `/api/scan` also carries `hasBadge` and `badgeLabel` (display data looked up after `record_scan`; I-2 unchanged).
+- When `hasBadge` is false the scanner shows ADMIT, then **Tap a blank badge** for that person (30 s, Skip). A Web NFC tap (Android, after **Start NFC**) or the badge's printed QR in the camera calls `/api/tags/assign`. Results: green "**B-0412 linked to Ada**" (auto 2 s) with **Undo badge link** for 120 s; red "Badge belongs to {holder}"; amber "{name} already has B-0012" with **Replace it** / Cancel (`replace: true` retires the old badge); red "Deactivated badge". A pass read during the prompt ends it and is scanned as the next person.
+- I-1 extended: green only for `ACCEPTED`, `ASSIGNED` or `ALREADY_ASSIGNED`.
+- Until badge check-ins (PLAN V5), a badge read with no prompt open shows amber "Badge scanning at checkpoints comes next"; an NFC tag without our URL shows "Not a Passline badge".
+- **Register page** (`/admin/:slug/badges/register`, organizers, Android Chrome over HTTPS): per tap, reserve → write `${APP_ORIGIN}/t/<id>` → confirm the chip serial; a write failure leaves the reservation unconfirmed. The app never calls `makeReadOnly()` (D5).
+- `lib/nfc/web-nfc.ts` wraps Web NFC behind `NfcReader`; e2e tests replace only `window.NDEFReader` with a stub.
 
 ### F13 — Platform admin bootstrap (v2)
 
@@ -1259,6 +1269,10 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-BADGE-04 | Unlinked badge; staff admitted someone 14 s ago | suggestion names them; none after 2 min, for other staff, or once linked | I |
 | T-BADGE-09 | 50 loads each as anonymous, participant, staff | no event-state change (row counts of every table except `rate_limits`) | I |
 | T-SEC2-03 | 121 badge-page requests/min from one IP | 429; other IPs unaffected | I |
+| T-NFC-04 | `parseScannedText`: pass URL, badge URL, bare token, junk | `pass`, `badge`, `pass`, `MALFORMED` | U |
+| T-NFC-05 | Door flow with a fake NFC reader | ADMIT → "Tap a blank badge" → "B-… linked to …"; undo; in-use refused; Replace it | E |
+| T-NFC-06 | Register page with a fake reader: success; write failure | reserve → write → confirm; reservation stays unconfirmed | E |
+| T-SCAN2-14 | Door `ACCEPTED` | includes `hasBadge`, `badgeLabel`; other results/checkpoints don't | I |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1445,7 +1459,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET".
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4).
 
 ---
 

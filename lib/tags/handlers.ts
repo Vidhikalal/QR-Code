@@ -186,7 +186,16 @@ export function createTagsApi(deps: { db: Db; authenticate: Authenticate; meOrig
         p_replace: b.replace ?? false,
       });
       if (error) throw new Error(`assign_tag failed (${error.code})`);
-      return json(withoutPhotoPath(data));
+      const out = withoutPhotoPath(data) as Record<string, unknown>;
+      // The scanner says "B-0412 linked to Ada": add the linked badge's printed label.
+      if (out.code === 'ASSIGNED' || out.code === 'ALREADY_ASSIGNED') {
+        let q = db.from('tags').select('label').eq('event_id', staff.eventId);
+        q = b.tagPublicId ? q.eq('public_id', b.tagPublicId) : q.eq('uid', uid ?? '');
+        const { data: tag, error: tagError } = await q.maybeSingle();
+        if (tagError) throw new Error(`tag label load failed (${tagError.code})`);
+        out.tagLabel = tag?.label ?? null;
+      }
+      return json(out);
     },
 
     // POST /api/tags/unassign { assignmentId }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SCAN_CODES, type ScanCode } from '@/lib/domain/scan-codes';
-import { viewFor, type ViewContext } from '@/lib/scanner/result-view';
+import { LINK_CODES, viewFor, type LinkCode, type Outcome, type ViewContext } from '@/lib/scanner/result-view';
 import type { ScanResponse } from '@/lib/scan/schema';
 
 const now = new Date('2026-10-03T16:03:20Z');
@@ -70,5 +70,27 @@ describe('result screen mapping (SPEC §10.2)', () => {
       expect(viewFor(server({ code, participant, reissued: true, previous: { scannedAt: now.toISOString(), scannedByName: 'x', scannedByMe: true } }), ctx()).tone).not.toBe('green');
     }
     for (const kind of ['malformed', 'network', 'rate_limited'] as const) expect(viewFor({ kind }, ctx()).tone).not.toBe('green');
+  });
+
+  it('PLAN §10.2: badge link outcomes at the door', () => {
+    const link = (code: LinkCode, extra: Partial<Extract<Outcome, { kind: 'link' }>> = {}) =>
+      viewFor({ kind: 'link', code, badgeLabel: 'B-0412', personName: 'Ada Lovelace', ...extra }, ctx());
+    expect(link('ASSIGNED')).toMatchObject({ tone: 'green', icon: '✓', headline: 'B-0412 linked to Ada Lovelace', dismiss: { autoMs: 2000 }, sound: 'chime' });
+    expect(link('ALREADY_ASSIGNED')).toMatchObject({ tone: 'green', headline: 'B-0412 linked to Ada Lovelace' });
+    expect(link('TAG_IN_USE', { holderName: 'Sam Smith' })).toMatchObject({ tone: 'red', icon: '✕', headline: 'Badge belongs to Sam Smith', detail: 'Pick another badge', dismiss: 'tap' });
+    expect(link('PARTICIPANT_HAS_TAG', { currentLabel: 'B-0012' })).toMatchObject({ tone: 'amber', icon: '!', headline: 'Ada Lovelace already has B-0012', action: 'replace-badge', dismiss: 'tap' });
+    expect(link('TAG_RETIRED')).toMatchObject({ tone: 'red', headline: 'Deactivated badge', detail: 'Pick another badge' });
+    expect(link('TAG_NOT_FOUND')).toMatchObject({ tone: 'red', headline: 'Not registered for this event' });
+    expect(link('TAG_WRONG_EVENT')).toMatchObject({ tone: 'red', headline: 'Not registered for this event' });
+    expect(viewFor({ kind: 'badge_elsewhere' }, ctx('meal'))).toMatchObject({ tone: 'amber', headline: 'Badge scanning at checkpoints comes next', dismiss: 'tap' });
+    expect(viewFor({ kind: 'not_our_badge' }, ctx())).toMatchObject({ tone: 'amber', icon: '?', headline: 'Not a Passline badge', dismiss: { autoMs: 1500 } });
+  });
+
+  it('I-1 (extended): green only for ACCEPTED, ASSIGNED and ALREADY_ASSIGNED', () => {
+    for (const code of LINK_CODES) {
+      const tone = viewFor({ kind: 'link', code, badgeLabel: 'B-1', personName: 'Ada' }, ctx()).tone;
+      expect(tone === 'green', code).toBe(code === 'ASSIGNED' || code === 'ALREADY_ASSIGNED');
+    }
+    for (const kind of ['badge_elsewhere', 'not_our_badge'] as const) expect(viewFor({ kind }, ctx()).tone).not.toBe('green');
   });
 });
