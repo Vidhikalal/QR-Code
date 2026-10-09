@@ -109,10 +109,12 @@ export function Checkpoints({ slug }: { slug: string }) {
                   <td className={styles.num}>{c.kind === 'meal' ? '—' : c.points}</td>
                   <td>
                     {c.kind === 'meal' ? (
-                      <label className={styles.check}>
-                        <input type="checkbox" checked={c.secondsOpen} aria-label={`Seconds open at ${c.name}`} onChange={() => void toggleSeconds(c)} />
-                        {c.secondsOpen ? 'Open' : 'Ask first'}
-                      </label>
+                      <span className={styles.actions} style={{ alignItems: 'center' }}>
+                        <span>{c.secondsOpen ? 'Open' : 'Ask first'}</span>
+                        <button type="button" className={`${styles.secondary} ${styles.small}`} aria-label={`${c.secondsOpen ? 'Close' : 'Open'} seconds at ${c.name}`} onClick={() => void toggleSeconds(c)}>
+                          {c.secondsOpen ? 'Close seconds' : 'Open seconds'}
+                        </button>
+                      </span>
                     ) : (
                       '—'
                     )}

@@ -31,6 +31,11 @@ export function Export({ slug }: { slug: string }) {
             Checkpoint summary CSV
           </a>
         </li>
+        <li>
+          <a className={`button ${styles.linkButton}`} href={link('servings.csv')} download>
+            Meal servings CSV
+          </a>
+        </li>
       </ul>
     </>
   );

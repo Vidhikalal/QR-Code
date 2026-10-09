@@ -118,7 +118,7 @@ One deployment answers on two hosts: **ME** (`NEXT_PUBLIC_APP_ORIGIN`: passes, `
 - ADMIN host: everything except the participant-only paths (404).
 - Equal origins (dev) or any other host (preview deployments, dev tunnels): no filtering. Handlers authorize regardless.
 - The staff Supabase cookie uses `NEXT_PUBLIC_AUTH_COOKIE_DOMAIN` (e.g. `.yourclub.ca`) in every Supabase client, so a staff session from the ADMIN host is recognized on the ME host. The participant cookie stays host-only on ME.
-- `/api/events/:slug/participants/search` is also shared (the badge page's assign panel).
+- `/api/events/:slug/participants/search` (assign panel), `/api/events/:slug/checkpoints` (station picker) and `/api/scans/:id/void` (Undo) are also shared, for the badge page.
 - Redirects stay on the host the browser used: route handlers send a relative `Location`; `proxy.ts` builds an absolute URL from the `Host` header.
 
 ### Architectural principles
@@ -580,7 +580,9 @@ A server component on the ME host, rendered from `badgeView()` (`lib/badge/view.
 | Retired | "This badge is no longer active." | same | "Replaced; your new one is {label}" | Deactivated time + current badge and holder |
 | After `ends_at + profile_retention_days` | "This badge was used at {event}." | same | same | + "Profile deleted on {date}" |
 
-Staff tapping their own badge get the owner view and the staff panel. Public parts only via `toPublicProfile()` (I-19). The page only reads; every action is a POST. **I-17 (decided in V4b): GET never changes event state; the `rate_limits` counter and the session's `last_seen_at` refresh are allowed.** `/t/*` is limited to 120 views/min per hashed IP in `proxy.ts` (429). The station button and involvement summary arrive with V5; Connect with V6.
+Staff tapping their own badge get the owner view and the staff panel.
+
+**Station action and involvement (v2, F21 iPhone path):** the staff panel shows the staff member's station (`staff_stations`, saved by the scanner or chosen on the badge page) as one button, **Check in to {station}**, which posts `/api/scan` with `method: 'nfc'` and this badge (a new `clientScanId` each time). The result uses the scanner's views (`viewFor`, I-1); `REPEAT_SERVING` offers **Serve again** / **Don't serve**; the staff member's own `ACCEPTED` can be undone for 120 s. With no station, a picker of open checkpoints. Below it, an **involvement** summary from `holder_involvement(participant)` (read-only SQL): door time, servings per meal with times, activities with points, and the activity points total (derived, never stored). Public parts only via `toPublicProfile()` (I-19). The page only reads; every action is a POST. **I-17 (decided in V4b): GET never changes event state; the `rate_limits` counter and the session's `last_seen_at` refresh are allowed.** `/t/*` is limited to 120 views/min per hashed IP in `proxy.ts` (429). The station button and involvement summary arrive with V5; Connect with V6.
 
 ### F20 — Door: pass, then badge (v2)
 
@@ -957,7 +959,7 @@ The header of every `/admin/[slug]` page has an **event switcher** (the user's e
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order; v2: **points** (not for meals) and a **Seconds open** switch per meal (repeats skip the warning). Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
-| Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
+| Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary; v2: **meal servings** (one row per live serving, with serving number; test and deleted participants excluded). |
 | Badges | Counts, list with holder, **Import CSV** (per-row results), **Export ids** for a vendor, **Print sheet** (`/badges/print`: one QR of the badge URL plus the label per badge, opaque white, print layout). |
 | Settings | Leaderboard refresh, organizer bonus, organizers compete, badge unlock password (masked, Reveal), profile retention days (F14). |
 
@@ -998,7 +1000,8 @@ All metrics exclude voided scans, `is_test` participants and deleted participant
 | Checked in | distinct participants with a live door scan (v2: attendees only, i.e. `badge_role = 'participant'`; staff badge rows are excluded from accepted, checked in, no-shows and arrivals) |
 | Check-in rate | checked in ÷ accepted |
 | No-shows | accepted without a live door scan (list) |
-| Meal uptake | live scans at meal M ÷ checked in |
+| Meal uptake | v2: **first servings** (live scans with `serving_no = 1`) at meal M ÷ checked in |
+| Meal seconds | live scans with `serving_no > 1` at meal M; seconds rate = seconds ÷ first servings (v2) |
 | Session attendance | live scans per session; ranking by count desc, then name asc |
 | Session fill | live scans ÷ capacity (if set) |
 | Arrival curve | live door scans per 15-min bucket |
@@ -1294,6 +1297,9 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-MEAL-06 | `REPEAT_SERVING` screen | Serve again sends a new `clientScanId` + `confirmRepeat`; Don't serve sends nothing | E |
 | T-EVT-12 | Meal with points; Seconds open on a non-meal | rejected by constraint and API | I |
 | T-CONC2-01…03, -09 | 20 first taps; 10 confirmed repeats; 20 retries of one; T-CONC-01/02/03 on the new signature | 1 + 19 `REPEAT_SERVING`; servings 2…11; 1 row; unchanged | I (nightly ×100 for 01/03) |
+| T-BADGE-08 | Badge page station button | posts `record_scan` (`nfc`) for the station; Serve again after `REPEAT_SERVING`; no station → picker | E |
+| T-MEAL-07 | Dashboard meals | first servings vs seconds; uptake on first servings; test/deleted excluded | I+E |
+| V5b involvement | `holder_involvement` | door time, numbered live servings, activities with points, total; voided excluded | I |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1480,7 +1486,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4). V5a: badge check-ins, numbered meal servings with `REPEAT_SERVING` and Seconds open, checkpoint points (§8.1, §9.1, §10.2, §11); T-SCAN-08's meal step now expects `REPEAT_SERVING` (user decision, D11).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4). V5a: badge check-ins, numbered meal servings with `REPEAT_SERVING` and Seconds open, checkpoint points (§8.1, §9.1, §10.2, §11); T-SCAN-08's meal step now expects `REPEAT_SERVING` (user decision, D11). V5b: badge-page station check-ins, `holder_involvement`, meal first servings vs seconds on the dashboard (uptake on first servings) with Seconds open buttons, meal servings CSV.
 
 ---
 

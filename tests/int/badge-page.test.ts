@@ -124,4 +124,21 @@ describe('badge page loader (PLAN §8.1)', () => {
     }
     expect(await snapshot()).toEqual(before);
   });
+
+  it('V5b: staff views carry the station, open checkpoints and the holder’s involvement; others don’t', async () => {
+    await f.pool.query('select set_staff_station($1, $2)', [f.staff.vol1, f.cp.G]);
+    await f.tapBadge(f.staff.vol1, f.cp.G, b.tag.T2);
+    const v = await load(b.tag.T2.publicId, { jwt: vol1 });
+    expect(v).toMatchObject({
+      kind: 'linked',
+      staff: {
+        station: { checkpointId: f.cp.G, name: 'Games', kind: 'custom' },
+        involvement: { points: 5, activities: [{ name: 'Games', points: 5 }] },
+        publicId: b.tag.T2.publicId,
+      },
+    });
+    if (v.kind === 'linked') expect(v.staff?.checkpoints.map((c) => c.name)).toContain('Lunch');
+    const anon = await load(b.tag.T2.publicId);
+    expect(JSON.stringify(anon)).not.toMatch(/involvement|station|Games/);
+  });
 });

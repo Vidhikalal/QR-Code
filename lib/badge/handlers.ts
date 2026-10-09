@@ -8,7 +8,7 @@ import { profileFields } from '@/lib/profile/load';
 import type { BadgeRole } from '@/lib/profile/schema';
 import { signedPhotoUrl } from '@/lib/storage/photos';
 import { isPublicId } from './tags';
-import { badgeView, type BadgeInput, type BadgeView, type StaffExtras, type Viewer } from './view';
+import { badgeView, type BadgeInput, type BadgeView, type Involvement, type StaffExtras, type StationCheckpoint, type Viewer } from './view';
 
 type Db = SupabaseClient<Database>;
 
@@ -71,6 +71,25 @@ async function suggestion(db: Db, userId: string, eventId: string, now: Date): P
   return s ? { participantId: s.participant_id, name: `${s.participants.first_name} ${s.participants.last_name}`.trim(), admittedAt: s.scanned_at } : null;
 }
 
+// V5b: the checkpoint this staff member is working (saved by the scanner's picker, PLAN §6.6).
+async function stationOf(db: Db, userId: string, eventId: string): Promise<StationCheckpoint | null> {
+  const { data, error } = await db.from('staff_stations').select('checkpoints(id, name, kind)').eq('user_id', userId).eq('event_id', eventId).maybeSingle();
+  if (error) throw new Error(`station load failed (${error.code})`);
+  return data ? { checkpointId: data.checkpoints.id, name: data.checkpoints.name, kind: data.checkpoints.kind } : null;
+}
+
+async function openCheckpoints(db: Db, eventId: string): Promise<StationCheckpoint[]> {
+  const { data, error } = await db.from('checkpoints').select('id, name, kind').eq('event_id', eventId).eq('is_open', true).order('sort_order').order('name');
+  if (error) throw new Error(`checkpoints load failed (${error.code})`);
+  return data.map((c) => ({ checkpointId: c.id, name: c.name, kind: c.kind }));
+}
+
+async function involvementOf(db: Db, participantId: string): Promise<Involvement | null> {
+  const { data, error } = await db.rpc('holder_involvement', { p_participant_id: participantId });
+  if (error) throw new Error(`holder_involvement failed (${error.code})`);
+  return data as unknown as Involvement | null;
+}
+
 /** Everything /t/<publicId> renders. Reads only (I-17; the session's last_seen_at refresh is allowed). */
 export async function loadBadgePage(deps: {
   db: Db;
@@ -112,7 +131,14 @@ export async function loadBadgePage(deps: {
 
   let staffExtras: StaffExtras | undefined;
   if (viewer.kind === 'staff') {
+    const linked = tv.assignment !== null;
+    const [station, checkpoints, involvement] = linked
+      ? await Promise.all([stationOf(db, viewer.userId, event.id), openCheckpoints(db, event.id), involvementOf(db, tv.assignment?.participantId ?? '')])
+      : [null, [], null];
     staffExtras = {
+      station,
+      checkpoints,
+      involvement,
       holder: holderRow && {
         fullName: `${holderRow.first_name} ${holderRow.last_name}`.trim(),
         badgeRole: holderRow.badge_role,
@@ -123,9 +149,11 @@ export async function loadBadgePage(deps: {
     };
   }
 
+  const { data: ev, error: evError } = await db.from('events').select('timezone').eq('id', event.id).single();
+  if (evError) throw new Error(`event load failed (${evError.code})`);
   return badgeView({
-    event,
-    tag: { id: tv.tag.id, label: tv.tag.label, retiredAt: tv.tag.retiredAt },
+    event: { ...event, timezone: ev.timezone },
+    tag: { id: tv.tag.id, label: tv.tag.label, retiredAt: tv.tag.retiredAt, publicId: deps.publicId },
     assignment: tv.assignment,
     holder,
     lastHolder,

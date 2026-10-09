@@ -14,7 +14,19 @@ interface DashboardData {
   checkedIn: number;
   checkInRate: number;
   noShows: number;
-  checkpoints: Array<{ id: string; name: string; kind: Kind; isOpen: boolean; capacity: number | null; liveScans: number; fill: number | null; uptake?: number | null }>;
+  checkpoints: Array<{
+    id: string;
+    name: string;
+    kind: Kind;
+    isOpen: boolean;
+    capacity: number | null;
+    liveScans: number;
+    fill: number | null;
+    uptake?: number | null;
+    firstServings?: number;
+    seconds?: number;
+    secondsOpen?: boolean;
+  }>;
   sessionRanking: Array<{ id: string; name: string; liveScans: number; capacity: number | null }>;
   arrivals: ArrivalBucket[];
   outbox: { pending: number; failed: number };
@@ -38,6 +50,12 @@ export function Dashboard({ slug }: { slug: string }) {
     } else if (r.status !== 401) setError(errorText(r));
   }, [api, slug]);
 
+
+  // PLAN F22: open seconds once everyone has had a first serving (same PATCH as the Checkpoints page).
+  async function toggleSeconds(id: string, open: boolean) {
+    await api(adminUrl(slug, `/checkpoints/${id}`), { method: 'PATCH', body: { secondsOpen: open } });
+    await load();
+  }
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
     const t = setInterval(() => {
@@ -98,6 +116,9 @@ export function Dashboard({ slug }: { slug: string }) {
               <th className={styles.num}>Scans</th>
               <th className={styles.num}>Fill</th>
               <th className={styles.num}>Meal uptake</th>
+              <th className={styles.num}>First servings</th>
+              <th className={styles.num}>Seconds</th>
+              <th>Seconds open</th>
             </tr>
           </thead>
           <tbody>
@@ -114,6 +135,20 @@ export function Dashboard({ slug }: { slug: string }) {
                 </td>
                 <td className={styles.num}>{pct(c.fill)}</td>
                 <td className={styles.num}>{c.kind === 'meal' ? pct(c.uptake) : '—'}</td>
+                <td className={styles.num}>{c.kind === 'meal' ? c.firstServings : '—'}</td>
+                <td className={styles.num}>{c.kind === 'meal' ? c.seconds : '—'}</td>
+                <td>
+                  {c.kind === 'meal' ? (
+                    <span className={styles.actions} style={{ alignItems: 'center' }}>
+                      <span>{c.secondsOpen ? 'Open' : 'Ask first'}</span>
+                      <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => void toggleSeconds(c.id, !(c.secondsOpen ?? false))}>
+                        {c.secondsOpen ? 'Close seconds' : 'Open seconds'}
+                      </button>
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

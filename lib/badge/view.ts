@@ -10,15 +10,31 @@ export type Viewer =
   | { kind: 'participant'; participantId: string; eventId: string }
   | { kind: 'staff'; userId: string; eventId: string; role: StaffRole; participantId?: string };
 
+export interface Involvement {
+  doorAt: string | null;
+  meals: Array<{ checkpointId: string; name: string; servings: Array<{ no: number; at: string }> }>;
+  activities: Array<{ checkpointId: string; name: string; kind: string; at: string; points: number }>;
+  points: number;
+}
+export interface StationCheckpoint {
+  checkpointId: string;
+  name: string;
+  kind: 'door' | 'meal' | 'session' | 'custom';
+}
+
 export interface StaffExtras {
   holder: { fullName: string; badgeRole: string; status: string; photoUrl: string | null } | null;
+  /** V5b: this staff member's station (staff_stations), the event's open checkpoints, the holder's activity. */
+  station?: StationCheckpoint | null;
+  checkpoints?: StationCheckpoint[];
+  involvement?: Involvement | null;
   /** The latest person this staff member admitted at the door in the last 2 minutes, with no badge. */
   suggestion: { participantId: string; name: string; admittedAt: string } | null;
 }
 
 export interface BadgeInput {
-  event: { id: string; slug: string; name: string; endsAt: string; retentionDays: number };
-  tag: { id: string; label: string | null; retiredAt: string | null } | null;
+  event: { id: string; slug: string; name: string; endsAt: string; retentionDays: number; timezone?: string };
+  tag: { id: string; label: string | null; retiredAt: string | null; publicId?: string } | null;
   assignment: { id: string; participantId: string; assignedAt: string; assignedBy: string } | null;
   holder: { participantId: string; firstName: string; lastName: string; badgeRole: BadgeRole; fields: ProfileFields | null } | null;
   /** For retired badges: who wore it last, and the label of the badge they wear now (if any). */
@@ -37,6 +53,12 @@ type StaffPanel = {
   assignment: { id: string; canUnlink: boolean } | null;
   hiddenBy: 'owner' | 'staff' | null;
   participantId: string | null;
+  /** For the station check-in POST (PLAN F21); the badge id identifies, the staff session authorizes. */
+  publicId: string;
+  station: StationCheckpoint | null;
+  checkpoints: StationCheckpoint[];
+  involvement: Involvement | null;
+  timezone: string;
 };
 
 export type BadgeView =
@@ -114,6 +136,11 @@ export function badgeView(input: BadgeInput): BadgeView {
       assignment: { id: assignment.id, canUnlink: staff.role === 'organizer' || own },
       hiddenBy,
       participantId: holder.participantId,
+      publicId: tag.publicId ?? '',
+      station: input.staffExtras?.station ?? null,
+      checkpoints: input.staffExtras?.checkpoints ?? [],
+      involvement: input.staffExtras?.involvement ?? null,
+      timezone: event.timezone ?? 'UTC',
     };
   }
   return view;

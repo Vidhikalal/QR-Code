@@ -21,3 +21,13 @@
 .results { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .results li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .big { min-height: 56px; font-size: 18px; width: 100%; }
+.station { display: grid; gap: 8px; margin-top: 14px; }
+.linkish { background: transparent; border: 0; color: var(--accent); text-decoration: underline; min-height: 44px; justify-self: start; padding: 0; }
+.result { padding: 12px 14px; border-radius: 12px; color: #fff; font-size: 18px; }
+.result[data-tone='green'] { background: #15803d; }
+.result[data-tone='amber'] { background: #b45309; }
+.result[data-tone='red'] { background: #b91c1c; }
+.emphasis { font-weight: 800; }
+.involvement { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.involvement h3 { margin: 0 0 6px; font-size: 16px; }
+.involvement ul { margin: 0; padding-left: 18px; }

@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { SigninCodeDialog } from '@/components/signin-code-dialog';
 import type { BadgeView } from '@/lib/badge/view';
 import styles from './badge.module.css';
+import { InvolvementSummary, StationAction } from './station';
 
 type Linked = Extract<BadgeView, { kind: 'linked' }>;
 type StaffPanelData = NonNullable<Linked['staff']>;
@@ -171,6 +172,8 @@ export function StaffPanel({ panel }: { panel: StaffPanelData }) {
         </div>
       </div>
       {panel.hiddenBy && <p className={styles.note}>Profile hidden by {panel.hiddenBy === 'staff' ? 'an organizer' : 'its owner'}.</p>}
+      <StationAction publicId={panel.publicId} station={panel.station} checkpoints={panel.checkpoints} timezone={panel.timezone} />
+      {panel.involvement && <InvolvementSummary involvement={panel.involvement} timezone={panel.timezone} />}
       <div className={styles.actions}>
         {panel.participantId && (
           <button type="button" className={styles.secondary} onClick={() => setShowCode(true)}>

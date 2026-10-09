@@ -58,6 +58,9 @@ const metricsSchema = z.object({
       requiresCheckin: z.boolean(),
       sortOrder: z.number(),
       liveScans: z.number(),
+      // Meals only (V5b, PLAN §13).
+      firstServings: z.number().optional(),
+      seconds: z.number().optional(),
     }),
   ),
   arrivals: z.array(z.object({ bucketUtc: z.string(), arrivals: z.number() })),
@@ -176,11 +179,22 @@ export function createAdminApi(deps: AdminDeps) {
     async dashboard(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
-      const [m, event] = await Promise.all([metrics(g.eventId), loadEvent(g.eventId)]);
+      const [m, event, seconds] = await Promise.all([
+        metrics(g.eventId),
+        loadEvent(g.eventId),
+        db.from('checkpoints').select('id, seconds_open').eq('event_id', g.eventId).eq('kind', 'meal'),
+      ]);
+      if (seconds.error) throw new Error(`checkpoints load failed (${seconds.error.code})`);
+      const secondsOpen = new Map(seconds.data.map((c) => [c.id, c.seconds_open]));
       const checkpoints = m.checkpoints.map((c) => ({
         ...c,
+        ...(c.kind === 'meal' && { secondsOpen: secondsOpen.get(c.id) ?? false }),
         fill: c.capacity ? round4(c.liveScans / c.capacity) : null,
-        ...(c.kind === 'meal' && { uptake: m.checkedIn ? round4(c.liveScans / m.checkedIn) : null }),
+        // PLAN §13: meal uptake counts first servings only; seconds are reported separately.
+        ...(c.kind === 'meal' && {
+          uptake: m.checkedIn ? round4((c.firstServings ?? 0) / m.checkedIn) : null,
+          secondsRate: c.firstServings ? round4((c.seconds ?? 0) / c.firstServings) : null,
+        }),
       }));
       const door = m.checkpoints.find((c) => c.kind === 'door');
       return json({
@@ -690,6 +704,36 @@ export function createAdminApi(deps: AdminDeps) {
             data.map((s) => [
               s.scanned_at, local(s.scanned_at), s.checkpoints.name, s.checkpoints.kind, s.participants.first_name,
               s.participants.last_name, s.participants.is_test, s.method, names.get(s.scanned_by) ?? '', s.voided_at, s.void_reason,
+            ]),
+          ),
+        );
+      }
+
+      // PLAN §13 (V5b): one row per live serving; voided servings and test/deleted participants excluded.
+      if (kind === 'servings.csv') {
+        const { data, error } = await db
+          .from('scans')
+          .select('scanned_at, serving_no, method, scanned_by, checkpoints!inner(name, kind), participants!inner(first_name, last_name, is_test, deleted_at)')
+          .eq('event_id', g.eventId)
+          .eq('checkpoints.kind', 'meal')
+          .eq('participants.is_test', false)
+          .is('participants.deleted_at', null)
+          .is('voided_at', null)
+          .order('scanned_at');
+        if (error) throw new Error(`servings load failed (${error.code})`);
+        const names = await staffNames(data.map((s) => s.scanned_by));
+        return csvResponse(
+          slug,
+          kind,
+          toCsv(
+            ['meal', 'serving', 'time', 'participant', 'method', 'scanned_by'],
+            data.map((s) => [
+              s.checkpoints.name,
+              s.serving_no,
+              local(s.scanned_at),
+              `${s.participants.first_name} ${s.participants.last_name}`.trim(),
+              s.method,
+              names.get(s.scanned_by) ?? '',
             ]),
           ),
         );

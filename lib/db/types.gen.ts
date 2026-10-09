@@ -1092,6 +1092,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      holder_involvement: { Args: { p_participant_id: string }; Returns: Json }
       ingest_sheet_row: {
         Args: {
           p_dietary_notes?: string
