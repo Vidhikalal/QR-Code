@@ -8,7 +8,7 @@ afterAll(() => pool.end());
 describe('scan codes (I-15)', () => {
   it('T-SCAN-23: the codes record_scan() can return equal the ScanCode union', async () => {
     const { rows } = await pool.query<{ src: string }>(
-      `select pg_get_functiondef('public.record_scan(uuid,uuid,scan_method,text,uuid,uuid,timestamptz)'::regprocedure) as src`,
+      `select pg_get_functiondef('public.record_scan(uuid,uuid,scan_method,text,uuid,text,text,uuid,timestamptz,boolean)'::regprocedure) as src`,
     );
     const src = rows[0]?.src ?? '';
     const sqlCodes = new Set([...src.matchAll(/'code'\s*,\s*'([A-Z_]+)'/g)].map((m) => m[1]));

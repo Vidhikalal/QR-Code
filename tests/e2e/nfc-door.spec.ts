@@ -90,16 +90,16 @@ test('T-NFC-05: someone else’s badge is refused; if the person got a badge mea
   expect(rows).toEqual([{ retire_reason: 'replaced' }]);
 });
 
-test('PLAN §10.1: a badge read with no prompt open explains itself; a foreign tag is "Not a Passline badge"', async ({ page }) => {
+test('PLAN §10.1: a badge read with no prompt open is a Door scan; an unlinked one says so; a foreign tag is "Not a Passline badge"', async ({ page }) => {
   await installFakeNfc(page);
   await page.goto(`/scan/${f.slug}`);
   await chooseCheckpoint(page, 'Door');
   await page.getByRole('button', { name: 'Start NFC' }).click();
-  await tap(page, b.tag.T7.uid, url(b.tag.T7.publicId));
-  await expect(page.getByTestId('scan-result')).toContainText('Badge scanning at checkpoints comes next');
-  // Dismissing it offers manual search (the fallback until V5); close that and carry on.
-  await page.getByTestId('scan-result').click();
-  await page.getByRole('region', { name: 'Manual search' }).getByRole('button', { name: 'Close' }).click();
+  await tap(page, b.tag.T7.uid, url(b.tag.T7.publicId)); // registered, never linked
+  const result = page.getByTestId('scan-result');
+  await expect(result).toContainText('BADGE NOT LINKED (T7)');
+  await expect(result).toContainText('Scan their pass first');
+  await result.click();
   await tap(page, `04${randomBytes(6).toString('hex').toUpperCase()}`, 'https://example.com/hello');
   await expect(page.getByTestId('scan-result')).toContainText('Not a Passline badge');
 });

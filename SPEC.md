@@ -769,6 +769,14 @@ revoke all on function public.record_scan(uuid,uuid,scan_method,text,uuid,uuid,t
 grant execute on function public.record_scan(uuid,uuid,scan_method,text,uuid,uuid,timestamptz) to service_role;
 ```
 
+### 8.1 v2 changes to `record_scan()` (migrations `v2_scan_method_nfc`, `v2_scans`)
+
+The signature becomes `record_scan(checkpoint, staff, method, token_hash, participant_id, tag_public_id, tag_uid, client_scan_id, client_scanned_at, confirm_repeat default false)`; the 7-argument version is gone. The step order above is unchanged; additions:
+- **Method `nfc`** (a badge: NFC tap, printed QR, or a reader's serial). Step 4 finds the tag by public id or chip serial: unknown → `NOT_FOUND`; another event's tag → `WRONG_EVENT` (no participant data); no active link → `TAG_REPLACED` (+ last holder, `retiredAt`) if the tag was retired, else `TAG_UNASSIGNED` (+ `tagId`, `tagLabel`). `scans.tag_id` records the badge; `scans_nfc_has_tag` enforces it.
+- **Meals:** step 9 also locks the participant (after the checkpoint; lock order checkpoint → participant → tag, I-21). Step 10: a meal with live servings returns **`REPEAT_SERVING`** (+ `servedCount`, `previous`) unless `confirm_repeat` or the checkpoint's `seconds_open`. Servings are numbered (`scans.serving_no`) over all rows, voided included, so a number is never reused; every other kind always writes `serving_no = 1`, so "once per checkpoint" is unchanged for them. `scans_one_live` is unique on `(participant, checkpoint, serving_no)` among live rows.
+- **Points:** `checkpoints.points` (0–1000; meals must be 0). `ACCEPTED` includes `servingNo` and `points`.
+- `ScanCode` gains `REPEAT_SERVING`, `TAG_UNASSIGNED`, `TAG_REPLACED` (15 codes; T-SCAN-23).
+
 A `void_scan(p_scan_id, p_staff_user_id, p_reason)` function follows the same pattern. It returns `VOIDED`, `NOT_FOUND`, `FORBIDDEN` (not staff; or a volunteer voiding someone else's scan, or a scan older than 120 s), or `ALREADY_VOIDED`.
 
 ---
@@ -788,7 +796,10 @@ All request bodies are validated with zod, and unknown keys are rejected (`.stri
 // 200 Response
 type ScanCode = 'ACCEPTED' | 'ALREADY_SCANNED' | 'NOT_FOUND' | 'REVOKED' | 'NOT_ACCEPTED'
   | 'WRONG_EVENT' | 'NOT_CHECKED_IN' | 'CHECKPOINT_CLOSED' | 'CAPACITY_REACHED'
-  | 'FORBIDDEN' | 'CHECKPOINT_NOT_FOUND' | 'CLIENT_ID_CONFLICT';
+  | 'FORBIDDEN' | 'CHECKPOINT_NOT_FOUND' | 'CLIENT_ID_CONFLICT'
+  | 'REPEAT_SERVING' | 'TAG_UNASSIGNED' | 'TAG_REPLACED';   // v2 (§8.1)
+// v2 request: method may be 'nfc' with tagPublicId and/or tagUid (no token/participantId); confirmRepeat?: boolean.
+// v2 response adds: servingNo, servedCount, points, tagId, tagLabel, retiredAt; door ACCEPTED adds hasBadge, badgeLabel.
 { code: ScanCode, replayed?: boolean, voided?: boolean,
   participant?: { id, displayName, photoUrl: string | null /*signed, 300 s*/, status, dietaryNotes?: string | null },
   previous?: { scannedAt, scannedByName, scannedByMe: boolean },
@@ -898,6 +909,11 @@ Every state needs an icon, a text label and a color, never color alone. Names ar
 | CAPACITY_REACHED | red ✕ | "FULL ({capacity})" | tap |
 | FORBIDDEN / CHECKPOINT_NOT_FOUND | red ✕ | "No access": re-select event | tap → checkpoint picker |
 | CLIENT_ID_CONFLICT | amber ! | "Rescan please" | tap |
+| ACCEPTED (meal, `servingNo > 1`) — v2 | green ✓ | **SERVE (2nd serving)** + name + dietary notes | auto 2.5 s |
+| ACCEPTED (`points > 0`) — v2 | green ✓ | **RECORDED · +10 pts** + name | auto 2.5 s |
+| REPEAT_SERVING — v2 | amber ⟳ | **SERVED 1× ALREADY** · last 12:41 by Maya + photo | **Serve again** (resend with `confirmRepeat`, new `clientScanId`) / **Don't serve** |
+| TAG_UNASSIGNED — v2 | amber ! | **BADGE NOT LINKED** (label): at the door "Scan their pass first", elsewhere "Send them to the door" | tap |
+| TAG_REPLACED — v2 | red ✕ | **OLD BADGE** · replaced 12:41 + name | tap |
 | MALFORMED (client) | amber ? | "Not a Passline code" | auto 1.5 s |
 | NETWORK / 5xx (client) | amber ! | "NO RESULT: do not admit yet. Rescan." | tap |
 
@@ -938,7 +954,7 @@ The header of every `/admin/[slug]` page has an **event switcher** (the user's e
 | `/admin/new` (platform admin) | Create event form (F14). |
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
 | Participants | Search/filter by status, pass state, photo, scans. Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
-| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
+| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order; v2: **points** (not for meals) and a **Seconds open** switch per meal (repeats skip the warning). Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
@@ -1142,7 +1158,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCAN-05 | Wd token | `REVOKED`, `reissued: false`, `revokeReason: 'status_change'` |
 | T-SCAN-06 | C (waitlisted, via manual since there is no pass) | `NOT_ACCEPTED` |
 | T-SCAN-07 | X token at D | `WRONG_EVENT`, `otherEvent` = E2 name, **no participant object** |
-| T-SCAN-08 | A at L before door; at D; at L; at L | `NOT_CHECKED_IN`, `ACCEPTED`, `ACCEPTED` (with `dietaryNotes`), `ALREADY_SCANNED` |
+| T-SCAN-08 | A at L before door; at D; at L; at L | `NOT_CHECKED_IN`, `ACCEPTED`, `ACCEPTED` (with `dietaryNotes`), `REPEAT_SERVING` (v2, PLAN D11; was `ALREADY_SCANNED`) |
 | T-SCAN-09 | A at R without door | `ACCEPTED` |
 | T-SCAN-10 | Close D; scan B | `CHECKPOINT_CLOSED`; zero rows written |
 | T-SCAN-11 | A, B at W (cap 2); then A at W again | third scan → `ALREADY_SCANNED` (**not** `CAPACITY_REACHED`) |
@@ -1273,6 +1289,11 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-NFC-05 | Door flow with a fake NFC reader | ADMIT → "Tap a blank badge" → "B-… linked to …"; undo; in-use refused; Replace it | E |
 | T-NFC-06 | Register page with a fake reader: success; write failure | reserve → write → confirm; reservation stays unconfirmed | E |
 | T-SCAN2-14 | Door `ACCEPTED` | includes `hasBadge`, `badgeLabel`; other results/checkpoints don't | I |
+| T-SCAN2-01…13 | Badge scans: points, already scanned, check-in rule, by serial, unlinked/wrong event/unknown, replaced, QR regressions, walk-in, old signature gone, `scans_nfc_has_tag` | per PLAN §15.7 | I |
+| T-MEAL-01…05 | First serving; repeat → `REPEAT_SERVING`; confirm → serving 2; Seconds open; void 3 → next is 4 | per PLAN §15.7 | I |
+| T-MEAL-06 | `REPEAT_SERVING` screen | Serve again sends a new `clientScanId` + `confirmRepeat`; Don't serve sends nothing | E |
+| T-EVT-12 | Meal with points; Seconds open on a non-meal | rejected by constraint and API | I |
+| T-CONC2-01…03, -09 | 20 first taps; 10 confirmed repeats; 20 retries of one; T-CONC-01/02/03 on the new signature | 1 + 19 `REPEAT_SERVING`; servings 2…11; 1 row; unchanged | I (nightly ×100 for 01/03) |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1459,7 +1480,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4).
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4). V5a: badge check-ins, numbered meal servings with `REPEAT_SERVING` and Seconds open, checkpoint points (§8.1, §9.1, §10.2, §11); T-SCAN-08's meal step now expects `REPEAT_SERVING` (user decision, D11).
 
 ---
 

@@ -25,14 +25,13 @@ async function median(runs: number, fn: () => Promise<unknown>): Promise<number>
 beforeAll(async () => {
   f = await createStandardFixture();
   org = await signInAs(f.staffEmail.org1);
-  await f.pool.query(`insert into checkpoints (event_id, name, kind, requires_checkin, is_open) values ($1, 'Swag', 'custom', false, true)`, [f.e1.id]);
   await f.pool.query(
     `insert into participants (event_id, external_id, email, first_name, last_name, search_text, status, source)
      select $1, 'perf-' || g, 'perf' || g || '@perf.test', 'Perf', 'P' || g, 'perf p' || g, 'accepted', 'seed'
        from generate_series(1, 1000) g`,
     [f.e1.id],
   );
-  // Every perf participant scanned once at each of the 5 checkpoints: 5,000 live scans.
+  // Every perf participant scanned once at each of the fixture's 5 checkpoints (D, L, W, R, G): 5,000 live scans.
   await f.pool.query(
     `insert into scans (event_id, participant_id, checkpoint_id, method, scanned_by, scanned_at, client_scan_id)
      select $1, p.id, c.id, 'manual', $2, e.starts_at + (random() * interval '6 hours'), gen_random_uuid()

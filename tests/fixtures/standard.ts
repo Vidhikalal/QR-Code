@@ -27,6 +27,12 @@ export interface ScanResult {
   revokeReason?: string;
   otherEvent?: string;
   capacity?: number;
+  servingNo?: number;
+  servedCount?: number;
+  points?: number;
+  tagId?: string;
+  tagLabel?: string | null;
+  retiredAt?: string;
 }
 
 export interface VoidResult {
@@ -38,6 +44,10 @@ export interface ScanArgs {
   staff: string;
   token?: string;
   participantId?: string;
+  /** Badge scan (method 'nfc'): by URL id, chip serial, or both. */
+  tagPublicId?: string;
+  tagUid?: string;
+  confirmRepeat?: boolean;
   clientScanId?: string;
   clientScannedAt?: string | null;
   db?: pg.Pool | pg.PoolClient;
@@ -62,7 +72,7 @@ export interface StandardFixture {
   slug: string;
   e1: { id: string; name: string };
   e2: { id: string; name: string };
-  cp: { D: string; L: string; W: string; R: string; D2: string };
+  cp: { D: string; L: string; W: string; R: string; G: string; D2: string };
   p: Record<Who, string>;
   /** Active raw tokens (C has none). */
   token: Record<Exclude<Who, 'C'>, string>;
@@ -72,6 +82,8 @@ export interface StandardFixture {
   staffEmail: Record<Staff, string>;
   pool: pg.Pool;
   scan(args: ScanArgs): Promise<ScanResult>;
+  /** PLAN §15.1 tapBadge: record_scan with method 'nfc' (by public id unless `byUid`). */
+  tapBadge(staff: string, cp: string, tag: Badge, opts?: { byUid?: boolean; confirmRepeat?: boolean; clientScanId?: string; db?: pg.Pool | pg.PoolClient }): Promise<ScanResult>;
   issuePass(participantId: string, db?: pg.Pool | pg.PoolClient): Promise<{ passId: string; token: string }>;
   voidScan(scanId: string, staff: string, reason?: string): Promise<VoidResult>;
   addParticipant(eventId: string, opts?: { status?: string; withPass?: boolean }): Promise<{ id: string; token?: string }>;
@@ -116,19 +128,21 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
   const e1 = { ...(await event(slug, `Fixture ${slug} One`)), name: `Fixture ${slug} One` };
   const e2 = { ...(await event(`${slug}-2`, `Fixture ${slug} Two`)), name: `Fixture ${slug} Two` };
 
-  const checkpoint = async (eventId: string, name: string, kind: string, requiresCheckin: boolean, capacity: number | null) =>
+  const checkpoint = async (eventId: string, name: string, kind: string, requiresCheckin: boolean, capacity: number | null, points = 0) =>
     (
       await one<{ id: string }>(
-        `insert into checkpoints (event_id, name, kind, requires_checkin, capacity, is_open)
-         values ($1, $2, $3, $4, $5, true) returning id`,
-        [eventId, name, kind, requiresCheckin, capacity],
+        `insert into checkpoints (event_id, name, kind, requires_checkin, capacity, is_open, points)
+         values ($1, $2, $3, $4, $5, true, $6) returning id`,
+        [eventId, name, kind, requiresCheckin, capacity, points],
       )
     ).id;
+  // PLAN §15.1: W is worth 10 points; G is a custom activity (no check-in) worth 5.
   const cp = {
     D: await checkpoint(e1.id, 'Door', 'door', false, null),
     L: await checkpoint(e1.id, 'Lunch', 'meal', true, null),
-    W: await checkpoint(e1.id, 'Workshop', 'session', true, 2),
+    W: await checkpoint(e1.id, 'Workshop', 'session', true, 2, 10),
     R: await checkpoint(e1.id, 'Raffle', 'custom', false, null),
+    G: await checkpoint(e1.id, 'Games', 'custom', false, null, 5),
     D2: await checkpoint(e2.id, 'Door', 'door', false, null),
   };
 
@@ -212,23 +226,36 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
   }
 
   const scan = async (args: ScanArgs): Promise<ScanResult> => {
-    const method = args.token !== undefined ? 'qr' : 'manual';
+    const method = args.token !== undefined ? 'qr' : args.tagPublicId !== undefined || args.tagUid !== undefined ? 'nfc' : 'manual';
     const { rows } = await (args.db ?? pool).query<{ r: ScanResult }>(
-      'select record_scan($1, $2, $3::scan_method, $4, $5, $6, $7) as r',
+      'select record_scan($1, $2, $3::scan_method, $4, $5, $6, $7, $8, $9, $10) as r',
       [
         args.cp,
         args.staff,
         method,
         args.token !== undefined ? sha256hex(args.token) : null,
         args.participantId ?? null,
+        args.tagPublicId ?? null,
+        args.tagUid ?? null,
         args.clientScanId ?? randomUUID(),
         args.clientScannedAt === undefined ? new Date().toISOString() : args.clientScannedAt,
+        args.confirmRepeat ?? false,
       ],
     );
     const r = rows[0]?.r;
     if (!r) throw new Error('record_scan returned nothing');
     return r;
   };
+
+  const tapBadge: StandardFixture['tapBadge'] = (staffId, checkpointId, tag, o = {}) =>
+    scan({
+      cp: checkpointId,
+      staff: staffId,
+      ...(o.byUid ? { tagUid: tag.uid } : { tagPublicId: tag.publicId }),
+      ...(o.confirmRepeat !== undefined && { confirmRepeat: o.confirmRepeat }),
+      ...(o.clientScanId !== undefined && { clientScanId: o.clientScanId }),
+      ...(o.db && { db: o.db }),
+    });
 
   const voidScan = async (scanId: string, staffId: string, reason = 'Test scan') => {
     const { rows } = await pool.query<{ r: VoidResult }>('select void_scan($1, $2, $3) as r', [scanId, staffId, reason]);
@@ -298,6 +325,7 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     staffEmail,
     pool,
     scan,
+    tapBadge,
     issuePass,
     voidScan,
     addParticipant,

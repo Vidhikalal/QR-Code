@@ -36,7 +36,7 @@ describe('checkpoints admin (SPEC §11)', () => {
     expect(door.status).toBe(409);
     expect((await c.call('createCheckpoint', org, { slug: f.slug }, { body: { name: '', kind: 'meal' } })).status).toBe(400);
     const list = await c.call('listCheckpoints', org, { slug: f.slug });
-    expect((obj(list.body).checkpoints as unknown[]).length).toBe(5);
+    expect((obj(list.body).checkpoints as unknown[]).length).toBe(6); // D, L, W, R, G (PLAN §15.1), and the one created above
   });
 
   it('T-ADM-04: deleting a checkpoint that has scans is blocked with a message; an unused one can be deleted', async () => {

@@ -28,8 +28,6 @@ export type Outcome =
   | { kind: 'network' }
   | { kind: 'rate_limited' }
   | { kind: 'link'; code: LinkCode; badgeLabel: string | null; personName: string; holderName?: string; currentLabel?: string | null }
-  /** A badge read while no "Tap a blank badge" prompt is open (badge check-ins arrive with V5). */
-  | { kind: 'badge_elsewhere' }
   /** An NFC tag without our URL. */
   | { kind: 'not_our_badge' };
 
@@ -50,7 +48,7 @@ export interface ResultView {
   name?: string;
   photoUrl?: string | null;
   dismiss: { autoMs: number } | 'tap';
-  action?: 'manual-search' | 'pick-checkpoint' | 'replace-badge';
+  action?: 'manual-search' | 'pick-checkpoint' | 'replace-badge' | 'serve-again';
   sound: 'chime' | 'buzz' | 'double';
 }
 
@@ -64,6 +62,11 @@ function problem(tone: 'amber' | 'red', icon: ResultView['icon'], headline: stri
   return { tone, icon, headline, dismiss: 'tap', sound: tone === 'red' ? 'buzz' : 'double', ...extra };
 }
 
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+  return `${n}${s}`;
+}
+
 function clock(iso: string, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit' }).format(new Date(iso));
 }
@@ -75,9 +78,6 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
   if (outcome.kind === 'network') return problem('amber', '!', 'NO RESULT: do not admit yet. Rescan.');
   if (outcome.kind === 'rate_limited') return problem('amber', '!', 'Slow down', { detail: 'Too many scans. Wait a moment, then rescan.' });
   if (outcome.kind === 'not_our_badge') return { tone: 'amber', icon: '?', headline: 'Not a Passline badge', dismiss: { autoMs: MALFORMED_MS }, sound: 'double' };
-  if (outcome.kind === 'badge_elsewhere') {
-    return problem('amber', '!', 'Badge scanning at checkpoints comes next', { detail: 'Scan their pass or use manual search for now.', action: 'manual-search' });
-  }
   if (outcome.kind === 'link') return linkView(outcome);
 
   const r = outcome.data;
@@ -85,7 +85,14 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
 
   switch (r.code) {
     case 'ACCEPTED': {
-      const headline = HEADLINE[ctx.checkpointKind] + (r.replayed ? ' (confirmed)' : '');
+      // PLAN §10.2 (v2): numbered meal servings; activity points.
+      const extra =
+        ctx.checkpointKind === 'meal' && (r.servingNo ?? 1) > 1
+          ? ` (${ordinal(r.servingNo ?? 1)} serving)`
+          : (r.points ?? 0) > 0
+            ? ` · +${r.points} pts`
+            : '';
+      const headline = HEADLINE[ctx.checkpointKind] + extra + (r.replayed ? ' (confirmed)' : '');
       const dietary = ctx.checkpointKind === 'meal' ? r.participant?.dietaryNotes : null;
       return {
         tone: 'green',
@@ -126,6 +133,17 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
       return problem('red', '✕', 'No access', { detail: 'Re-select the event', action: 'pick-checkpoint' });
     case 'CLIENT_ID_CONFLICT':
       return problem('amber', '!', 'Rescan please');
+    case 'REPEAT_SERVING': {
+      const prev = r.previous;
+      const last = prev ? `Last ${clock(prev.scannedAt, ctx.timezone)} by ${prev.scannedByMe ? 'you' : (prev.scannedByName ?? 'another volunteer')}` : undefined;
+      return problem('amber', '⟳', `SERVED ${r.servedCount ?? 1}× ALREADY`, { ...who, ...(last && { detail: last }), action: 'serve-again' });
+    }
+    case 'TAG_UNASSIGNED':
+      return problem('amber', '!', `BADGE NOT LINKED${r.tagLabel ? ` (${r.tagLabel})` : ''}`, {
+        detail: ctx.checkpointKind === 'door' ? 'Scan their pass first, then link the badge' : 'Send them to the door',
+      });
+    case 'TAG_REPLACED':
+      return problem('red', '✕', `OLD BADGE · replaced${r.retiredAt ? ` ${clock(r.retiredAt, ctx.timezone)}` : ''}`, { ...who, detail: 'Ask for their newer badge' });
   }
 }
 

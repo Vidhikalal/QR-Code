@@ -82,15 +82,37 @@ describe('result screen mapping (SPEC §10.2)', () => {
     expect(link('TAG_RETIRED')).toMatchObject({ tone: 'red', headline: 'Deactivated badge', detail: 'Pick another badge' });
     expect(link('TAG_NOT_FOUND')).toMatchObject({ tone: 'red', headline: 'Not registered for this event' });
     expect(link('TAG_WRONG_EVENT')).toMatchObject({ tone: 'red', headline: 'Not registered for this event' });
-    expect(viewFor({ kind: 'badge_elsewhere' }, ctx('meal'))).toMatchObject({ tone: 'amber', headline: 'Badge scanning at checkpoints comes next', dismiss: 'tap' });
     expect(viewFor({ kind: 'not_our_badge' }, ctx())).toMatchObject({ tone: 'amber', icon: '?', headline: 'Not a Passline badge', dismiss: { autoMs: 1500 } });
   });
 
   it('I-1 (extended): green only for ACCEPTED, ASSIGNED and ALREADY_ASSIGNED', () => {
+    for (const code of ['REPEAT_SERVING', 'TAG_UNASSIGNED', 'TAG_REPLACED'] as const) expect(viewFor(server({ code, participant }), ctx('meal')).tone, code).not.toBe('green');
     for (const code of LINK_CODES) {
       const tone = viewFor({ kind: 'link', code, badgeLabel: 'B-1', personName: 'Ada' }, ctx()).tone;
       expect(tone === 'green', code).toBe(code === 'ASSIGNED' || code === 'ALREADY_ASSIGNED');
     }
-    for (const kind of ['badge_elsewhere', 'not_our_badge'] as const) expect(viewFor({ kind }, ctx()).tone).not.toBe('green');
+    expect(viewFor({ kind: 'not_our_badge' }, ctx()).tone).not.toBe('green');
+  });
+
+  it('PLAN §10.2 (V5a): meal servings, points, REPEAT_SERVING and badge problems', () => {
+    expect(viewFor(server({ code: 'ACCEPTED', participant, servingNo: 2 }), ctx('meal'))).toMatchObject({ tone: 'green', headline: 'SERVE (2nd serving)' });
+    expect(viewFor(server({ code: 'ACCEPTED', participant, servingNo: 3 }), ctx('meal')).headline).toBe('SERVE (3rd serving)');
+    expect(viewFor(server({ code: 'ACCEPTED', participant, servingNo: 1 }), ctx('meal')).headline).toBe('SERVE');
+    expect(viewFor(server({ code: 'ACCEPTED', participant, points: 10 }), ctx('session'))).toMatchObject({ tone: 'green', headline: 'RECORDED · +10 pts' });
+    expect(viewFor(server({ code: 'ACCEPTED', participant, points: 0 }), ctx('custom')).headline).toBe('RECORDED');
+    const at = new Date(now.getTime() - 120_000).toISOString();
+    expect(viewFor(server({ code: 'REPEAT_SERVING', participant, servedCount: 1, previous: { scannedAt: at, scannedByName: 'Maya', scannedByMe: false } }), ctx('meal'))).toMatchObject({
+      tone: 'amber',
+      icon: '⟳',
+      headline: 'SERVED 1× ALREADY',
+      detail: 'Last 12:01 PM by Maya',
+      name: 'Ada Lovelace',
+      photoUrl: 'https://x/p.jpg',
+      action: 'serve-again',
+      dismiss: 'tap',
+    });
+    expect(viewFor(server({ code: 'TAG_UNASSIGNED', tagLabel: 'B-0005' }), ctx('door'))).toMatchObject({ tone: 'amber', headline: 'BADGE NOT LINKED (B-0005)', detail: 'Scan their pass first, then link the badge' });
+    expect(viewFor(server({ code: 'TAG_UNASSIGNED', tagLabel: 'B-0005' }), ctx('meal'))).toMatchObject({ tone: 'amber', detail: 'Send them to the door' });
+    expect(viewFor(server({ code: 'TAG_REPLACED', participant, retiredAt: at }), ctx('meal'))).toMatchObject({ tone: 'red', icon: '✕', headline: 'OLD BADGE · replaced 12:01 PM', name: 'Ada Lovelace' });
   });
 });

@@ -53,6 +53,7 @@ describe('dashboard analytics (SPEC §13)', () => {
       checkpoints: [
         { name: 'Alpha Talk', kind: 'session', liveScans: 1, capacity: null, fill: null },
         { name: 'Door', kind: 'door', liveScans: 3 },
+        { name: 'Games', kind: 'custom', liveScans: 0 },
         { name: 'Lunch', kind: 'meal', liveScans: 2, uptake: 0.6667 },
         { name: 'Raffle', kind: 'custom', liveScans: 2 },
         { name: 'Workshop', kind: 'session', liveScans: 1, capacity: 2, fill: 0.5 },

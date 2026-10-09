@@ -53,6 +53,8 @@ const NFC_HELP: Record<NfcError, string> = {
 const LINK_PROMPT_MS = 32_500;
 const LINK_UNDO_MS = 120_000;
 
+type ScanPart = Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'tagPublicId' | 'tagUid' | 'confirmRepeat'>;
+
 interface LinkTarget {
   publicId?: string;
   uid?: string;
@@ -80,6 +82,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [linkPrompt, setLinkPrompt] = useState<{ participantId: string; name: string; until: number } | null>(null);
   const [pendingReplace, setPendingReplace] = useState<{ participantId: string; name: string; target: LinkTarget } | null>(null);
   const [lastLink, setLastLink] = useState<{ assignmentId: string; at: number } | null>(null);
+  // PLAN F22: the request behind a REPEAT_SERVING, so "Serve again" can resend it confirmed.
+  const [pendingServe, setPendingServe] = useState<ScanPart | null>(null);
   const nfcRef = useRef<NfcReader | null>(null);
   const nfcDeduper = useRef(createDeduper());
 
@@ -168,7 +172,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }, [timezone]);
 
   const record = useCallback(
-    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId'>) => {
+    async (part: ScanPart) => {
       if (!checkpoint) return;
       setBusy(true);
       setNotice(null);
@@ -190,6 +194,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           setLastOwn({ at: Date.now(), scanId: outcome.data.scanId });
           setNow(Date.now());
         }
+        setPendingServe(outcome.data.code === 'REPEAT_SERVING' ? part : null);
         // PLAN F20: admitted at the door without a badge → offer "Tap a blank badge" after ADMIT.
         const p = outcome.data.participant;
         if (outcome.data.code === 'ACCEPTED' && outcome.data.hasBadge === false && p) {
@@ -240,14 +245,15 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     [checkpoint, linkPrompt, pendingReplace, show, slug, toLogin],
   );
 
-  // A badge was read (printed QR or NFC). Only the door prompt uses it until V5's badge check-ins.
+  // A badge was read (printed QR or NFC): link it during the door prompt, otherwise check in by badge
+  // at this checkpoint (PLAN F21; record_scan decides, I-2).
   const onBadge = useCallback(
     (target: LinkTarget) => {
       if (!checkpoint) return;
       if (linkPrompt && linkPrompt.until > Date.now()) return void link(target);
-      show({ kind: 'badge_elsewhere' }, checkpoint);
+      void record({ method: 'nfc', ...(target.publicId ? { tagPublicId: target.publicId } : {}), ...(target.uid ? { tagUid: target.uid } : {}) });
     },
-    [checkpoint, linkPrompt, link, show],
+    [checkpoint, linkPrompt, link, record],
   );
 
   const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || !checkpoint;
@@ -276,9 +282,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       const promptOpen = linkPrompt !== null && linkPrompt.until > Date.now();
       if (parsed.ok) return onBadge({ publicId: parsed.publicId, ...(tap.uid ? { uid: tap.uid } : {}) });
       if (promptOpen && tap.uid && !tap.url) return void link({ uid: tap.uid });
+      // A tag without our URL may still be one of our badges registered by serial (vendor list).
+      if (tap.uid && !tap.url) return void record({ method: 'nfc', tagUid: tap.uid });
       show({ kind: 'not_our_badge' }, checkpoint);
     };
-  }, [scanningPaused, checkpoint, appOrigin, linkPrompt, onBadge, link, show]);
+  }, [scanningPaused, checkpoint, appOrigin, linkPrompt, onBadge, link, record, show]);
 
   async function startNfc() {
     nfcRef.current ??= createNfcReader();
@@ -396,7 +404,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           { label: 'Replace it', danger: true, onClick: () => { setResult(null); void link(pendingReplace.target, true); } },
           { label: 'Cancel', onClick: () => { setResult(null); setPendingReplace(null); } },
         ]
-      : undefined;
+      : result?.view.action === 'serve-again' && pendingServe
+        ? [
+            // A new physical decision: record() gives it a new clientScanId (PLAN F22).
+            { label: 'Serve again', onClick: () => { setResult(null); setPendingServe(null); void record({ ...pendingServe, confirmRepeat: true }); } },
+            { label: 'Don’t serve', danger: true, onClick: () => { setResult(null); setPendingServe(null); } },
+          ]
+        : undefined;
 
   return (
     <main

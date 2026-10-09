@@ -83,7 +83,9 @@ export type Database = {
           is_open: boolean
           kind: Database["public"]["Enums"]["checkpoint_kind"]
           name: string
+          points: number
           requires_checkin: boolean
+          seconds_open: boolean
           sort_order: number
           starts_at: string | null
         }
@@ -94,7 +96,9 @@ export type Database = {
           is_open?: boolean
           kind: Database["public"]["Enums"]["checkpoint_kind"]
           name: string
+          points?: number
           requires_checkin?: boolean
+          seconds_open?: boolean
           sort_order?: number
           starts_at?: string | null
         }
@@ -105,7 +109,9 @@ export type Database = {
           is_open?: boolean
           kind?: Database["public"]["Enums"]["checkpoint_kind"]
           name?: string
+          points?: number
           requires_checkin?: boolean
+          seconds_open?: boolean
           sort_order?: number
           starts_at?: string | null
         }
@@ -608,6 +614,8 @@ export type Database = {
           pass_id: string | null
           scanned_at: string
           scanned_by: string
+          serving_no: number
+          tag_id: string | null
           void_reason: string | null
           voided_at: string | null
           voided_by: string | null
@@ -623,6 +631,8 @@ export type Database = {
           pass_id?: string | null
           scanned_at?: string
           scanned_by: string
+          serving_no?: number
+          tag_id?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -638,6 +648,8 @@ export type Database = {
           pass_id?: string | null
           scanned_at?: string
           scanned_by?: string
+          serving_no?: number
+          tag_id?: string | null
           void_reason?: string | null
           voided_at?: string | null
           voided_by?: string | null
@@ -669,6 +681,13 @@ export type Database = {
             columns: ["pass_id"]
             isOneToOne: false
             referencedRelation: "passes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scans_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
             referencedColumns: ["id"]
           },
         ]
@@ -1145,9 +1164,12 @@ export type Database = {
           p_checkpoint_id: string
           p_client_scan_id: string
           p_client_scanned_at: string
+          p_confirm_repeat?: boolean
           p_method: Database["public"]["Enums"]["scan_method"]
           p_participant_id: string
           p_staff_user_id: string
+          p_tag_public_id: string
+          p_tag_uid: string
           p_token_hash: string
         }
         Returns: Json
@@ -1222,7 +1244,7 @@ export type Database = {
         | "waitlisted"
         | "rejected"
         | "withdrawn"
-      scan_method: "qr" | "manual"
+      scan_method: "qr" | "manual" | "nfc"
       staff_role: "organizer" | "volunteer"
     }
     CompositeTypes: {
@@ -1363,7 +1385,7 @@ export const Constants = {
         "rejected",
         "withdrawn",
       ],
-      scan_method: ["qr", "manual"],
+      scan_method: ["qr", "manual", "nfc"],
       staff_role: ["organizer", "volunteer"],
     },
   },

@@ -75,6 +75,9 @@ const checkpointCreate = z
     isOpen: z.boolean().optional(),
     startsAt: z.iso.datetime({ offset: true }).nullable().optional(),
     sortOrder: z.number().int().optional(),
+    // PLAN §6.6: activity points (meals are always 0) and "Seconds open" (meals only).
+    points: z.number().int().min(0).max(1000).optional(),
+    secondsOpen: z.boolean().optional(),
   })
   .strict();
 const checkpointUpdate = checkpointCreate.omit({ kind: true }).partial().strict();
@@ -113,6 +116,8 @@ const checkpointView = (c: CheckpointRow) => ({
   capacity: c.capacity,
   startsAt: c.starts_at,
   sortOrder: c.sort_order,
+  points: c.points,
+  secondsOpen: c.seconds_open,
 });
 
 function csvResponse(slug: string, kind: string, body: string): Response {
@@ -219,6 +224,8 @@ export function createAdminApi(deps: AdminDeps) {
       const body = checkpointCreate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
       const b = body.data;
+      // Friendly versions of checkpoints_meal_no_points / checkpoints_meal_rules.
+      if ((b.kind === 'meal' && (b.points ?? 0) > 0) || (b.kind !== 'meal' && b.secondsOpen)) return badRequest();
       const { data, error } = await db
         .from('checkpoints')
         .insert({
@@ -231,6 +238,8 @@ export function createAdminApi(deps: AdminDeps) {
           is_open: b.isOpen ?? false,
           starts_at: b.startsAt ?? null,
           sort_order: b.sortOrder ?? 0,
+          points: b.points ?? 0,
+          seconds_open: b.secondsOpen ?? false,
         })
         .select('*')
         .single();
@@ -258,6 +267,8 @@ export function createAdminApi(deps: AdminDeps) {
         ...(b.requiresCheckin !== undefined && { requires_checkin: b.requiresCheckin }),
         ...(b.startsAt !== undefined && { starts_at: b.startsAt }),
         ...(b.sortOrder !== undefined && { sort_order: b.sortOrder }),
+        ...(b.points !== undefined && { points: b.points }),
+        ...(b.secondsOpen !== undefined && { seconds_open: b.secondsOpen }),
       };
       const { data, error } = await db.from('checkpoints').update(patch).eq('id', id).eq('event_id', g.eventId).select('*').maybeSingle();
       if (error?.code === '23514') return badRequest(); // e.g. a door with requires_checkin
@@ -265,6 +276,7 @@ export function createAdminApi(deps: AdminDeps) {
       if (error) throw new Error(`checkpoint update failed (${error.code})`);
       if (!data) return notFound();
       if (b.isOpen !== undefined) await audit(g.eventId, g.userId, b.isOpen ? 'checkpoint.open' : 'checkpoint.close', id);
+      if (b.secondsOpen !== undefined) await audit(g.eventId, g.userId, b.secondsOpen ? 'checkpoint.seconds_open' : 'checkpoint.seconds_closed', id);
       return json({ checkpoint: checkpointView(data) });
     },
 

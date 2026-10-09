@@ -16,6 +16,8 @@ interface Checkpoint {
   capacity: number | null;
   startsAt: string | null;
   sortOrder: number;
+  points: number;
+  secondsOpen: boolean;
 }
 
 const KINDS: Kind[] = ['door', 'meal', 'session', 'custom'];
@@ -44,6 +46,13 @@ export function Checkpoints({ slug }: { slug: string }) {
   async function toggle(c: Checkpoint) {
     const r = await api(adminUrl(slug, `/checkpoints/${c.id}`), { method: 'PATCH', body: { isOpen: !c.isOpen } });
     setMessage(r.ok ? `✓ ${c.name} is now ${c.isOpen ? 'closed' : 'open'}.` : `✕ ${errorText(r)}`);
+    await load();
+  }
+
+  // PLAN F22: organizers open seconds once everyone has had a first serving; repeats then skip the warning.
+  async function toggleSeconds(c: Checkpoint) {
+    const r = await api(adminUrl(slug, `/checkpoints/${c.id}`), { method: 'PATCH', body: { secondsOpen: !c.secondsOpen } });
+    setMessage(r.ok ? `✓ ${c.name}: seconds are now ${c.secondsOpen ? 'closed (repeats ask first)' : 'open (repeats skip the warning)'}.` : `✕ ${errorText(r)}`);
     await load();
   }
 
@@ -79,6 +88,8 @@ export function Checkpoints({ slug }: { slug: string }) {
                 <th>State</th>
                 <th>Needs check-in</th>
                 <th className={styles.num}>Capacity</th>
+                <th className={styles.num}>Points</th>
+                <th>Seconds</th>
                 <th>Starts</th>
                 <th>Actions</th>
               </tr>
@@ -95,6 +106,17 @@ export function Checkpoints({ slug }: { slug: string }) {
                   </td>
                   <td>{c.requiresCheckin ? 'Yes' : 'No'}</td>
                   <td className={styles.num}>{c.capacity ?? '—'}</td>
+                  <td className={styles.num}>{c.kind === 'meal' ? '—' : c.points}</td>
+                  <td>
+                    {c.kind === 'meal' ? (
+                      <label className={styles.check}>
+                        <input type="checkbox" checked={c.secondsOpen} aria-label={`Seconds open at ${c.name}`} onChange={() => void toggleSeconds(c)} />
+                        {c.secondsOpen ? 'Open' : 'Ask first'}
+                      </label>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{c.startsAt ? formatEventDateTime(c.startsAt, timezone) : '—'}</td>
                   <td>
                     <div className={styles.actions}>
@@ -158,18 +180,22 @@ function CheckpointForm(props: { slug: string; timezone: string; initial: Checkp
   const [requiresCheckin, setRequiresCheckin] = useState(init?.requiresCheckin ?? true);
   const [sortOrder, setSortOrder] = useState(init?.sortOrder.toString() ?? '0');
   const [startsAt, setStartsAt] = useState(init?.startsAt ? toLocalInput(init.startsAt, props.timezone) : '');
+  const [points, setPoints] = useState(init?.points.toString() ?? '0');
   const [error, setError] = useState<string | null>(null);
   const isDoor = kind === 'door';
 
   async function submit() {
     const cap = capacity.trim() === '' ? null : Number(capacity);
     if (cap !== null && (!Number.isInteger(cap) || cap <= 0)) return setError('Capacity must be a whole number above 0, or empty.');
+    const pts = kind === 'meal' ? 0 : Number(points.trim() || '0');
+    if (!Number.isInteger(pts) || pts < 0 || pts > 1000) return setError('Points must be a whole number from 0 to 1000.');
     const body = {
       name,
       ...(init ? {} : { kind }),
       capacity: cap,
       requiresCheckin: isDoor ? false : requiresCheckin,
       sortOrder: Number(sortOrder) || 0,
+      ...(kind === 'meal' ? {} : { points: pts }),
       startsAt: startsAt ? zonedToUtc(startsAt, props.timezone) : null,
     };
     const r = init
@@ -206,6 +232,12 @@ function CheckpointForm(props: { slug: string; timezone: string; initial: Checkp
           Capacity (optional)
           <input className={styles.input} inputMode="numeric" value={capacity} onChange={(e) => setCapacity(e.target.value)} />
         </label>
+        {kind !== 'meal' && (
+          <label className={styles.field}>
+            Points for attending (0–1000; shown on the activity leaderboard)
+            <input className={styles.input} inputMode="numeric" value={points} onChange={(e) => setPoints(e.target.value)} />
+          </label>
+        )}
         <label className={styles.check}>
           <input type="checkbox" checked={isDoor ? false : requiresCheckin} disabled={isDoor} onChange={(e) => setRequiresCheckin(e.target.checked)} /> Requires door check-in first
         </label>

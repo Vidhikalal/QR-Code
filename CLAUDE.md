@@ -73,7 +73,7 @@ tests/unit | tests/int | tests/e2e | tests/fixtures | tests/assets (QR .y4m vide
 ## Non-negotiable invariants
 Each one has tests. If a task seems to require breaking one, **stop and ask**.
 
-- **I-1 No false green.** The scanner shows a green/admit state *only* when the server returned `ACCEPTED`. Timeouts, 5xx, offline and parse failures are amber, never green.
+- **I-1 No false green.** The scanner shows a green/admit state *only* when the server returned `ACCEPTED` (or, for the door's badge link, `ASSIGNED`/`ALREADY_ASSIGNED`). Timeouts, 5xx, offline and parse failures are amber, never green.
 - **I-2 One scan-decision path.** Every scan goes through `record_scan()` in Postgres. Never read scan state in TypeScript and then write based on it.
 - **I-3 Tokens are secrets.** Store only `sha256` hex. Never persist, log, or put a raw token in a URL path or query string. Only the URL fragment (`/p#token`) and POST bodies may carry it.
 - **I-4 QR payload is exactly `${APP_ORIGIN}/p#${token}`.** No PII in QR codes, ever.

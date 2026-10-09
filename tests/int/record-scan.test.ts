@@ -84,7 +84,8 @@ describe('record_scan (SPEC §8)', () => {
     const lunch = await f.scan({ cp: f.cp.L, staff: f.staff.vol1, token: f.token.A });
     expect(lunch.code).toBe('ACCEPTED');
     expect(lunch.participant?.dietaryNotes).toBe('Vegetarian');
-    expect((await f.scan({ cp: f.cp.L, staff: f.staff.vol1, token: f.token.A })).code).toBe('ALREADY_SCANNED');
+    // v2 (PLAN D11, user-confirmed in V5a): a second serving at a meal warns instead of refusing.
+    expect(await f.scan({ cp: f.cp.L, staff: f.staff.vol1, token: f.token.A })).toMatchObject({ code: 'REPEAT_SERVING', servedCount: 1 });
   });
 
   it('T-SCAN-09: A at R (requires_checkin = false) without door is ACCEPTED', async () => {
@@ -157,7 +158,7 @@ describe('record_scan (SPEC §8)', () => {
     expect((await f.scan(bl)).code).toBe('NOT_CHECKED_IN');
     expect((await f.scan({ ...bl, cp: f.cp.D })).code).toBe('ACCEPTED');
     expect((await f.scan(bl)).code).toBe('ACCEPTED');
-    expect((await f.scan(bl)).code).toBe('ALREADY_SCANNED');
+    expect((await f.scan(bl)).code).toBe('REPEAT_SERVING'); // v2 meals (PLAN D11)
     const { rows } = await f.pool.query<{ method: string; pass_id: string | null }>(
       'select method, pass_id from scans where participant_id = any($1)',
       [[f.p.A, f.p.B]],
@@ -212,7 +213,7 @@ describe('record_scan (SPEC §8)', () => {
         await client.query('begin');
         await client.query(`set local role ${role}`);
         await expect(
-          client.query('select record_scan($1, $2, $3::scan_method, $4, null, gen_random_uuid(), now())', [
+          client.query('select record_scan($1, $2, $3::scan_method, $4, null, null, null, gen_random_uuid(), now(), false)', [
             f.cp.D,
             f.staff.vol1,
             'qr',

@@ -40,7 +40,7 @@ async function liveRows(checkpointId: string): Promise<number> {
 }
 
 describe(`concurrency (×${ITERATIONS})`, () => {
-  it('T-CONC-01 / T-CONC-07: 50 parallel scans of one person, distinct ids → 1 ACCEPTED, 49 ALREADY_SCANNED', async () => {
+  it('T-CONC-01 / T-CONC-07 / T-CONC2-09: 50 parallel scans of one person, distinct ids → 1 ACCEPTED, 49 ALREADY_SCANNED', async () => {
     for (let i = 0; i < ITERATIONS; i++) {
       const cp = await newCheckpoint();
       const person = await f.addParticipant(f.e1.id);
@@ -52,7 +52,7 @@ describe(`concurrency (×${ITERATIONS})`, () => {
     }
   });
 
-  it('T-CONC-02 / T-CONC-07: 20 parallel scans with the same clientScanId → 20 ACCEPTED, 19 replayed, 1 row', async () => {
+  it('T-CONC-02 / T-CONC-07 / T-CONC2-09: 20 parallel scans with the same clientScanId → 20 ACCEPTED, 19 replayed, 1 row', async () => {
     for (let i = 0; i < ITERATIONS; i++) {
       const cp = await newCheckpoint();
       const person = await f.addParticipant(f.e1.id);
@@ -66,7 +66,7 @@ describe(`concurrency (×${ITERATIONS})`, () => {
     }
   });
 
-  it('T-CONC-03 / T-CONC-07: capacity 10, 30 distinct participants in parallel → 10 ACCEPTED, 20 CAPACITY_REACHED', async () => {
+  it('T-CONC-03 / T-CONC-07 / T-CONC2-09: capacity 10, 30 distinct participants in parallel → 10 ACCEPTED, 20 CAPACITY_REACHED', async () => {
     for (let i = 0; i < ITERATIONS; i++) {
       const cp = await newCheckpoint({ capacity: 10, kind: 'session' });
       const people = await Promise.all(Array.from({ length: 30 }, () => f.addParticipant(f.e1.id)));

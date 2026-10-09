@@ -1,6 +1,6 @@
 name: Nightly concurrency
 
-# T-CONC-07: loop T-CONC-01, -02 and -03 100 times. A flake here is a bug, not noise.
+# T-CONC-07 / T-CONC2-10: loop T-CONC-01/02/03 and T-CONC2-01/03 100 times. A flake here is a bug, not noise.
 on:
   schedule:
     - cron: '0 7 * * *'
@@ -22,6 +22,6 @@ jobs:
         with:
           version: latest
       - run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor
-      - run: pnpm vitest run --project int tests/int/concurrency.test.ts
+      - run: pnpm vitest run --project int tests/int/concurrency.test.ts tests/int/concurrency-v2.test.ts
         env:
           CONC_ITERATIONS: '100'

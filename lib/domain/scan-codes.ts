@@ -13,6 +13,10 @@ export const SCAN_CODES = [
   'FORBIDDEN',
   'CHECKPOINT_NOT_FOUND',
   'CLIENT_ID_CONFLICT',
+  // PLAN §6.6 (v2): meals warn on repeats; badges can be unlinked or replaced.
+  'REPEAT_SERVING',
+  'TAG_UNASSIGNED',
+  'TAG_REPLACED',
 ] as const;
 
 export type ScanCode = (typeof SCAN_CODES)[number];

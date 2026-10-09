@@ -7,6 +7,7 @@ import { maskEmail } from '@/lib/domain/mask';
 import { sanitizeError } from '@/lib/domain/outbox';
 import { SCAN_CODES, VOID_CODES } from '@/lib/domain/scan-codes';
 import { searchQuery } from '@/lib/domain/search';
+import { normalizeUid } from '@/lib/badge/tags';
 import { sha256hex } from '@/lib/domain/token';
 import { signedPhotoUrl, signedPhotoUrls } from '@/lib/storage/photos';
 import { scanRequestSchema } from './schema';
@@ -68,6 +69,12 @@ const scanResultSchema = z.object({
   revokeReason: z.string().nullable().optional(),
   otherEvent: z.string().nullable().optional(),
   capacity: z.number().optional(),
+  servingNo: z.number().optional(),
+  servedCount: z.number().optional(),
+  points: z.number().optional(),
+  tagId: z.string().optional(),
+  tagLabel: z.string().nullable().optional(),
+  retiredAt: z.string().optional(),
 });
 
 // POST /api/scan (SPEC §9.1, F6). Every decision is made by record_scan() (I-2); this handler only
@@ -79,6 +86,8 @@ export function createScanHandler(deps: ApiDeps) {
     const parsed = scanRequestSchema.safeParse(await readJson(request));
     if (!parsed.success) return badRequest();
     const body = parsed.data;
+    const tagUid = body.tagUid === undefined ? null : normalizeUid(body.tagUid);
+    if (body.tagUid !== undefined && !tagUid) return badRequest();
 
     const [recent, notFound, checkpoint] = await Promise.all([
       recentAttempts(deps.db, user.id, 60),
@@ -89,15 +98,18 @@ export function createScanHandler(deps: ApiDeps) {
 
     const started = performance.now();
     // Generated types mark every argument without a default as non-null, but record_scan takes NULL
-    // for whichever of token hash / participant id the method doesn't use (SPEC §8).
+    // for whichever identifiers the method doesn't use (SPEC §8, PLAN §6.6).
     const args = {
       p_checkpoint_id: body.checkpointId,
       p_staff_user_id: user.id,
       p_method: body.method,
       p_token_hash: body.token !== undefined ? sha256hex(body.token) : null,
       p_participant_id: body.participantId ?? null,
+      p_tag_public_id: body.tagPublicId ?? null,
+      p_tag_uid: tagUid,
       p_client_scan_id: body.clientScanId,
       p_client_scanned_at: body.clientScannedAt,
+      p_confirm_repeat: body.confirmRepeat ?? false,
     } as RecordScanArgs;
     const { data, error } = await deps.db.rpc('record_scan', args);
     if (error) throw new Error(`record_scan failed (${error.code})`);

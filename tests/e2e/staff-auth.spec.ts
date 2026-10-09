@@ -29,7 +29,7 @@ test('F9: magic-link sign-in consumes the invite, asks for a display name, then 
   await expect(page).toHaveURL(new RegExp(`${target}$`));
   const body = JSON.parse((await page.locator('body').textContent()) ?? '{}') as { role: string; checkpoints: unknown[] };
   expect(body.role).toBe('organizer');
-  expect(body.checkpoints).toHaveLength(4);
+  expect(body.checkpoints).toHaveLength(5); // D, L, W, R, G (PLAN §15.1)
   const { rows } = await f.pool.query('select 1 from staff_invites where email = $1', [email]);
   expect(rows).toHaveLength(0);
 });

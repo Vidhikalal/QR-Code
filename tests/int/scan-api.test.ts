@@ -138,7 +138,7 @@ describe('GET /api/events/[slug]/checkpoints', () => {
     const ok = await api.checkpoints(vol1, f.slug);
     expect(ok.status).toBe(200);
     const list = ok.body.checkpoints as Array<{ name: string; kind: string }>;
-    expect(list.map((c) => c.name).sort()).toEqual(['Door', 'Lunch', 'Raffle', 'Workshop']);
+    expect(list.map((c) => c.name).sort()).toEqual(['Door', 'Games', 'Lunch', 'Raffle', 'Workshop']);
     expect((await api.checkpoints(vol3, f.slug)).status).toBe(403);
     expect((await api.checkpoints(vol1, 'no-such-event')).status).toBe(403);
     expect((await api.checkpoints(null, f.slug)).status).toBe(401);
