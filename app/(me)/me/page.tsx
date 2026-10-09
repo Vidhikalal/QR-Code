@@ -43,6 +43,9 @@ export default async function MePage() {
         <p className={styles.eyebrow}>{me.event.name}</p>
         <h1>Hi {me.firstName}</h1>
         <p className={styles.muted}>This is the profile people see when they tap your badge. You’re signed in on this device.</p>
+        <p>
+          <a href="/me/connections">My connections →</a>
+        </p>
       </div>
       <ProfileEditor initial={me} />
       <div className={styles.card}>

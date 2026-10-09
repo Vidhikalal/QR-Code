@@ -90,6 +90,24 @@ async function involvementOf(db: Db, participantId: string): Promise<Involvement
   return data as unknown as Involvement | null;
 }
 
+// PLAN F24: is the request signed in as a participant of this event (other than the holder)? If so,
+// where does their connection with the holder stand? Organizers who used My badge profile qualify too.
+async function connectionWith(db: Db, request: Request, meOrigin: string, eventId: string, holderId: string): Promise<'none' | 'pending' | 'mutual' | undefined> {
+  const who = await readParticipant(db, request, meOrigin);
+  if (!who || who.participantId === holderId) return undefined;
+  const { data: me, error } = await db.from('participants').select('event_id').eq('id', who.participantId).single();
+  if (error) throw new Error(`participant load failed (${error.code})`);
+  if (me.event_id !== eventId) return undefined;
+  const { data: taps, error: tapError } = await db
+    .from('connection_taps')
+    .select('from_participant_id')
+    .or(`and(from_participant_id.eq.${who.participantId},to_participant_id.eq.${holderId}),and(from_participant_id.eq.${holderId},to_participant_id.eq.${who.participantId})`);
+  if (tapError) throw new Error(`connection load failed (${tapError.code})`);
+  const mine = taps.some((t) => t.from_participant_id === who.participantId);
+  const theirs = taps.some((t) => t.from_participant_id === holderId);
+  return mine && theirs ? 'mutual' : mine ? 'pending' : 'none';
+}
+
 /** Everything /t/<publicId> renders. Reads only (I-17; the session's last_seen_at refresh is allowed). */
 export async function loadBadgePage(deps: {
   db: Db;
@@ -149,6 +167,7 @@ export async function loadBadgePage(deps: {
     };
   }
 
+  const connection = tv.assignment && !tv.tag.retiredAt ? await connectionWith(db, deps.request, deps.meOrigin, event.id, tv.assignment.participantId) : undefined;
   const { data: ev, error: evError } = await db.from('events').select('timezone').eq('id', event.id).single();
   if (evError) throw new Error(`event load failed (${evError.code})`);
   return badgeView({
@@ -161,5 +180,6 @@ export async function loadBadgePage(deps: {
     extraRoles: deps.extraRoles,
     now,
     ...(staffExtras && { staffExtras }),
+    ...(connection !== undefined && { connection }),
   });
 }

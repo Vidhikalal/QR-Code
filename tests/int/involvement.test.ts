@@ -46,7 +46,7 @@ describe('holder_involvement (PLAN §8.2)', () => {
   });
 
   it('V5b: someone with no scans has an empty summary', async () => {
-    expect(await involvement(f.p.N)).toEqual({ doorAt: null, meals: [], activities: [], points: 0 });
+    expect(await involvement(f.p.N)).toEqual({ doorAt: null, meals: [], activities: [], points: 0, connections: 0 });
   });
 });
 

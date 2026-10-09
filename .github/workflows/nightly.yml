@@ -1,6 +1,6 @@
 name: Nightly concurrency
 
-# T-CONC-07 / T-CONC2-10: loop T-CONC-01/02/03 and T-CONC2-01/03 100 times. A flake here is a bug, not noise.
+# T-CONC-07 / T-CONC2-10: loop T-CONC-01/02/03 and T-CONC2-01/03/08 100 times. A flake here is a bug, not noise.
 on:
   schedule:
     - cron: '0 7 * * *'

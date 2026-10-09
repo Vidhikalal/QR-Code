@@ -5,6 +5,7 @@ import { normalizeEmail } from '@/lib/domain/normalize';
 import { generateSecret, sha256hex } from '@/lib/domain/token';
 import { fromOrigin } from '@/lib/http/origin';
 import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
+import { CONNECT_CODES } from '@/lib/connections/copy';
 import { isCheckedIn, MAX_PHOTO_REQUEST_BYTES, storeParticipantPhoto } from '@/lib/photo/process';
 import { loadProfile } from '@/lib/profile/load';
 import { profilePatchSchema, TOPIC_ROLES, type ProfilePatch } from '@/lib/profile/schema';
@@ -143,6 +144,31 @@ export function createParticipantApi(deps: ParticipantDeps) {
       if (linkError) throw new Error(`request_profile_link failed (${linkError.code})`);
       deps.scheduleDrain?.();
       return json({ code: 'ROTATED' }, 200, clearParticipantCookie(meOrigin));
+    },
+
+    // POST /api/me/connections { tagPublicId }  (PLAN F24: Connect; counts once both have tapped)
+    async connect(request: Request) {
+      if (!fromOrigin(request, meOrigin)) return forbidden();
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      const body = z.object({ tagPublicId: z.string().regex(/^[A-Za-z0-9_-]{12}$/) }).strict().safeParse(await request.json().catch(() => undefined));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      if (!(await withinLimit(db, `connect:p:${who.participantId}`, 3600, 120))) return json({ error: 'rate_limited' }, 429);
+      const { data, error } = await db.rpc('record_connection', { p_from_participant_id: who.participantId, p_tag_public_id: body.data.tagPublicId });
+      if (error) throw new Error(`record_connection failed (${error.code})`);
+      const r = z.object({ code: z.enum(CONNECT_CODES), otherId: z.string().optional() }).parse(data);
+      // The other person's name, only through the public shape (I-19); a hidden profile still shows it.
+      const other = r.otherId ? await loadProfile(db, r.otherId, { extraRoles: deps.extraRoles ?? false }) : null;
+      return json({ code: r.code, otherName: other?.public.displayName ?? null });
+    },
+
+    // GET /api/me/connections  (PLAN §10.4 "My connections": mutual list + pending count)
+    async listConnections(request: Request) {
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      const { data, error } = await db.rpc('my_connections', { p_participant_id: who.participantId });
+      if (error) throw new Error(`my_connections failed (${error.code})`);
+      return json(data);
     },
 
     // GET /api/me/profile  (PLAN §10.4: the /me form, plus the "How others see you" preview)

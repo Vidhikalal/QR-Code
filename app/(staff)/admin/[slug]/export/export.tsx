@@ -36,6 +36,11 @@ export function Export({ slug }: { slug: string }) {
             Meal servings CSV
           </a>
         </li>
+        <li>
+          <a className={`button ${styles.linkButton}`} href={link('connections_summary.csv')} download>
+            Connections summary CSV (counts only)
+          </a>
+        </li>
       </ul>
     </>
   );

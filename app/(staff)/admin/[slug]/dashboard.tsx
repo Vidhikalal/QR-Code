@@ -14,6 +14,7 @@ interface DashboardData {
   checkedIn: number;
   checkInRate: number;
   noShows: number;
+  connections: { mutualPairs: number; averagePerCheckedIn: number; shareWithAny: number };
   checkpoints: Array<{
     id: string;
     name: string;
@@ -103,6 +104,12 @@ export function Dashboard({ slug }: { slug: string }) {
         <Tile id="checked-in" label="Checked in" value={data.checkedIn} hint={`${pct(data.checkInRate)} of accepted`} />
         <Tile id="no-shows" label="Not arrived" value={data.noShows} />
         <Tile id="outbox" label="Emails pending" value={data.outbox.pending} hint={`${data.outbox.failed} failed`} />
+        <Tile
+          id="connections"
+          label="Connections made"
+          value={data.connections.mutualPairs}
+          hint={`${data.connections.averagePerCheckedIn} per person · ${pct(data.connections.shareWithAny)} have one`}
+        />
       </div>
 
       <h2>Checkpoints</h2>

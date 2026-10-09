@@ -8,6 +8,7 @@ import { cookieAuthenticator } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { env } from '@/lib/env';
 import styles from './badge.module.css';
+import { ConnectButton } from './connect';
 import { AssignPanel, OwnerActions, StaffPanel } from './panels';
 
 export const metadata: Metadata = { title: 'Badge · Passline', referrer: 'no-referrer', robots: { index: false, follow: false } };
@@ -72,6 +73,7 @@ export default async function BadgePage({ params }: { params: Promise<{ publicId
             </div>
           )}
           <PublicProfileCard profile={view.profile} />
+          {view.connect && <ConnectButton publicId={publicId} name={view.profile.displayName} state={view.connect.state} />}
           {view.audience === 'anonymous' && (
             <div className={styles.actions}>
               <Link className="button" href="/signin">

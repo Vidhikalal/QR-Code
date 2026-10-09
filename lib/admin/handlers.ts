@@ -179,12 +179,15 @@ export function createAdminApi(deps: AdminDeps) {
     async dashboard(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
-      const [m, event, seconds] = await Promise.all([
+      const [m, event, seconds, conn] = await Promise.all([
         metrics(g.eventId),
         loadEvent(g.eventId),
         db.from('checkpoints').select('id, seconds_open').eq('event_id', g.eventId).eq('kind', 'meal'),
+        db.rpc('connection_stats', { p_event_id: g.eventId }),
       ]);
       if (seconds.error) throw new Error(`checkpoints load failed (${seconds.error.code})`);
+      if (conn.error) throw new Error(`connection_stats failed (${conn.error.code})`);
+      const c = z.object({ mutualPairs: z.number(), peopleWithAny: z.number(), checkedIn: z.number() }).parse(conn.data);
       const secondsOpen = new Map(seconds.data.map((c) => [c.id, c.seconds_open]));
       const checkpoints = m.checkpoints.map((c) => ({
         ...c,
@@ -219,6 +222,12 @@ export function createAdminApi(deps: AdminDeps) {
           notFound: m.notFound,
         },
         scanProblems: m.scanProblems,
+        // PLAN §13: each mutual pair is one connection for each of the two people.
+        connections: {
+          ...c,
+          averagePerCheckedIn: c.checkedIn ? round4((2 * c.mutualPairs) / c.checkedIn) : 0,
+          shareWithAny: c.checkedIn ? round4(c.peopleWithAny / c.checkedIn) : 0,
+        },
       });
     },
 
@@ -735,6 +744,35 @@ export function createAdminApi(deps: AdminDeps) {
               s.method,
               names.get(s.scanned_by) ?? '',
             ]),
+          ),
+        );
+      }
+
+      // PLAN §13 (V6): connection counts per person. Never who met whom.
+      if (kind === 'connections_summary.csv') {
+        const [{ data: people, error: peopleError }, { data: taps, error: tapsError }] = await Promise.all([
+          db.from('participants').select('id, first_name, last_name').eq('event_id', g.eventId).eq('is_test', false).is('deleted_at', null).order('last_name').order('first_name'),
+          db.from('connection_taps').select('from_participant_id, to_participant_id').eq('event_id', g.eventId),
+        ]);
+        if (peopleError) throw new Error(`participants load failed (${peopleError.code})`);
+        if (tapsError) throw new Error(`connection taps load failed (${tapsError.code})`);
+        // Only taps between people still counted (not test rows, not deleted), as in my_connections.
+        const counted = new Set(people.map((p) => p.id));
+        const live = taps.filter((t) => counted.has(t.from_participant_id) && counted.has(t.to_participant_id));
+        const pairs = new Set(live.map((t) => `${t.from_participant_id}>${t.to_participant_id}`));
+        const counts = new Map<string, { mutual: number; pending: number }>();
+        for (const t of live) {
+          const c = counts.get(t.from_participant_id) ?? { mutual: 0, pending: 0 };
+          if (pairs.has(`${t.to_participant_id}>${t.from_participant_id}`)) c.mutual += 1;
+          else c.pending += 1;
+          counts.set(t.from_participant_id, c);
+        }
+        return csvResponse(
+          slug,
+          kind,
+          toCsv(
+            ['participant', 'mutual_connections', 'pending_taps'],
+            people.map((p) => [`${p.first_name} ${p.last_name}`.trim(), counts.get(p.id)?.mutual ?? 0, counts.get(p.id)?.pending ?? 0]),
           ),
         );
       }

@@ -139,4 +139,13 @@ describe('badgeView (PLAN §8.2)', () => {
       }
     }
   });
+
+  it('PLAN F24 (V6): Connect status is offered to a signed-in attendee of the event, never to the owner or a stranger', () => {
+    expect(badgeView(linked({ viewer: sameEventParticipant, connection: 'pending' }))).toMatchObject({ audience: 'participant', connect: { state: 'pending' } });
+    expect(badgeView(linked({ viewer: owner, connection: 'none' }))).not.toHaveProperty('connect');
+    expect(badgeView(linked({ viewer: anon }))).not.toHaveProperty('connect');
+    // An organizer signed in both ways (staff session + their own participant session) can connect too.
+    const hopped: Viewer = { kind: 'staff', userId: 'u-org', eventId: 'e1', role: 'organizer', participantId: 'p-org' };
+    expect(badgeView(linked({ viewer: hopped, connection: 'mutual', staffExtras }))).toMatchObject({ audience: 'staff', connect: { state: 'mutual' } });
+  });
 });

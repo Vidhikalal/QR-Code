@@ -15,6 +15,8 @@ export interface Involvement {
   meals: Array<{ checkpointId: string; name: string; servings: Array<{ no: number; at: string }> }>;
   activities: Array<{ checkpointId: string; name: string; kind: string; at: string; points: number }>;
   points: number;
+  /** V6: mutual connections. */
+  connections?: number;
 }
 export interface StationCheckpoint {
   checkpointId: string;
@@ -43,6 +45,11 @@ export interface BadgeInput {
   extraRoles: boolean;
   now: Date;
   staffExtras?: StaffExtras;
+  /**
+   * PLAN F24: set by the loader only when the request carries a participant session for this event that
+   * isn't the badge holder's: the state of their connection with the holder.
+   */
+  connection?: 'none' | 'pending' | 'mutual';
 }
 
 type StaffPanel = {
@@ -73,6 +80,8 @@ export type BadgeView =
       profile: PublicProfile;
       ownerOnlyNote: boolean;
       staff?: StaffPanel;
+      // `state`, not `status`: public views never carry a key named status (T-BADGE-02).
+      connect?: { state: 'none' | 'pending' | 'mutual' };
     };
 
 const UNLINK_WINDOW_MS = 120_000;
@@ -126,6 +135,7 @@ export function badgeView(input: BadgeInput): BadgeView {
   });
   const audience = isOwner ? 'owner' : staff ? 'staff' : viewer.kind === 'participant' && viewer.eventId === event.id ? 'participant' : 'anonymous';
   const view: Extract<BadgeView, { kind: 'linked' }> = { kind: 'linked', eventName: event.name, audience, profile, ownerOnlyNote: isOwner && hiddenBy !== null };
+  if (input.connection !== undefined && !isOwner && viewer.kind !== 'anonymous') view.connect = { state: input.connection };
   if (staff) {
     const own = assignment.assignedBy === staff.userId && now.getTime() - new Date(assignment.assignedAt).getTime() <= UNLINK_WINDOW_MS;
     view.staff = {

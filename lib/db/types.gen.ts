@@ -125,6 +125,52 @@ export type Database = {
           },
         ]
       }
+      connection_taps: {
+        Row: {
+          created_at: string
+          event_id: string
+          from_participant_id: string
+          to_participant_id: string
+          via_tag_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_id: string
+          from_participant_id: string
+          to_participant_id: string
+          via_tag_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          from_participant_id?: string
+          to_participant_id?: string
+          via_tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "connection_taps_from_participant_id_event_id_fkey"
+            columns: ["from_participant_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "connection_taps_to_participant_id_event_id_fkey"
+            columns: ["to_participant_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "connection_taps_via_tag_id_fkey"
+            columns: ["via_tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_outbox: {
         Row: {
           attempts: number
@@ -925,6 +971,13 @@ export type Database = {
       }
     }
     Functions: {
+      _display_name: {
+        Args: {
+          nick: string
+          pa: Database["public"]["Tables"]["participants"]["Row"]
+        }
+        Returns: string
+      }
       _eligible: {
         Args: { pa: Database["public"]["Tables"]["participants"]["Row"] }
         Returns: boolean
@@ -1034,6 +1087,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      connection_stats: { Args: { p_event_id: string }; Returns: Json }
       consume_platform_admin: {
         Args: { p_email: string; p_user_id: string }
         Returns: boolean
@@ -1151,6 +1205,7 @@ export type Database = {
           timezone: string
         }[]
       }
+      my_connections: { Args: { p_participant_id: string }; Returns: Json }
       open_profile_session: {
         Args: { p_key_hash: string; p_session_hash: string; p_ttl: string }
         Returns: Json
@@ -1159,6 +1214,10 @@ export type Database = {
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean
+      }
+      record_connection: {
+        Args: { p_from_participant_id: string; p_tag_public_id: string }
+        Returns: Json
       }
       record_scan: {
         Args: {

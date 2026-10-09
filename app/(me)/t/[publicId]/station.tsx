@@ -149,6 +149,12 @@ export function InvolvementSummary({ involvement: v, timezone }: { involvement: 
       </ul>
       <p data-testid="involvement-points">
         <strong>{v.points}</strong> activity points
+        {v.connections !== undefined && (
+          <>
+            {' · '}
+            <strong>{v.connections}</strong> connection{v.connections === 1 ? '' : 's'}
+          </>
+        )}
       </p>
     </div>
   );

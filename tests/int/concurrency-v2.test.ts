@@ -55,6 +55,24 @@ describe(`meal concurrency (×${ITERATIONS})`, () => {
     });
   }
 
+  it('T-CONC2-08 / T-CONC2-10: two people tap each other at the same moment, 40 rounds → one MUTUAL and one PENDING each time', async () => {
+    for (let round = 0; round < 40 * ITERATIONS; round++) {
+      const [x, y] = [await f.addParticipant(f.e1.id), await f.addParticipant(f.e1.id)];
+      const tags: string[] = [];
+      for (const p of [x, y]) {
+        await f.checkIn(p.id);
+        const publicId = randomUUID().replaceAll('-', '').slice(0, 12);
+        await f.pool.query('insert into tags (event_id, public_id, registered_by) values ($1, $2, $3)', [f.e1.id, publicId, f.staff.org1]);
+        await f.pool.query('select assign_tag($1, $2, $3, $4, null, false)', [f.e1.id, f.staff.org1, p.id, publicId]);
+        tags.push(publicId);
+      }
+      const rs = await parallel(2, (c, i) =>
+        c.query<{ r: { code: string } }>('select record_connection($1, $2) as r', [i === 0 ? x.id : y.id, i === 0 ? tags[1] : tags[0]]).then((q) => q.rows[0]?.r.code ?? ''),
+      );
+      expect(rs.sort(), `round ${round}`).toEqual(['MUTUAL', 'PENDING']);
+    }
+  });
+
   it('T-CONC2-02: 10 parallel confirmed repeats → 10 distinct, consecutive serving numbers', async () => {
     const meal = await newMeal();
     await f.tapBadge(f.staff.vol1, meal, b.tag.T1);
