@@ -1193,6 +1193,21 @@ export type Database = {
         Args: { p_admin_id: string; p_event_id: string }
         Returns: string
       }
+      leaderboard: {
+        Args: {
+          p_as_of: string
+          p_event_id: string
+          p_kind: string
+          p_limit?: number
+        }
+        Returns: {
+          display_name: string
+          participant_id: string
+          points: number
+          rank: number
+          reached_at: string
+        }[]
+      }
       list_events_for: {
         Args: { p_user_id: string }
         Returns: {
@@ -1211,6 +1226,16 @@ export type Database = {
         Returns: Json
       }
       pass_lookup: { Args: { p_token_hash: string }; Returns: Json }
+      points_as_of: {
+        Args: { p_as_of: string; p_event_id: string }
+        Returns: {
+          activity: number
+          activity_at: string
+          networking: number
+          networking_at: string
+          participant_id: string
+        }[]
+      }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean

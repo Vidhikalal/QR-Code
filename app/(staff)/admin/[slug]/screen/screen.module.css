@@ -1,0 +1,14 @@
+/* Full-viewport overlay over the admin layout: large type, high contrast, readable from the back of a room. */
+.screen { position: fixed; inset: 0; z-index: 50; overflow: auto; background: #0b1020; color: #fff; padding: 32px 4vw; display: flex; flex-direction: column; }
+.back { position: absolute; top: 12px; left: 16px; color: #cbd5e1; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
+.back:focus-visible { outline: 3px solid #fde047; outline-offset: 2px; }
+.columns { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 4vw; align-items: start; margin-top: 32px; }
+.column h1 { font-size: clamp(32px, 5vw, 72px); margin: 0 0 24px; color: #fde047; }
+.list { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; }
+.list li { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; font-size: clamp(24px, 3.4vw, 52px); font-weight: 700; }
+.rank { min-width: 1.6em; text-align: center; }
+.name { overflow-wrap: anywhere; }
+.points { font-variant-numeric: tabular-nums; }
+.points small { font-size: 0.5em; color: #cbd5e1; }
+.empty { font-size: clamp(20px, 2.4vw, 36px); color: #cbd5e1; }
+.status { text-align: center; font-size: clamp(18px, 2vw, 28px); color: #e2e8f0; margin: 24px 0 0; }

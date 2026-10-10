@@ -13,6 +13,7 @@ const TABS = [
   ['/staff', 'Staff'],
   ['/sync', 'Sync'],
   ['/export', 'Export'],
+  ['/screen', 'Screen'],
   ['/settings', 'Settings'],
 ] as const;
 

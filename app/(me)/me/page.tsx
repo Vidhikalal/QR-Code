@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import { db } from '@/lib/db/server';
 import { env } from '@/lib/env';
+import { myPoints } from '@/lib/leaderboard/handlers';
 import { profileView } from '@/lib/participant/handlers';
 import { isInAppBrowser } from '@/lib/participant/in-app-browser';
 import { currentParticipantId } from '@/lib/participant/server';
@@ -27,7 +28,11 @@ export default async function MePage() {
       </main>
     );
   }
-  const me = await profileView(db(), participantId, env().FEATURE_EXTRA_BADGE_ROLES);
+  const [me, points] = await Promise.all([profileView(db(), participantId, env().FEATURE_EXTRA_BADGE_ROLES), myPoints(db(), participantId, new Date())]);
+  const ranks = [
+    points.activityRank && `#${points.activityRank} in Activity`,
+    points.networkingRank && `#${points.networkingRank} in Networking`,
+  ].filter(Boolean);
   return (
     <main className={styles.page}>
       {app && (
@@ -45,6 +50,15 @@ export default async function MePage() {
         <p className={styles.muted}>This is the profile people see when they tap your badge. You’re signed in on this device.</p>
         <p>
           <a href="/me/connections">My connections →</a>
+        </p>
+      </div>
+      <div className={styles.card} data-testid="my-points">
+        <h2>Your points</h2>
+        <p>
+          Activity: <strong>{points.activity} pts</strong> · Networking: <strong>{points.networking} pts</strong>
+        </p>
+        <p className={styles.muted}>
+          {ranks.length > 0 ? `On the screen you’re ${ranks.join(' and ')}.` : 'Check in at sessions and connect with people to climb the leaderboard.'}
         </p>
       </div>
       <ProfileEditor initial={me} />

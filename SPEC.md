@@ -607,6 +607,14 @@ Staff tapping their own badge get the owner view and the staff panel.
 3. `/me/connections`: mutual list (name, Organizer label, LinkedIn button, View badge) and "Waiting on N people to tap you back".
 4. Anonymous viewers see **Sign in to connect**.
 
+### F25 — Leaderboards (v2)
+
+1. Two boards: **Activity** (sum of checkpoint points over live scans; meals are 0) and **Networking** (1 per mutual connection, plus the event's organizer bonus when the other person is an organizer). Points are derived as of a time by `points_as_of()` / `leaderboard()` (I-22). Ties share a rank; whoever reached the score first is listed first. Zero scores, test participants (and connections with them), deleted or not-accepted people are left out; organizers only when **organizers compete** is on, and never get the bonus from each other.
+2. **As of** (`leaderboardAsOf`, pure): refresh 0 = live; otherwise the start of the current refresh window counted from `starts_at` in absolute time (DST-safe), so the board only moves once per window; before the start, the start. A freeze time caps it. "Live" reads pass `'infinity'` to SQL, so the database's own clock decides what is committed (I-7).
+3. **Projector** `/admin/:slug/screen` (organizer): full-screen top 3 per board, "Next update at {time}" in the event timezone, "Live", or "Final results" when frozen. It refetches when the next window opens (every 10 s when live or frozen). Names via `_display_name` only (nickname, else "First L.").
+4. **Dashboard**: what the screen shows (top 5), **Freeze leaderboards** (confirm) / **Unfreeze**, and **Open projector screen**. Freeze sets `events.leaderboard_frozen_at`; audit `leaderboard.freeze` / `leaderboard.unfreeze` with no detail.
+5. **`/me`**: "Your points": live Activity and Networking points, and "On the screen you're #N in Activity" (rank as of the projector's time, so the screen stays the reveal).
+
 ### F13 — Platform admin bootstrap (v2)
 
 1. `pnpm admin:add ade@yourclub.ca` inserts into `platform_admins`. It refuses a non-local Supabase without `--yes`.
@@ -882,6 +890,9 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/tags/assign` · `/api/tags/unassign` | staff of the event (both hosts) | Link / replace / undo a badge |
 | `POST /api/stations` | staff of the event (both hosts) | Save the scanner's current checkpoint |
 | `GET/POST /api/me/connections` | participant cookie (POST: `Origin` check, 120/h) | F24 |
+| `GET /api/me/points` | participant cookie | F25: `{activity, networking, activityRank, networkingRank, screenAsOf}` |
+| `GET /api/admin/:slug/leaderboard?kind=activity\|networking&limit=1..50` | organizer | F25: `{kind, asOf, nextRefreshAt, frozenAt, refreshMinutes, timezone, rows: [{rank, displayName, points}]}`; no participant ids |
+| `POST /api/admin/:slug/leaderboard/freeze {frozen}` | organizer | F25: freeze or unfreeze both boards; audited |
 | `POST /api/participants/:id/signin-code` | staff of the person's event (both hosts) | F18b; `{url, expiresAt}`; 403 other event, 409 not eligible |
 
 ---
@@ -976,6 +987,7 @@ The header of every `/admin/[slug]` page has an **event switcher** (the user's e
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary; v2: **meal servings** (one row per live serving, with serving number; test and deleted participants excluded) and a **connections summary** (per person: mutual connections and pending taps; counts only, never who met whom). |
 | Badges | Counts, list with holder, **Import CSV** (per-row results), **Export ids** for a vendor, **Print sheet** (`/badges/print`: one QR of the badge URL plus the label per badge, opaque white, print layout). |
+| Screen | The projector (F25): full-screen top 3 per board. The dashboard also has a **Leaderboards** section with Freeze/Unfreeze. |
 | Settings | Leaderboard refresh, organizer bonus, organizers compete, badge unlock password (masked, Reveal), profile retention days (F14). |
 
 ---
@@ -1320,6 +1332,16 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-CONN-07 / -08 | 121 connects in an hour; no session | 429; 401 | I |
 | T-CONN-09 | Anonymous viewer of a shared badge link | "Sign in to connect", no Connect | E |
 | T-CONC2-08 | Two people tap each other at the same moment, 40 rounds | one `MUTUAL`, one `PENDING` every round (nightly loop) | I |
+| T-LB-01 | `leaderboardAsOf`: refresh 0; hourly windows; frozen; across the 2026-11-01 DST change; before the start | now; floored window; freeze time; absolute-hour windows; the start | U |
+| T-LB-02 / -03 | Activity sum of checkpoint points; networking 1 per mutual + organizer bonus | as stated | I |
+| T-LB-04 | As of an hour ago | later scans and taps excluded | I |
+| T-LB-05 | Organizers compete off / on | excluded / included, no bonus between organizers | I |
+| T-LB-06 | Test participant | excluded; a connection with them scores 0 | I |
+| T-LB-07 | Tie | same rank; earlier `reached_at` first | I |
+| T-LB-08 | Leaderboard API response | only rank, display name, points (no ids, no emails); volunteer 403; bad kind 400 | I |
+| T-LB-09 | Projector with hourly refresh (fake clock) | refetches once the next window opens, not before | E |
+| T-LB-10 | Freeze, more scans, unfreeze | board unchanged while frozen, moves after; both audited with no detail | I |
+| T-PERF2-02 | 500 people, 3,000 scans, 5,000 connection taps | `leaderboard()` < 200 ms; `my_connections()` < 50 ms (median) | I |
 | T-HOST-01 | Origins equal (dev) | every route reachable | U+I |
 | T-HOST-02 | Origins differ | participant paths 404 on ADMIN; staff paths 404 on ME; shared staff APIs on both; decided by the `Host` header | U+I+E |
 | T-HOST-03 | ME-host POST with a foreign `Origin` | 403, no writes | I |
@@ -1506,7 +1528,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
-- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4). V5a: badge check-ins, numbered meal servings with `REPEAT_SERVING` and Seconds open, checkpoint points (§8.1, §9.1, §10.2, §11); T-SCAN-08's meal step now expects `REPEAT_SERVING` (user decision, D11). V5b: badge-page station check-ins, `holder_involvement`, meal first servings vs seconds on the dashboard (uptake on first servings) with Seconds open buttons, meal servings CSV. V6: mutual connections (§5.5, F24), Connect on badge pages, `/me/connections`, connection stats and summary CSV.
+- **v0.3 (in progress)** — v2 build started; PLAN.md wins over this spec for v2 items until each slice merges its decisions here. V0: Apps Script `catch` branch timestamps its `ERROR` (Appendix A); `Setup.gs` `updateEndpoint` saves all three settings, adds `showEndpoint`; `FEATURE_*` flags (§19). V1: platform admins, `/admin` events list, `/admin/new`, join as organizer, event switcher, Settings (§5.2, F13, F14, §9.3, §11); `pnpm event:create` deprecated. V2a: edit keys in pass emails, `profile_link` email, participant sessions, `/edit`, `/me`, sign out, Get a new link (§5.3, F16–F18, §12, §19). V2b: two hostnames and the shared staff cookie (§4.1), Email me a link, staff sign-in codes (F18b), relative redirects. V3: profiles and `toPublicProfile()` (§5.3), `/me` editor, photo via session, staff hide, My badge profile (F15); attendee metrics exclude staff badge rows (§13). V4a: badges, links and stations (§5.4), tag APIs, Badges page and print sheet, seed badges. V4b: the badge page and its viewer matrix (F19b), assign/replace/unlink from the badge, badge-page rate limit; I-17 clarified as "no event-state writes on GET". V4c: Web NFC reader, Register page, the door's "Tap a blank badge" step (F20), badge QRs in the camera scanner (§6.4). V5a: badge check-ins, numbered meal servings with `REPEAT_SERVING` and Seconds open, checkpoint points (§8.1, §9.1, §10.2, §11); T-SCAN-08's meal step now expects `REPEAT_SERVING` (user decision, D11). V5b: badge-page station check-ins, `holder_involvement`, meal first servings vs seconds on the dashboard (uptake on first servings) with Seconds open buttons, meal servings CSV. V6: mutual connections (§5.5, F24), Connect on badge pages, `/me/connections`, connection stats and summary CSV. V7: leaderboards (F25): `points_as_of` / `leaderboard`, the projector screen, Freeze, points on `/me`; the leaderboard API is organizer-only (T-ADM-01), and live reads use the database clock.
 
 ---
 

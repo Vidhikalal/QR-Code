@@ -14,6 +14,11 @@ export function formatEventDateTime(at: string | Date, timeZone: string): string
   return `${get('weekday')}, ${get('month')} ${get('day')} · ${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`;
 }
 
+// Time of day only, e.g. "2:00 PM EDT" (the projector's "Next update at").
+export function formatEventTime(at: string | Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(at));
+}
+
 // The UTC offset (ms) that `timeZone` has at `instantMs`.
 function offsetAt(instantMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {

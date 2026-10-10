@@ -5,6 +5,8 @@ import { formatEventDateTime } from '@/lib/domain/event-time';
 import styles from './admin.module.css';
 import { adminUrl, errorText, useApi } from './api';
 import { ArrivalsChart, type ArrivalBucket } from './arrivals-chart';
+import { BOARD_TITLE, useBoards } from './boards';
+import { ConfirmDialog } from './dialog';
 
 type Kind = 'door' | 'meal' | 'session' | 'custom';
 interface DashboardData {
@@ -191,6 +193,8 @@ export function Dashboard({ slug }: { slug: string }) {
         </>
       )}
 
+      <Leaderboards slug={slug} />
+
       <h2>Scan problems</h2>
       {data.scanProblems.length === 0 ? (
         <p className={styles.muted}>None so far.</p>
@@ -218,6 +222,87 @@ export function Dashboard({ slug }: { slug: string }) {
       )}
       <p className={styles.muted}>Updated {formatEventDateTime(data.generatedAt, tz)} · refreshes every 10 s</p>
     </>
+  );
+}
+
+// PLAN F25: what the projector shows (top 5 here), Freeze/Unfreeze, and the projector link.
+function Leaderboards({ slug }: { slug: string }) {
+  const api = useApi();
+  const { boards, error, reload } = useBoards(slug, 5);
+  const [confirm, setConfirm] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const frozen = boards?.activity.frozenAt ?? null;
+
+  async function setFrozen(value: boolean) {
+    setConfirm(false);
+    const r = await api(adminUrl(slug, '/leaderboard/freeze'), { method: 'POST', body: { frozen: value } });
+    setFailed(r.ok ? null : errorText(r));
+    await reload();
+  }
+
+  return (
+    <section aria-labelledby="leaderboards-heading">
+      <h2 id="leaderboards-heading">Leaderboards</h2>
+      {!boards ? (
+        <p className={styles.muted}>{error ? `✕ ${error}` : 'Loading…'}</p>
+      ) : (
+        <>
+          <p className={styles.muted}>
+            {frozen
+              ? `Frozen at ${formatEventDateTime(frozen, boards.activity.timezone)}.`
+              : boards.activity.nextRefreshAt
+                ? `As on the screen (${formatEventDateTime(boards.activity.asOf, boards.activity.timezone)}). It updates every ${boards.activity.refreshMinutes} min.`
+                : 'Live.'}
+          </p>
+          <div className={styles.tiles}>
+            {(['activity', 'networking'] as const).map((k) => (
+              <div key={k} className={styles.tile} data-testid={`board-${k}`}>
+                <span className={styles.tileLabel}>{BOARD_TITLE[k]}</span>
+                {boards[k].rows.length === 0 ? (
+                  <span className={styles.tileHint}>No points yet</span>
+                ) : (
+                  <ol style={{ margin: '6px 0 0', paddingLeft: 20 }}>
+                    {boards[k].rows.map((r) => (
+                      <li key={`${r.rank}-${r.displayName}`} value={r.rank}>
+                        {r.displayName} · {r.points} pts
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className={styles.actions} style={{ flexWrap: 'wrap', marginTop: 8 }}>
+            <a className={`button ${styles.small}`} href={`/admin/${encodeURIComponent(slug)}/screen`}>
+              Open projector screen
+            </a>
+            {frozen ? (
+              <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => void setFrozen(false)}>
+                Unfreeze leaderboards
+              </button>
+            ) : (
+              <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setConfirm(true)}>
+                Freeze leaderboards
+              </button>
+            )}
+          </div>
+          {failed && (
+            <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
+              ✕ {failed}
+            </p>
+          )}
+        </>
+      )}
+      {confirm && (
+        <ConfirmDialog
+          title="Freeze the leaderboards?"
+          body={<p>The screen stops changing and shows these as the final results. You can unfreeze later.</p>}
+          confirmLabel="Freeze"
+          onConfirm={() => void setFrozen(true)}
+          onCancel={() => setConfirm(false)}
+        />
+      )}
+    </section>
   );
 }
 

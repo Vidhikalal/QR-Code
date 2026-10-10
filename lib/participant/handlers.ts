@@ -6,6 +6,7 @@ import { generateSecret, sha256hex } from '@/lib/domain/token';
 import { fromOrigin } from '@/lib/http/origin';
 import { hashedClientIp, withinLimit } from '@/lib/http/rate-limit';
 import { CONNECT_CODES } from '@/lib/connections/copy';
+import { myPoints } from '@/lib/leaderboard/handlers';
 import { isCheckedIn, MAX_PHOTO_REQUEST_BYTES, storeParticipantPhoto } from '@/lib/photo/process';
 import { loadProfile } from '@/lib/profile/load';
 import { profilePatchSchema, TOPIC_ROLES, type ProfilePatch } from '@/lib/profile/schema';
@@ -160,6 +161,13 @@ export function createParticipantApi(deps: ParticipantDeps) {
       // The other person's name, only through the public shape (I-19); a hidden profile still shows it.
       const other = r.otherId ? await loadProfile(db, r.otherId, { extraRoles: deps.extraRoles ?? false }) : null;
       return json({ code: r.code, otherName: other?.public.displayName ?? null });
+    },
+
+    // GET /api/me/points  (PLAN F25: own live points + rank as of the projector time)
+    async points(request: Request) {
+      const who = await readParticipant(db, request, meOrigin);
+      if (!who) return unauthorized();
+      return json(await myPoints(db, who.participantId, new Date()));
     },
 
     // GET /api/me/connections  (PLAN §10.4 "My connections": mutual list + pending count)
