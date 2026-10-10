@@ -10,6 +10,8 @@ import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
 import { syncSheet } from '@/lib/ingest/sync';
 import { loadProfile } from '@/lib/profile/load';
+import { renderRecapEmail, validateRecapMessage } from '@/lib/recap/template';
+import { loadRecapStats } from '@/lib/recap/template-data';
 import { PHOTO_BUCKET, signedPhotoUrl } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
@@ -104,6 +106,7 @@ const settingsBody = z
     organizersCompete: z.boolean(),
     badgeUnlockPassword: z.string().min(4).max(32).nullable(),
     profileRetentionDays: z.number().int().min(1).max(3650),
+    recapMessage: z.string().max(2000).nullable(), // placeholders checked by validateRecapMessage (PLAN §12.4)
   })
   .partial()
   .strict()
@@ -599,7 +602,7 @@ export function createAdminApi(deps: AdminDeps) {
       if (g instanceof Response) return g;
       const { data: e, error } = await db
         .from('events')
-        .select('leaderboard_refresh_minutes, organizer_connection_bonus, organizers_compete, badge_unlock_password, profile_retention_days')
+        .select('leaderboard_refresh_minutes, organizer_connection_bonus, organizers_compete, badge_unlock_password, profile_retention_days, recap_message')
         .eq('id', g.eventId)
         .single();
       if (error) throw new Error(`settings load failed (${error.code})`);
@@ -609,6 +612,7 @@ export function createAdminApi(deps: AdminDeps) {
         organizersCompete: e.organizers_compete,
         badgeUnlockPassword: e.badge_unlock_password,
         profileRetentionDays: e.profile_retention_days,
+        recapMessage: e.recap_message,
       });
     },
 
@@ -619,6 +623,10 @@ export function createAdminApi(deps: AdminDeps) {
       const body = settingsBody.safeParse(await readJson(request));
       if (!body.success) return badRequest();
       const b = body.data;
+      if (typeof b.recapMessage === 'string') {
+        const v = validateRecapMessage(b.recapMessage);
+        if (!v.ok) return json({ error: 'invalid_request', ...('unknown' in v ? { unknown: v.unknown } : { tooLong: true }) }, 400);
+      }
       const { error } = await db
         .from('events')
         .update({
@@ -627,12 +635,74 @@ export function createAdminApi(deps: AdminDeps) {
           organizers_compete: b.organizersCompete,
           badge_unlock_password: b.badgeUnlockPassword,
           profile_retention_days: b.profileRetentionDays,
+          recap_message: b.recapMessage,
         })
         .eq('id', g.eventId);
       if (error) throw new Error(`settings update failed (${error.code})`);
       // Key names only: the unlock password never reaches audit_log (I-11).
       await audit(g.eventId, g.userId, 'event.settings', g.eventId, { changed: Object.keys(b).sort() });
       return json({ code: 'UPDATED' });
+    },
+
+    // POST /api/admin/[slug]/recap/preview { participantId? }  (PLAN F26.2). Renders for that person,
+    // else the first person admitted, else sample numbers. The link is a placeholder: no key is issued.
+    async recapPreview(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = z.object({ participantId: z.string().uuid().optional() }).strict().safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      let who = body.data.participantId ?? null;
+      if (who) {
+        const { data, error } = await db.from('participants').select('id').eq('id', who).eq('event_id', g.eventId).is('deleted_at', null).maybeSingle();
+        if (error) throw new Error(`participant load failed (${error.code})`);
+        if (!data) return notFound();
+      } else {
+        const { data, error } = await db
+          .from('scans')
+          .select('participant_id, checkpoints!inner(kind), participants!inner(is_test)')
+          .eq('event_id', g.eventId)
+          .eq('checkpoints.kind', 'door')
+          .eq('participants.is_test', false)
+          .is('voided_at', null)
+          .order('scanned_at')
+          .limit(1);
+        if (error) throw new Error(`recap sample load failed (${error.code})`);
+        who = data[0]?.participant_id ?? null;
+      }
+      const connectionsUrl = '/edit?next=/me/connections#preview';
+      let email;
+      if (who) {
+        email = renderRecapEmail({ ...(await loadRecapStats(db, who)), connectionsUrl });
+      } else {
+        const { data: ev, error } = await db.from('events').select('name, recap_message, badge_unlock_password').eq('id', g.eventId).single();
+        if (error) throw new Error(`event load failed (${error.code})`);
+        email = renderRecapEmail({
+          firstName: 'Alex',
+          nickname: null,
+          eventName: ev.name,
+          message: ev.recap_message,
+          unlockPassword: ev.badge_unlock_password,
+          stats: { workshops: 3, activities: 2, connections: 5, activityPoints: 40, networkingPoints: 6 },
+          connectionsUrl,
+        });
+      }
+      return json({ subject: email.subject, html: email.html, text: email.text, sample: who === null });
+    },
+
+    // POST /api/admin/[slug]/recap/send  (PLAN F26.2): after ends_at, with an unlock password set.
+    // enqueue_recaps skips anyone already sent or queued, so pressing it twice queues 0.
+    async recapSend(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const { data: ev, error } = await db.from('events').select('ends_at, badge_unlock_password').eq('id', g.eventId).single();
+      if (error) throw new Error(`event load failed (${error.code})`);
+      if (now().getTime() < new Date(ev.ends_at).getTime()) return json({ error: 'EVENT_NOT_ENDED' }, 409);
+      if (!ev.badge_unlock_password) return json({ error: 'NO_UNLOCK_PASSWORD' }, 409);
+      const { data: queued, error: qError } = await db.rpc('enqueue_recaps', { p_event_id: g.eventId, p_actor: g.userId });
+      if (qError) throw new Error(`enqueue_recaps failed (${qError.code})`);
+      if (queued < 0) return json({ error: 'forbidden' }, 403);
+      if (queued > 0) deps.scheduleDrain(deps.drain);
+      return json({ queued });
     },
 
     // POST /api/admin/[slug]/sync  { dryRun }  (F10)

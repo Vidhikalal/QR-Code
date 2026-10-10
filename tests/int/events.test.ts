@@ -176,7 +176,8 @@ describe('PATCH /api/admin/[slug]/settings (F14.3)', () => {
       { badgeUnlockPassword: 'abc' },
       { profileRetentionDays: 0 },
       {},
-      { recapMessage: 'later' },
+      { recapMessage: 'Hi {prize}' }, // V8: unknown placeholder
+      { recapMesage: 'typo' }, // unknown key (.strict())
     ]) {
       expect((await patch(bad)).status, JSON.stringify(bad)).toBe(400);
     }
@@ -189,6 +190,7 @@ describe('PATCH /api/admin/[slug]/settings (F14.3)', () => {
       organizersCompete: true,
       badgeUnlockPassword: 'tap-2026',
       profileRetentionDays: 30,
+      recapMessage: null,
     });
     const { rows } = await f.pool.query<{ detail: unknown }>(
       `select detail from audit_log where event_id = $1 and action = 'event.settings'`,

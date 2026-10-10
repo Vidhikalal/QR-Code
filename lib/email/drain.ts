@@ -4,6 +4,7 @@ import { toFileLabel } from '@/lib/domain/file-label';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
 import { generateSecret, generateToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
+import { loadRecapStats, renderRecapEmail } from '@/lib/recap/template-data';
 import { ProviderError, type EmailProvider } from './provider';
 import { renderPassEmail, type RenderedEmail } from './templates/pass';
 import { renderProfileLinkEmail } from './templates/profile-link';
@@ -85,7 +86,8 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
 
     // 2–3. Issue every secret the email carries, each committed in its own transaction BEFORE the
     // send (I-10), then render. Every email gets a fresh edit key; older keys stay valid (PLAN D9).
-    const editUrl = `${opts.appOrigin}/edit#${await issueProfileKey(opts.db, row.participant_id)}`;
+    const editKey = await issueProfileKey(opts.db, row.participant_id);
+    const editUrl = `${opts.appOrigin}/edit#${editKey}`;
     let email: RenderedEmail;
     switch (row.kind) {
       case 'pass_issued':
@@ -103,8 +105,13 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
       case 'profile_link':
         email = renderProfileLinkEmail({ firstName: p.first_name, eventName: p.events.name, editUrl });
         break;
+      case 'recap': {
+        // PLAN §12.4: the key opens /me/connections after sign-in (safeNext allowlist on /edit).
+        const r = await loadRecapStats(opts.db, row.participant_id);
+        email = renderRecapEmail({ ...r, firstName: p.first_name, connectionsUrl: `${opts.appOrigin}/edit?next=/me/connections#${editKey}` });
+        break;
+      }
       default:
-        // 'recap' arrives with PLAN slice V8; nothing can enqueue it before then.
         throw new Error(`no template for outbox kind ${row.kind}`);
     }
     ({ id: providerId } = await opts.provider.send({

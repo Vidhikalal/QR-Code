@@ -1240,6 +1240,7 @@ export type Database = {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean
       }
+      recap_stats: { Args: { p_participant_id: string }; Returns: Json }
       record_connection: {
         Args: { p_from_participant_id: string; p_tag_public_id: string }
         Returns: Json
@@ -1285,6 +1286,7 @@ export type Database = {
         Args: { p_event_id: string; p_public_id: string; p_staff_id: string }
         Returns: Json
       }
+      retain_event_profiles: { Args: { p_event_id: string }; Returns: Json }
       revoke_pass: {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
         Returns: string

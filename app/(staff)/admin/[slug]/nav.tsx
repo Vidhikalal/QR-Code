@@ -14,6 +14,7 @@ const TABS = [
   ['/sync', 'Sync'],
   ['/export', 'Export'],
   ['/screen', 'Screen'],
+  ['/recap', 'Recap'],
   ['/settings', 'Settings'],
 ] as const;
 

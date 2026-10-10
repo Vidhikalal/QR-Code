@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import { safeNext } from '@/lib/domain/next-path';
 import styles from '../me.module.css';
 
 type State = 'working' | 'replaced' | 'invalid' | 'rate_limited' | 'error';
@@ -14,7 +15,7 @@ const MESSAGES: Record<Exclude<State, 'working'>, string> = {
   error: 'Something went wrong. Check your connection and open the link again.',
 };
 
-// Strips the key from the address bar and history FIRST, then exchanges it for a session cookie.
+// Strips the key (and any ?next) from the address bar and history FIRST, then exchanges it for a session cookie.
 export function EditLink() {
   const router = useRouter();
   const [state, setState] = useState<State>('working');
@@ -24,6 +25,7 @@ export function EditLink() {
     if (started.current) return; // dev mode mounts effects twice; a key is exchanged once
     started.current = true;
     const key = window.location.hash.replace(/^#/, '').trim();
+    const next = safeNext(new URLSearchParams(window.location.search).get('next')); // the recap's /me/connections
     window.history.replaceState(null, '', '/edit');
     void (async () => {
       if (!key) return setState('invalid');
@@ -35,7 +37,7 @@ export function EditLink() {
       if (!res) return setState('error');
       if (res.status === 429) return setState('rate_limited');
       const data = (await res.json().catch(() => ({}))) as { code?: string; next?: string };
-      if (data.code === 'OPENED') return router.replace(data.next ?? '/me');
+      if (data.code === 'OPENED') return router.replace(next);
       setState(data.code === 'KEY_REVOKED' ? 'replaced' : data.code === 'LINK_INVALID' ? 'invalid' : 'error');
     })();
   }, [router]);
