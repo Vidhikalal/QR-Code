@@ -1,0 +1,9 @@
+<!doctype html>
+<html><body style="margin:0;padding:24px;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5">
+<h2 style="font-size:20px;margin:0 0 12px">Sign in to Passline</h2>
+<p>On this device, open the link:</p>
+<p><a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:10px 16px;background:#1d4ed8;color:#ffffff;text-decoration:none;border-radius:8px">Sign in</a></p>
+<p>On another device (for example your phone), type this code on the sign-in page instead:</p>
+<p style="font-size:14px">Your code: <strong style="font-family:monospace;font-size:28px;letter-spacing:4px">{{ .Token }}</strong></p>
+<p style="font-size:14px;color:#555555">The link and code expire in 1 hour and work once. If you didn't ask to sign in, ignore this email.</p>
+</body></html>

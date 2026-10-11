@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { latestMagicLink } from '../fixtures/mailpit';
+import { latestMagicLink, latestSignInCode } from '../fixtures/mailpit';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 let f: StandardFixture;
@@ -8,6 +8,25 @@ test.beforeEach(async () => {
 });
 test.afterEach(async () => {
   await f.close();
+});
+
+test('F9: sign-in with the emailed 6-digit code (another device) consumes the invite and asks for a display name', async ({ page }) => {
+  const email = `code-invitee-${f.slug}@example.test`;
+  await f.pool.query(`insert into staff_invites (event_id, email, role) values ($1, $2, 'volunteer')`, [f.e1.id, email]);
+  await page.goto(`/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
+  const started = Date.now();
+  await page.getByLabel('Email').fill(email);
+  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
+  await expect(page.getByText('enter the 6-digit code')).toBeVisible();
+  await page.getByLabel('6-digit code').fill('000000');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'That code didn’t work' })).toBeVisible();
+  await page.getByLabel('6-digit code').fill(await latestSignInCode(email, started));
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/onboarding/);
+  await page.getByLabel('Display name').fill('Codey');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(new RegExp(`/scan/${f.slug}$`));
 });
 
 test('F9: magic-link sign-in consumes the invite, asks for a display name, then returns to next', async ({ page }) => {

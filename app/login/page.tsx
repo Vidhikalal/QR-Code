@@ -10,7 +10,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <main className={styles.page}>
       <h1>Staff sign-in</h1>
-      <p>We&apos;ll email you a sign-in link. Use the address your organizer invited.</p>
+      <p>We&apos;ll email you a sign-in link and a 6-digit code. Use the address your organizer invited.</p>
       {error && (
         <p role="alert" className={styles.error}>
           ✕ That sign-in link didn&apos;t work or has expired. Request a new one.

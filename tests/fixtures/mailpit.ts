@@ -21,3 +21,20 @@ export async function latestMagicLink(email: string, sinceMs: number, timeoutMs 
   }
   throw new Error('magic link email did not arrive');
 }
+
+// The 6-digit code in the same email (supabase/templates/*.html print it as "code: 123456").
+export async function latestSignInCode(email: string, sinceMs: number, timeoutMs = 15_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const res = await fetch(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:"${email}"`)}`);
+    const list = (await res.json()) as MailpitList;
+    const msg = list.messages.find((m) => Date.parse(m.Created) >= sinceMs - 2000);
+    if (msg) {
+      const full = (await (await fetch(`${MAILPIT}/api/v1/message/${msg.ID}`)).json()) as { Text: string; HTML: string };
+      const code = /code:\D{0,40}(\d{6})/i.exec(full.Text || full.HTML)?.[1];
+      if (code) return code;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error('sign-in code email did not arrive');
+}

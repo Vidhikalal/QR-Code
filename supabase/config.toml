@@ -160,8 +160,9 @@ site_url = "http://localhost:3000"
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
 # Passline: the magic-link callback on the dev server (3000), the e2e server (3100), and the two-host
-# e2e server's ADMIN host (3101; playwright.hosts.config.ts maps *.passline.test to 127.0.0.1).
-additional_redirect_urls = ["http://localhost:3000/auth/callback**", "http://localhost:3100/auth/callback**", "http://admin.passline.test:3101/auth/callback**"]
+# e2e server's ADMIN host (3101; playwright.hosts.config.ts maps *.passline.test to 127.0.0.1), and
+# `pnpm dev:phone`'s quick tunnels.
+additional_redirect_urls = ["http://localhost:3000/auth/callback**", "http://localhost:3100/auth/callback**", "http://admin.passline.test:3101/auth/callback**", "https://*.trycloudflare.com/auth/callback**"]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -244,6 +245,18 @@ otp_expiry = 3600
 # pass = "env(SENDGRID_API_KEY)"
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
+
+# Passline: the sign-in emails carry the link AND the 6-digit code, so staff can sign in on another
+# device (a phone through `pnpm dev:phone`, or when the link opens in the wrong browser). New users get
+# the confirmation template, existing users the magic-link one; both work with POST /auth/verify-code.
+# Hosted projects need the same {{ .Token }} line in Auth → Email Templates (docs/launch-checklist.md).
+[auth.email.template.magic_link]
+subject = "Your Passline sign-in link and code"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.confirmation]
+subject = "Your Passline sign-in link and code"
+content_path = "./supabase/templates/confirmation.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

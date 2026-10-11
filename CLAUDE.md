@@ -17,6 +17,7 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 | Task | Command |
 |------|---------|
 | Dev server | `pnpm dev` |
+| Dev server on your phone (HTTPS quick tunnel; staff sign in with the emailed 6-digit code) | `pnpm dev:phone` |
 | Typecheck | `pnpm typecheck` (`tsc --noEmit`) |
 | Lint | `pnpm lint` |
 | Unit tests | `pnpm test:unit` |

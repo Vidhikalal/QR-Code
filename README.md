@@ -120,13 +120,13 @@ When you're done, press Ctrl+C in tabs 1 and 2, then run `supabase stop`.
 Every sign-in email goes to the local mail catcher, **Mailpit**, at `http://127.0.0.1:54324`, not a real inbox. (`supabase status` shows the exact URL.)
 
 1. Go to `localhost:3000/login` and enter the email.
-2. Open Mailpit **in the same browser window** and click the link in the newest email. A sign-in only completes in the window that requested it, so for a second account in a private window, open Mailpit inside that private window.
+2. Either open Mailpit **in the same browser window** and click the link in the newest email (a link only completes in the window that requested it), or type the **6-digit code** from that email into the sign-in page. The code works from any window or device.
 
 Accounts you can use:
 - `organizer@example.test` and `volunteer@example.test`, which `pnpm seed` invites to `demo`;
 - the email you gave `pnpm admin:add`: it sees every event at `/admin`.
 
-Links work once and expire; if one fails, request a new one.
+Links and codes work once and expire after an hour; if one fails, request a new one.
 
 ### Where passes end up locally
 
@@ -147,7 +147,22 @@ Files are never overwritten. A second person with the same first name, or a rese
 
 ### Scanning locally
 
-Use your **laptop's webcam** as the scanner (`localhost:3000/scan/<slug>`) and show the QR images from your phone (AirDrop them over). Phones can't sign in to the local app: the login page and scanner talk to Supabase at `127.0.0.1`, which on a phone means the phone itself.
+Use your **laptop's webcam** as the scanner (`localhost:3000/scan/<slug>`) and show the QR images from your phone (AirDrop them over). Or use the phone itself as the scanner (next section).
+
+### Test on your phone (camera, NFC badges)
+
+The camera and Web NFC only work over HTTPS, and a phone can't reach `localhost`. `pnpm dev:phone` runs the dev server behind a free Cloudflare quick tunnel (`brew install cloudflared` once):
+
+1. Stop `pnpm dev` if it's running (both use port 3000), then run **`pnpm dev:phone`**. It prints a QR of the tunnel URL. Scan it with the phone; give the tunnel about 20 seconds to come online.
+2. **Seed passes for that URL** in another tab, using the command it prints: `NEXT_PUBLIC_APP_ORIGIN=https://….trycloudflare.com pnpm seed`. The scanner only accepts pass QRs for the app's current address, so passes seeded for `localhost` scan as "Not a Passline code".
+3. **Sign in on the phone:** open `/login`, enter `organizer@example.test`, then type the **6-digit code** from the newest email in Mailpit (on the laptop, `http://127.0.0.1:54324`).
+4. **Register badges** (Android Chrome): Admin → Badges → Register → **Start NFC**, then tap each blank badge. The app writes the badge URL onto it and saves the chip serial.
+5. Scan a seed pass at the Door (show `.seed/*.png` on the laptop screen) → ADMIT → **Tap a blank badge** links it. Then switch checkpoints and tap the badge in **NFC** mode.
+
+Things to know:
+- **The URL changes every time the tunnel restarts**, and badges hold the URL they were written with. Rewrite test badges after a restart (Register overwrites them), and **never set a password on a test badge**: that's only for the final domain.
+- Staff photos come from Supabase Storage at `127.0.0.1`, so they don't show on the phone. Everything else works.
+- The laptop can keep using `http://localhost:3000`, but QR codes and badge URLs now point at the tunnel.
 
 ---
 

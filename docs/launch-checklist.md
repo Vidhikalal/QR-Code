@@ -11,6 +11,8 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 - [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket.
 - [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/callback**` to the redirect URLs.
 - [ ] Auth → SMTP: **set up custom SMTP** (e.g. Resend's SMTP). Supabase's built-in mailer only sends a few emails per hour, which isn't enough for volunteers signing in on event day.
+- [ ] Auth → Email Templates: in **Magic Link** and **Confirm signup**, add the code line from `supabase/templates/magic-link.html` (`Your code: {{ .Token }}`), so staff can sign in on another device with the 6-digit code.
+- [ ] Auth → Rate Limits: staff sign-ins and code checks reach Supabase from the app's server, so they share its IP. Raise "sign-ups and sign-ins" and "token verifications" (per 5 min) above your number of staff, e.g. 100.
 - [ ] Copy the project URL, anon key and service-role key for the Vercel env.
 
 ### Resend (pass emails)

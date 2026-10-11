@@ -10,6 +10,7 @@
   "scripts": {
     "predev": "node scripts/copy-zxing.mjs",
     "dev": "next dev",
+    "dev:phone": "tsx --env-file-if-exists=.env.local scripts/dev-phone.ts",
     "prebuild": "node scripts/copy-zxing.mjs",
     "build": "next build",
     "start": "next start",

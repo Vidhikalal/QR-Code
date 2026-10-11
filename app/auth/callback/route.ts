@@ -1,12 +1,12 @@
-import { consumeInvites, consumePlatformAdmin } from '@/lib/auth/invites';
+import { finishSignIn } from '@/lib/auth/finish-sign-in';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { supabaseForRequest } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { redirectTo } from '@/lib/http/redirect';
 import { route } from '@/lib/http/route';
 
-// SPEC F9 / PLAN F13: finish the magic-link sign-in, consume invites and platform-admin status for
-// the verified email, then send first-timers to set a display name. Staff land on /admin by default.
+// SPEC F9 / PLAN F13: finish the magic-link sign-in, then the shared post-sign-in steps (invites,
+// platform admin, display name). Staff land on /admin by default. The code path is /auth/verify-code.
 export const GET = route(async (request) => {
   const url = new URL(request.url);
   const next = safeNextPath(url.searchParams.get('next'), '/admin');
@@ -17,10 +17,5 @@ export const GET = route(async (request) => {
   if (error || !user) {
     return redirectTo(`/login?error=link&next=${encodeURIComponent(next)}`);
   }
-  const who = { id: user.id, email: user.email ?? null };
-  await consumeInvites(db(), who);
-  await consumePlatformAdmin(db(), who);
-  const { data: profile } = await db().from('staff_profiles').select('user_id').eq('user_id', user.id).maybeSingle();
-  const target = profile ? next : `/onboarding?next=${encodeURIComponent(next)}`;
-  return redirectTo(target);
+  return redirectTo(await finishSignIn(db(), { id: user.id, email: user.email ?? null }, next));
 });
