@@ -1116,6 +1116,17 @@ export type Database = {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
         Returns: Json
       }
+      door_link_new_tag: {
+        Args: {
+          p_event_id: string
+          p_participant_id: string
+          p_public_id: string
+          p_replace?: boolean
+          p_staff_id: string
+          p_uid: string
+        }
+        Returns: Json
+      }
       end_profile_session: {
         Args: { p_session_hash: string }
         Returns: undefined
@@ -1281,6 +1292,15 @@ export type Database = {
       request_profile_link: {
         Args: { p_participant_id: string }
         Returns: string
+      }
+      reserve_door_tag: {
+        Args: {
+          p_event_id: string
+          p_participant_id: string
+          p_public_id: string
+          p_staff_id: string
+        }
+        Returns: Json
       }
       reserve_tag: {
         Args: { p_event_id: string; p_public_id: string; p_staff_id: string }

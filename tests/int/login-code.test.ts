@@ -6,7 +6,7 @@ import type { Database } from '@/lib/db/types.gen';
 import { requireEnv } from '../fixtures/db';
 import { serviceClient } from '../fixtures/mail';
 import { latestSignInCode } from '../fixtures/mailpit';
-import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
+import { createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
 
 // Staff sign-in with the emailed 6-digit code, through the app's server (phones can't reach the
 // local Supabase). Same post-sign-in steps as the magic-link callback (SPEC F9, PLAN F13).
@@ -15,10 +15,11 @@ const anonAuth = () =>
   createClient<Database>(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'), {
     auth: { persistSession: false, autoRefreshToken: false },
   }).auth;
-const api = createCodeSignIn({ db: serviceClient(), auth: anonAuth });
+const api = createCodeSignIn({ db: serviceClient(), auth: anonAuth, passwordLogin: true });
+const noPasswords = createCodeSignIn({ db: serviceClient(), auth: anonAuth, passwordLogin: false });
 const ORIGIN = 'http://localhost:3000';
-const post = (handler: 'sendCode' | 'verifyCode', body: unknown, headers: Record<string, string> = { origin: ORIGIN, host: 'localhost:3000' }) =>
-  api[handler](new Request(`${ORIGIN}/auth/x`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }));
+const post = (handler: 'sendCode' | 'verifyCode' | 'passwordSignIn', body: unknown, headers: Record<string, string> = { origin: ORIGIN, host: 'localhost:3000' }, target = api) =>
+  target[handler](new Request(`${ORIGIN}/auth/x`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }));
 
 beforeAll(async () => {
   f = await createStandardFixture();
@@ -76,5 +77,27 @@ describe('staff sign-in with a code', () => {
       await new Promise((r) => setTimeout(r, 1100)); // Supabase's own 1 s gap per address (config.toml)
     }
     expect((await post('sendCode', { email, next: '/admin' })).status).toBe(429);
+  });
+});
+
+describe('staff sign-in with a password (dev, FEATURE_PASSWORD_LOGIN)', () => {
+  it('off by default: 404', async () => {
+    expect((await post('passwordSignIn', { email: f.staffEmail.org1, password: STAFF_PASSWORD, next: '/admin' }, undefined, noPasswords)).status).toBe(404);
+  });
+
+  it('right password signs in and returns next; a wrong one is a generic 400; foreign Origin 403', async () => {
+    const ok = await post('passwordSignIn', { email: ` ${f.staffEmail.org1.toUpperCase()} `, password: STAFF_PASSWORD, next: '/admin/new' });
+    expect([ok.status, await ok.json()]).toEqual([200, { code: 'SIGNED_IN', next: '/admin/new' }]);
+    const bad = await post('passwordSignIn', { email: f.staffEmail.org1, password: 'nope-nope', next: '/admin' });
+    expect([bad.status, await bad.json()]).toEqual([400, { code: 'INVALID_LOGIN' }]);
+    const unknown = await post('passwordSignIn', { email: `ghost-${randomUUID().slice(0, 8)}@example.test`, password: 'whatever1', next: '/admin' });
+    expect([unknown.status, await unknown.json()]).toEqual([400, { code: 'INVALID_LOGIN' }]);
+    expect((await post('passwordSignIn', { email: f.staffEmail.org1, password: STAFF_PASSWORD }, { origin: 'https://evil.example', host: 'localhost:3000' })).status).toBe(403);
+  });
+
+  it('11th attempt for one address within 15 minutes → 429', async () => {
+    const email = `pw-${randomUUID().slice(0, 8)}@example.test`;
+    for (let i = 0; i < 10; i++) expect((await post('passwordSignIn', { email, password: 'wrong-pass', next: '/admin' })).status).toBe(400);
+    expect((await post('passwordSignIn', { email, password: 'wrong-pass', next: '/admin' })).status).toBe(429);
   });
 });

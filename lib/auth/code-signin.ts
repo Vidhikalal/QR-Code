@@ -8,17 +8,19 @@ import { finishSignIn } from './finish-sign-in';
 import { safeNextPath } from './next-path';
 
 type Db = SupabaseClient<Database>;
-type AuthApi = Pick<SupabaseClient<Database>['auth'], 'signInWithOtp' | 'verifyOtp'>;
+type AuthApi = Pick<SupabaseClient<Database>['auth'], 'signInWithOtp' | 'verifyOtp' | 'signInWithPassword'>;
 
 const NO_STORE = { 'Cache-Control': 'no-store' };
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: NO_STORE });
 const WINDOW = 15 * 60;
 const SEND_LIMIT = 5; // per address: no inbox flooding
 const VERIFY_LIMIT = 10; // per address: 40 guesses/h against 10^6 codes that expire in 1 h
+const PASSWORD_LIMIT = 10; // per address, per 15 min
 
 const email = z.string().max(320).transform(normalizeEmail).pipe(z.email()); // I-12, then validate
 const sendBody = z.object({ email, next: z.string().max(500).optional() }).strict();
 const verifyBody = z.object({ email, code: z.string().regex(/^\d{6}$/), next: z.string().max(500).optional() }).strict();
+const passwordBody = z.object({ email, password: z.string().min(1).max(200), next: z.string().max(500).optional() }).strict();
 
 async function readJson(request: Request): Promise<unknown> {
   try {
@@ -44,7 +46,8 @@ function sameOrigin(request: Request): string | null {
 // Staff sign-in through the app's server: the browser never calls Supabase, so a phone using the app
 // through a tunnel can sign in. The magic link in the same email keeps working (/auth/callback).
 // `auth` must write the session cookie in production (supabaseForRequest); tests pass a plain client.
-export function createCodeSignIn(deps: { db: Db; auth: () => AuthApi | Promise<AuthApi> }) {
+// `passwordLogin` (FEATURE_PASSWORD_LOGIN, off by default): a dev convenience for the local admin account.
+export function createCodeSignIn(deps: { db: Db; auth: () => AuthApi | Promise<AuthApi>; passwordLogin?: boolean }) {
   const { db } = deps;
   const emailKey = (kind: string, email: string) => `staff-${kind}:email:${sha256hex(email).slice(0, 32)}`;
 
@@ -75,6 +78,21 @@ export function createCodeSignIn(deps: { db: Db; auth: () => AuthApi | Promise<A
       const { data, error } = await (await deps.auth()).verifyOtp({ email, token: body.data.code, type: 'email' });
       const user = data.user;
       if (error || !user) return json({ code: 'CODE_INVALID' }, 400);
+      const next = await finishSignIn(db, { id: user.id, email: user.email ?? null }, safeNextPath(body.data.next, '/admin'));
+      return json({ code: 'SIGNED_IN', next });
+    },
+
+    // POST /auth/password { email, password, next }  (dev only, FEATURE_PASSWORD_LOGIN)
+    async passwordSignIn(request: Request): Promise<Response> {
+      if (!deps.passwordLogin) return json({ error: 'not_found' }, 404);
+      if (!sameOrigin(request)) return json({ error: 'forbidden' }, 403);
+      const body = passwordBody.safeParse(await readJson(request));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      const { email, password } = body.data;
+      if (!(await withinLimit(db, emailKey('password', email), WINDOW, PASSWORD_LIMIT))) return json({ error: 'rate_limited' }, 429);
+      const { data, error } = await (await deps.auth()).signInWithPassword({ email, password });
+      const user = data.user;
+      if (error || !user) return json({ code: 'INVALID_LOGIN' }, 400); // never says which part was wrong
       const next = await finishSignIn(db, { id: user.id, email: user.email ?? null }, safeNextPath(body.data.next, '/admin'));
       return json({ code: 'SIGNED_IN', next });
     },

@@ -33,6 +33,11 @@ describe('lib/env (S0 smoke)', () => {
     expect(() => parseServerEnv({ ...valid, DRAIN_SECRET: '' })).toThrow(/DRAIN_SECRET/);
   });
 
+  it('accepts EMAIL_PROVIDER=mailpit (dev) and defaults MAILPIT_URL to the local Mailpit', () => {
+    const e = parseServerEnv({ ...valid, EMAIL_PROVIDER: 'mailpit' });
+    expect([e.EMAIL_PROVIDER, e.MAILPIT_URL]).toEqual(['mailpit', 'http://127.0.0.1:54324']);
+  });
+
   it('requires RESEND_API_KEY and EMAIL_FROM when EMAIL_PROVIDER=resend', () => {
     expect(() => parseServerEnv({ ...valid, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY[\s\S]*EMAIL_FROM/);
   });

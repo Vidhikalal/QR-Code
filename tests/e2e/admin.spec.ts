@@ -20,6 +20,11 @@ test.beforeAll(async ({ browser }) => {
   await saveSignedInState(browser, f.staffEmail.org1, ORG);
   await saveSignedInState(browser, f.staffEmail.vol1, VOL);
   await saveSignedInState(browser, f.staffEmail.vol3, OTHER_ORG);
+  // The global warm-up is unauthenticated, so admin pages are turned away before their page code
+  // is compiled. Compile them here, as the organizer, so the 403 checks below time requests, not builds.
+  const warm = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: ORG });
+  for (const path of PAGES) await warm.request.get(`/admin/${f.slug}${path}`, { maxRedirects: 0 });
+  await warm.close();
 });
 test.afterAll(async () => {
   await f.close();

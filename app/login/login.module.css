@@ -4,3 +4,4 @@
 .error { color: var(--bad); }
 .ok { color: var(--ok); }
 .secondary { background: #fff; color: var(--accent); }
+.or { margin: 4px 0 0; color: var(--muted); font-size: 14px; }

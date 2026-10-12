@@ -73,6 +73,7 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
   let timer: ReturnType<typeof setTimeout> | null = null;
   let running = false;
   let paused = false;
+  let stopped = false; // stop() can arrive while getUserMedia is still pending
   let engine: DecoderEngine | null = null;
 
   return {
@@ -87,6 +88,13 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
       } catch (err) {
         throw new CameraError(cameraFailure(err));
       }
+      if (stopped) {
+        // Stopped while the camera was opening (NFC mode, a badge prompt, React re-mount): release it,
+        // or the camera stays on and, on some Android phones, blocks NFC taps.
+        stream.getTracks().forEach((t) => t.stop());
+        stream = null;
+        return;
+      }
       // iOS Safari needs both, or the video opens fullscreen / refuses to autoplay (CLAUDE.md).
       video.muted = true;
       video.playsInline = true;
@@ -94,6 +102,7 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
       video.setAttribute('muted', '');
       video.srcObject = stream;
       await video.play();
+      if (stopped) return;
       running = true;
       const tick = async () => {
         if (!running) return;
@@ -110,6 +119,7 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
       void tick();
     },
     async stop() {
+      stopped = true;
       running = false;
       if (timer) clearTimeout(timer);
       stream?.getTracks().forEach((t) => t.stop());

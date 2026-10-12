@@ -15,7 +15,11 @@ export const serverEnvSchema = z
     SHEET_INGEST_SECRET: z.string().min(32, 'must be at least 32 characters'),
     DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters'),
     GOOGLE_SERVICE_ACCOUNT_JSON: z.string().min(1).optional(),
-    EMAIL_PROVIDER: z.enum(['console', 'resend']),
+    EMAIL_PROVIDER: z.enum(['console', 'resend', 'mailpit']),
+    // Dev only: the local Mailpit inbox (supabase start). createMailpitProvider refuses non-local URLs.
+    MAILPIT_URL: z.url().default('http://127.0.0.1:54324'),
+    // Dev convenience: staff may sign in with a password (off by default; never for production).
+    FEATURE_PASSWORD_LOGIN: z.stringbool().default(false),
     RESEND_API_KEY: z.string().min(1).optional(),
     EMAIL_FROM: z.string().min(3).optional(),
     // PLAN §5.2: participant session lifetime on the ME host.

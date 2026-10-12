@@ -20,9 +20,13 @@ import { ManualSearch } from './manual-search';
 import { ResultScreen, type ResultChoice } from './result-screen';
 import styles from './scanner.module.css';
 import { CAMERA_KEY, checkpointKey, KIND_LABEL, readPref, writePref, type Checkpoint } from './types';
+import { NoBadgeDialog } from './no-badge-dialog';
 import { UndoDialog } from './undo-dialog';
 
 type CameraState = 'starting' | 'ready' | CameraFailure;
+// PLAN §10.1. On real Android phones NFC taps don't arrive while the rear camera runs (seen on device,
+// 2026-10-10), so the camera is off in NFC mode and while the Door waits for a badge tap.
+type ScanMode = 'camera' | 'nfc';
 
 const subscribeOnline = (cb: () => void) => {
   window.addEventListener('online', cb);
@@ -49,8 +53,8 @@ const NFC_HELP: Record<NfcError, string> = {
   aborted: 'NFC stopped. Press Start NFC again.',
 };
 
-// PLAN F20: after ADMIT, how long "Tap a blank badge" stays up (on top of the 2.5 s ADMIT screen).
-const LINK_PROMPT_MS = 32_500;
+const SLOW_WRITE_MS = 1500;
+
 const LINK_UNDO_MS = 120_000;
 
 type ScanPart = Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'tagPublicId' | 'tagUid' | 'confirmRepeat'>;
@@ -80,6 +84,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [nfc, setNfc] = useState<'off' | 'starting' | 'on' | NfcError>('off');
   const nfcSupported = useSyncExternalStore(subscribeNever, isWebNfcSupported, () => false);
   const [linkPrompt, setLinkPrompt] = useState<{ participantId: string; name: string; until: number } | null>(null);
+  const [mode, setMode] = useState<ScanMode>('camera');
   const [pendingReplace, setPendingReplace] = useState<{ participantId: string; name: string; target: LinkTarget } | null>(null);
   const [lastLink, setLastLink] = useState<{ assignmentId: string; at: number } | null>(null);
   // PLAN F22: the request behind a REPEAT_SERVING, so "Serve again" can resend it confirmed.
@@ -195,10 +200,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           setNow(Date.now());
         }
         setPendingServe(outcome.data.code === 'REPEAT_SERVING' ? part : null);
-        // PLAN F20: admitted at the door without a badge → offer "Tap a blank badge" after ADMIT.
+        // PLAN F20, badges mandatory (2026-10-11): at the door, anyone without a badge goes to the badge
+        // step after this screen: after ADMIT, or on a re-scan of their pass to link one later.
         const p = outcome.data.participant;
-        if (outcome.data.code === 'ACCEPTED' && outcome.data.hasBadge === false && p) {
-          setLinkPrompt({ participantId: p.id, name: p.displayName, until: Date.now() + LINK_PROMPT_MS });
+        if ((outcome.data.code === 'ACCEPTED' || outcome.data.code === 'ALREADY_SCANNED') && outcome.data.hasBadge === false && p) {
+          setLinkPrompt({ participantId: p.id, name: p.displayName, until: Number.POSITIVE_INFINITY });
         }
         return show({ kind: 'server', data: outcome.data }, checkpoint);
       }
@@ -208,12 +214,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   );
 
   // PLAN F20: link a badge to the person in the "Tap a blank badge" prompt (assign_tag decides, I-20).
+  // `door`: a blank badge this phone just wrote → /api/tags/door-link (registers it, then assign_tag).
   const link = useCallback(
-    async (target: LinkTarget, replace = false) => {
+    async (target: LinkTarget, replace = false, door = false) => {
       const person = pendingReplace && replace ? pendingReplace : linkPrompt;
       if (!checkpoint || !person) return;
       setBusy(true);
-      const res = await fetch('/api/tags/assign', {
+      const res = await fetch(door ? '/api/tags/door-link' : '/api/tags/assign', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ eventSlug: slug, participantId: person.participantId, ...(target.publicId ? { tagPublicId: target.publicId } : {}), ...(target.uid ? { tagUid: target.uid } : {}), replace }),
@@ -229,6 +236,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         holder?: { displayName?: string };
         currentTag?: { label?: string | null };
       };
+      if (door && data.code === 'UID_CONFLICT') return setNotice('✕ This badge is already registered under another code. Use another badge, or ask an organizer.');
+      if (door && data.code === 'NOT_RESERVED') return setNotice('✕ That didn’t register. Tap the badge again.');
       const code = (LINK_CODES as readonly string[]).includes(data.code ?? '') ? (data.code as LinkCode) : null;
       if (!code) return show({ kind: 'network' }, checkpoint);
       if ((code === 'ASSIGNED' || code === 'ALREADY_ASSIGNED') && data.assignmentId) {
@@ -243,6 +252,57 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       );
     },
     [checkpoint, linkPrompt, pendingReplace, show, slug, toLogin],
+  );
+
+  // Door + BLANK badge (user decision 2026-10-10): reserve an id as soon as the prompt opens, so the URL
+  // is written the instant the badge touches the phone (a server round trip first lets it leave the
+  // field, and Chrome's write() then waits silently for the next tap).
+  const doorReservation = useRef<{ participantId: string; promise: Promise<{ publicId: string; url: string } | null> } | null>(null);
+  const reserveDoorBadge = useCallback(
+    (participantId: string) => {
+      const promise = fetch('/api/tags/door-reserve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ eventSlug: slug, participantId }),
+      })
+        .then(async (r) => (r.ok ? ((await r.json()) as { code?: string; publicId?: string; url?: string }) : null))
+        .then((d) => (d?.code === 'RESERVED' && d.publicId && d.url ? { publicId: d.publicId, url: d.url } : null))
+        .catch(() => null);
+      doorReservation.current = { participantId, promise };
+    },
+    [slug],
+  );
+  useEffect(() => {
+    if (linkPrompt && nfc === 'on' && doorReservation.current?.participantId !== linkPrompt.participantId) reserveDoorBadge(linkPrompt.participantId);
+  }, [linkPrompt, nfc, reserveDoorBadge]);
+
+  const linkBlankBadge = useCallback(
+    async (tap: NfcTap) => {
+      if (!checkpoint || !linkPrompt) return;
+      if (doorReservation.current?.participantId !== linkPrompt.participantId) reserveDoorBadge(linkPrompt.participantId);
+      setBusy(true);
+      setNotice('Badge detected: keep holding it to the phone…');
+      const reserved = await doorReservation.current?.promise;
+      if (!reserved) {
+        reserveDoorBadge(linkPrompt.participantId); // try again on the next tap
+        setBusy(false);
+        return setNotice('✕ Couldn’t prepare the badge. Check the connection, then tap again.');
+      }
+      const slow = setTimeout(() => setNotice('Hold the badge to the phone again to finish writing.'), SLOW_WRITE_MS);
+      try {
+        await nfcRef.current?.write(reserved.url);
+      } catch {
+        setBusy(false);
+        return setNotice('✕ Couldn’t write the badge. Hold it still and tap again.'); // reservation kept
+      } finally {
+        clearTimeout(slow);
+      }
+      doorReservation.current = null;
+      setNotice(null);
+      setBusy(false);
+      await link({ publicId: reserved.publicId, ...(tap.uid ? { uid: tap.uid } : {}) }, false, true);
+    },
+    [checkpoint, linkPrompt, reserveDoorBadge, link],
   );
 
   // A badge was read (printed QR or NFC): link it during the door prompt, otherwise check in by badge
@@ -281,12 +341,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       const parsed = tap.url ? parseTagUrl(tap.url, appOrigin) : { ok: false as const };
       const promptOpen = linkPrompt !== null && linkPrompt.until > Date.now();
       if (parsed.ok) return onBadge({ publicId: parsed.publicId, ...(tap.uid ? { uid: tap.uid } : {}) });
-      if (promptOpen && tap.uid && !tap.url) return void link({ uid: tap.uid });
+      // During "Tap a blank badge", anything that isn't one of our badges is written and registered here.
+      if (promptOpen && nfcRef.current) return void linkBlankBadge(tap);
       // A tag without our URL may still be one of our badges registered by serial (vendor list).
       if (tap.uid && !tap.url) return void record({ method: 'nfc', tagUid: tap.uid });
       show({ kind: 'not_our_badge' }, checkpoint);
     };
-  }, [scanningPaused, checkpoint, appOrigin, linkPrompt, onBadge, link, record, show]);
+  }, [scanningPaused, checkpoint, appOrigin, linkPrompt, onBadge, linkBlankBadge, record, show]);
 
   async function startNfc() {
     nfcRef.current ??= createNfcReader();
@@ -299,20 +360,25 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }
   useEffect(() => () => nfcRef.current?.stop(), []);
 
-  // The prompt closes on its own after 30 s.
-  useEffect(() => {
-    if (!linkPrompt) return;
-    const t = setTimeout(() => setLinkPrompt((p) => (p === linkPrompt ? null : p)), Math.max(0, linkPrompt.until - Date.now()));
-    return () => clearTimeout(t);
-  }, [linkPrompt]);
+  // NFC mode: camera off, NFC on (this click is the user gesture Chrome needs to start it).
+  function chooseMode(next: ScanMode) {
+    setMode(next);
+    if (next === 'nfc' && nfc !== 'on' && nfc !== 'starting') void startNfc();
+  }
 
-  // Camera: started once; decoding pauses while anything else is on screen (§10.2).
+  // The badge step has no timeout: it ends when a badge is linked, or with "No badge right now".
+  const [noBadgeConfirm, setNoBadgeConfirm] = useState(false);
+
+  // The camera runs only when it's wanted: not in NFC mode, and not while the Door waits for a badge tap
+  // with NFC on. Decoding also pauses while anything else is on screen (§10.2).
+  const cameraWanted = mode === 'camera' && !(nfc === 'on' && linkPrompt !== null);
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !cameraWanted) return;
     const scanner = createBarcodeScanner({ deviceId: readPref(CAMERA_KEY) });
     scannerRef.current = scanner;
     let cancelled = false;
+    void Promise.resolve().then(() => !cancelled && setCamera('starting'));
     scanner
       .start(video, (text) => onDecode.current(text))
       .then(async () => {
@@ -328,15 +394,19 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       });
     return () => {
       cancelled = true;
+      if (scannerRef.current === scanner) scannerRef.current = null;
       void scanner.stop();
+      video.srcObject = null;
     };
-  }, []);
+  }, [cameraWanted]);
 
+  // Re-applied whenever the camera (re)starts, so a restarted camera never decodes behind a result.
   useEffect(() => {
     scannerRef.current?.setPaused(scanningPaused);
-  }, [scanningPaused]);
+  }, [scanningPaused, cameraWanted, camera]);
 
-  useEffect(() => (camera === 'ready' ? keepScreenAwake() : undefined), [camera]);
+  const awake = (cameraWanted && camera === 'ready') || nfc === 'on';
+  useEffect(() => (awake ? keepScreenAwake() : undefined), [awake]);
 
   // Tick while an undo is possible so the button hides at 120 s (§10.3).
   useEffect(() => {
@@ -416,7 +486,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     <main
       className={styles.root}
       onPointerDown={unlockAudio}
-      data-camera={camera}
+      data-camera={cameraWanted ? camera : 'off'}
       data-scanning={scanningPaused ? 'paused' : 'on'}
       data-active-at={activeAt ?? undefined}
     >
@@ -445,15 +515,42 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
       <div className={styles.viewport}>
         <video ref={videoRef} className={styles.video} playsInline muted aria-label="Camera view" />
-        {camera !== 'starting' && camera !== 'ready' && (
+        {!cameraWanted && (
+          <div className={styles.viewportMessage}>
+            <p>
+              📶 {mode === 'nfc' ? 'NFC mode: the camera is off.' : 'Camera paused for the badge.'} Hold a badge flat to the back of the phone.
+            </p>
+          </div>
+        )}
+        {cameraWanted && camera !== 'starting' && camera !== 'ready' && (
           <div className={styles.viewportMessage} role="alert">
             <p>📷 {CAMERA_HELP[camera]}</p>
           </div>
         )}
         <div className={styles.status} aria-live="polite">
-          {busy ? 'Checking…' : camera === 'starting' ? 'Starting camera…' : camera === 'ready' && checkpoint ? 'Ready to scan' : ''}
+          {busy
+            ? 'Checking…'
+            : !cameraWanted
+              ? nfc === 'on'
+                ? 'Ready: tap a badge'
+                : 'Starting NFC…'
+              : camera === 'starting'
+                ? 'Starting camera…'
+                : camera === 'ready' && checkpoint
+                  ? 'Ready to scan'
+                  : ''}
         </div>
       </div>
+
+      {nfcSupported && (
+        <div className={styles.modes} role="group" aria-label="Scan with">
+          {(['camera', 'nfc'] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={mode === m} className={mode === m ? undefined : styles.secondary} onClick={() => chooseMode(m)}>
+              {m === 'camera' ? 'Camera' : 'NFC'}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className={styles.actions}>
         <button type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
@@ -469,7 +566,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
             Undo badge link
           </button>
         )}
-        {nfcSupported && nfc !== 'on' && (
+        {nfcSupported && mode === 'camera' && nfc !== 'on' && (
           <button type="button" className={styles.secondary} onClick={() => void startNfc()} disabled={nfc === 'starting'}>
             Start NFC
           </button>
@@ -479,7 +576,9 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         {!nfcSupported
           ? 'iPhone: tap badges with this phone’s NFC (opens the badge page).'
           : nfc === 'on'
-            ? '📶 NFC ready: tap a badge'
+            ? mode === 'nfc'
+              ? '📶 NFC ready: tap a badge'
+              : '📶 NFC ready: tap a badge. Nothing happens while the camera runs? Switch to NFC.'
             : nfc === 'off' || nfc === 'starting'
               ? ''
               : `⚠ ${NFC_HELP[nfc]}`}
@@ -508,17 +607,46 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       )}
       {undoOpen && <UndoDialog onSubmit={(r) => void undo(r)} onCancel={() => setUndoOpen(false)} />}
       {linkPrompt && !result && (
-        <section className={styles.prompt} aria-label="Tap a blank badge" data-testid="badge-prompt">
-          <p className={styles.promptTitle}>Tap a blank badge</p>
+        <section className={styles.prompt} aria-label="Link a badge" data-testid="badge-prompt">
+          <p className={styles.promptTitle}>Link a badge to {linkPrompt.name}</p>
           <p className={styles.promptDetail}>
-            For {linkPrompt.name}. {nfc === 'on' ? 'Hold it to the back of this phone,' : 'Show its printed QR to the camera,'} or skip.
+            {nfc === 'on'
+              ? '✓ Admitted. Hold a blank badge flat to the back of the phone.'
+              : nfcSupported
+                ? '✓ Admitted. Press Start NFC, then hold a blank badge to the back of the phone.'
+                : '✓ Admitted. Show the badge’s printed QR to the camera.'}
           </p>
-          <button type="button" className={styles.secondary} onClick={() => setLinkPrompt(null)}>
-            Skip
-          </button>
+          <div className={styles.promptActions}>
+            {nfcSupported && nfc !== 'on' && (
+              <button type="button" onClick={() => void startNfc()} disabled={nfc === 'starting'}>
+                Start NFC
+              </button>
+            )}
+            <button type="button" className={styles.secondary} onClick={() => setNoBadgeConfirm(true)}>
+              No badge right now
+            </button>
+          </div>
         </section>
       )}
-      {result && <ResultScreen view={result.view} shownAt={result.shownAt} onDismiss={dismiss} choices={replaceChoices} />}
+      {noBadgeConfirm && linkPrompt && (
+        <NoBadgeDialog
+          name={linkPrompt.name}
+          onConfirm={() => {
+            setNoBadgeConfirm(false);
+            setLinkPrompt(null);
+          }}
+          onCancel={() => setNoBadgeConfirm(false)}
+        />
+      )}
+      {result && (
+        <ResultScreen
+          view={result.view}
+          shownAt={result.shownAt}
+          onDismiss={dismiss}
+          choices={replaceChoices}
+          next={linkPrompt ? (result.view.dismiss === 'tap' ? 'Tap to link a badge' : 'Next: link a badge') : undefined}
+        />
+      )}
     </main>
   );
 }

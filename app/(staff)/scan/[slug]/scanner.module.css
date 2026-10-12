@@ -72,3 +72,8 @@
 .promptTitle { font-size: 24px; font-weight: 800; margin: 0; }
 .promptDetail { margin: 0; font-size: 16px; }
 .nfcState { font-size: 14px; padding: 0 12px; }
+.modes { display: flex; gap: 8px; padding: 12px 12px 0; }
+.modes button { flex: 1; min-height: 48px; }
+.modes button[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--fg); }
+.promptActions { display: flex; gap: 8px; flex-wrap: wrap; }
+.promptActions button { flex: 1; min-height: 48px; }

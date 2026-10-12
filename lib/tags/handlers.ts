@@ -29,6 +29,18 @@ const assignBody = z
   .strict()
   .refine((b) => b.tagPublicId !== undefined || b.tagUid !== undefined);
 
+const doorReserveBody = z.object({ eventSlug: z.string().min(1).max(40), participantId: z.uuid() }).strict();
+const doorLinkBody = z
+  .object({
+    eventSlug: z.string().min(1).max(40),
+    participantId: z.uuid(),
+    tagPublicId: publicIdField,
+    tagUid: z.string().max(64).optional(),
+    replace: z.boolean().optional(),
+  })
+  .strict();
+const doorReserveResult = z.object({ code: z.string(), label: z.string().optional() });
+
 const registerCode = z.enum(['REGISTERED', 'ALREADY_REGISTERED', 'UID_CONFLICT', 'PUBLIC_ID_CONFLICT', 'FORBIDDEN']);
 const reserveResult = z.object({ code: z.enum(['RESERVED', 'FORBIDDEN', 'PUBLIC_ID_CONFLICT']), label: z.string().optional() });
 
@@ -164,6 +176,62 @@ export function createTagsApi(deps: { db: Db; authenticate: Authenticate; meOrig
       return new Response(toCsv(['url', 'public_id', 'label'], rows), {
         headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${params.slug}-badge-ids.csv"`, ...NO_STORE },
       });
+    },
+
+    // POST /api/tags/door-reserve { eventSlug, participantId }  (Door, step 1 of a BLANK badge): reserve
+    // the next id while "Tap a blank badge" is up, so the phone can write the URL the instant it's tapped.
+    // Any staff of the event, for someone admitted at the door (reserve_door_tag checks).
+    async doorReserve(request: Request) {
+      const user = await deps.authenticate(request);
+      if (!user) return json({ error: 'unauthorized' }, 401);
+      const body = doorReserveBody.safeParse(await readJson(request));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      const staff = await requireStaffBySlug(db, user.id, body.data.eventSlug);
+      if (!staff) return json({ error: 'forbidden' }, 403);
+      if (!(await withinLimit(db, `tags-reserve:user:${user.id}`, 3600, 600))) return json({ error: 'rate_limited' }, 429);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const publicId = mintPublicId();
+        const { data, error } = await db.rpc('reserve_door_tag', {
+          p_event_id: staff.eventId,
+          p_staff_id: user.id,
+          p_participant_id: body.data.participantId,
+          p_public_id: publicId,
+        });
+        if (error) throw new Error(`reserve_door_tag failed (${error.code})`);
+        const r = doorReserveResult.parse(data);
+        if (r.code === 'PUBLIC_ID_CONFLICT') continue;
+        if (r.code !== 'RESERVED') return json({ code: r.code });
+        return json({ code: r.code, publicId, label: r.label ?? null, url: tagUrl(deps.meOrigin, publicId) });
+      }
+      throw new Error('reserve_door_tag kept colliding');
+    },
+
+    // POST /api/tags/door-link { eventSlug, participantId, tagPublicId, tagUid?, replace? }  (Door, step 2:
+    // after the phone wrote the URL) → door_link_new_tag; the same response shape as assign.
+    async doorLink(request: Request) {
+      const user = await deps.authenticate(request);
+      if (!user) return json({ error: 'unauthorized' }, 401);
+      const body = doorLinkBody.safeParse(await readJson(request));
+      if (!body.success) return json({ error: 'invalid_request' }, 400);
+      const b = body.data;
+      const uid = b.tagUid === undefined ? null : normalizeUid(b.tagUid);
+      if (b.tagUid !== undefined && !uid) return json({ error: 'invalid_request' }, 400);
+      const staff = await requireStaffBySlug(db, user.id, b.eventSlug);
+      if (!staff) return json({ error: 'forbidden' }, 403);
+      const { data, error } = await db.rpc('door_link_new_tag', {
+        p_event_id: staff.eventId,
+        p_staff_id: user.id,
+        p_participant_id: b.participantId,
+        p_public_id: b.tagPublicId,
+        p_uid: sqlNull(uid),
+        p_replace: b.replace ?? false,
+      });
+      if (error) throw new Error(`door_link_new_tag failed (${error.code})`);
+      const out = withoutPhotoPath(data) as Record<string, unknown>;
+      const { data: tag, error: tagError } = await db.from('tags').select('label').eq('event_id', staff.eventId).eq('public_id', b.tagPublicId).maybeSingle();
+      if (tagError) throw new Error(`tag label load failed (${tagError.code})`);
+      out.tagLabel = tag?.label ?? null;
+      return json(out);
     },
 
     // POST /api/tags/assign  (door step / Replace badge; staff of the event, both hosts)

@@ -13,12 +13,23 @@ async function post(url: string, body: unknown): Promise<{ status: number; data:
 
 // SPEC F9. The server emails a sign-in link and a 6-digit code: open the link on this device, or type
 // the code (e.g. on a phone, where the link would open somewhere else). The browser never calls Supabase.
-export function LoginForm({ next }: { next: string }) {
+// `passwordLogin` (FEATURE_PASSWORD_LOGIN, dev only): also offer email + password, e.g. the local admin.
+export function LoginForm({ next, passwordLogin = false }: { next: string; passwordLogin?: boolean }) {
   const router = useRouter();
   const [state, setState] = useState<State>('idle');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+
+  async function signInWithPassword() {
+    setError(null);
+    setState('sending');
+    const r = await post('/auth/password', { email, password, next });
+    if (r.status === 200 && r.data.next) return router.replace(r.data.next);
+    setState('idle');
+    setError(r.status === 429 ? 'Too many tries. Wait 15 minutes, or use the email link.' : 'Wrong email or password.');
+  }
 
   async function send(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -77,7 +88,17 @@ export function LoginForm({ next }: { next: string }) {
     <form className={styles.form} onSubmit={send}>
       <label htmlFor="email">Email</label>
       <input id="email" name="email" type="email" autoComplete="email" required className={styles.input} value={email} onChange={(e) => setEmail(e.target.value)} />
-      <button type="submit" disabled={state === 'sending'}>
+      {passwordLogin && (
+        <>
+          <label htmlFor="password">Password</label>
+          <input id="password" name="password" type="password" autoComplete="current-password" className={styles.input} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <button type="button" disabled={state === 'sending' || !email || !password} onClick={() => void signInWithPassword()}>
+            Sign in
+          </button>
+          <p className={styles.or}>or, without a password:</p>
+        </>
+      )}
+      <button type="submit" disabled={state === 'sending'} className={passwordLogin ? styles.secondary : undefined}>
         {state === 'sending' ? 'Sending…' : 'Email me a sign-in link'}
       </button>
       {error && (

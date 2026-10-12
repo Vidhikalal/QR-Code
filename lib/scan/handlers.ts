@@ -127,10 +127,11 @@ export function createScanHandler(deps: ApiDeps) {
     });
     if (logError) console.error(JSON.stringify({ level: 'error', msg: 'scan_attempts insert failed', error: sanitizeError(logError.code) }));
 
-    // PLAN F20: at the door, say whether the admitted person already wears a badge, so the scanner can
-    // offer "Tap a blank badge". Display data only; record_scan() made the decision (I-2).
+    // PLAN F20: at the door, say whether the person already wears a badge, so the scanner can run the
+    // (mandatory) badge step: after ADMIT, and on a re-scan (ALREADY_SCANNED) to link one later.
+    // Display data only; record_scan() made the decision (I-2).
     let badge: { hasBadge: boolean; badgeLabel: string | null } | null = null;
-    if (result.code === 'ACCEPTED' && checkpoint.data?.kind === 'door' && result.participant) {
+    if ((result.code === 'ACCEPTED' || result.code === 'ALREADY_SCANNED') && checkpoint.data?.kind === 'door' && result.participant) {
       const { data: link, error: linkError } = await deps.db
         .from('tag_assignments')
         .select('tags(label)')

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { safeNextPath } from '@/lib/auth/next-path';
+import { env } from '@/lib/env';
 import { LoginForm } from './login-form';
 import styles from './login.module.css';
 
@@ -16,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           ✕ That sign-in link didn&apos;t work or has expired. Request a new one.
         </p>
       )}
-      <LoginForm next={safeNextPath(next, '/admin')} />
+      <LoginForm next={safeNextPath(next, '/admin')} passwordLogin={env().FEATURE_PASSWORD_LOGIN} />
     </main>
   );
 }

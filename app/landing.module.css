@@ -1,0 +1,6 @@
+.page { max-width: 520px; margin: 0 auto; padding: 40px 16px; }
+.page h1 { margin: 0 0 4px; font-size: 32px; }
+.lead { color: var(--muted); margin: 0 0 24px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 8px; font-size: 18px; }
+.card p { margin: 0 0 12px; }

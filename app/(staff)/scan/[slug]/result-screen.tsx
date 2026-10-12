@@ -13,7 +13,8 @@ export interface ResultChoice {
 // SPEC §10.2: icon + text + colour together; names ≥ 32 px, photo ≥ 160 px. Only green (and the
 // "Not a Passline code" notice) auto-dismiss; every problem needs a tap so the volunteer notices it.
 // With `choices` (e.g. "Replace it" / "Cancel", PLAN §10.2) the screen asks instead of dismissing on tap.
-export function ResultScreen({ view, shownAt, onDismiss, choices }: { view: ResultView; shownAt: number; onDismiss: () => void; choices?: ResultChoice[] }) {
+// `next` replaces the dismiss hint when something follows this screen (the Door's badge step).
+export function ResultScreen({ view, shownAt, onDismiss, choices, next }: { view: ResultView; shownAt: number; onDismiss: () => void; choices?: ResultChoice[]; next?: string }) {
   const tap = view.dismiss === 'tap';
   const body = (
     <>
@@ -48,7 +49,7 @@ export function ResultScreen({ view, shownAt, onDismiss, choices }: { view: Resu
     <button type="button" {...common} data-dismiss={tap ? 'tap' : 'auto'} onClick={onDismiss} aria-describedby="result-hint">
       {body}
       <span id="result-hint" className={styles.resultHint}>
-        {tap ? 'Tap to continue' : 'Tap to skip'}
+        {next ?? (tap ? 'Tap to continue' : 'Tap to skip')}
       </span>
     </button>
   );

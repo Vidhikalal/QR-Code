@@ -123,23 +123,28 @@ Every sign-in email goes to the local mail catcher, **Mailpit**, at `http://127.
 2. Either open Mailpit **in the same browser window** and click the link in the newest email (a link only completes in the window that requested it), or type the **6-digit code** from that email into the sign-in page. The code works from any window or device.
 
 Accounts you can use:
+- **Your admin account** (`SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` in `.env.local`, with `FEATURE_PASSWORD_LOGIN=true`): sign in with the **password** on `/login`. `pnpm seed` recreates it after every `db:reset`. It's a platform admin (create events at `/admin/new`, add checkpoints) and an organizer of `demo`. Dev only: never use that password anywhere real.
 - `organizer@example.test` and `volunteer@example.test`, which `pnpm seed` invites to `demo`;
 - the email you gave `pnpm admin:add`: it sees every event at `/admin`.
+
+The home page (`localhost:3000`) has a **Sign in** button that leads here.
 
 Links and codes work once and expire after an hour; if one fails, request a new one.
 
 ### Where passes end up locally
 
-With `EMAIL_PROVIDER=console`, nothing is really emailed:
+Nothing is really emailed. `pnpm seed` creates **10 accepted applicants** (Ada, Ben, Chloé, Diego, Emma, Farah, Gabe, Hana, Ivan, Jade) and sends each one's acceptance email the real way (outbox → drainer), with their pass QR and a **Set up your profile** link.
+
+- `EMAIL_PROVIDER=mailpit` (recommended in dev): every email lands in the **Mailpit** inbox at `http://127.0.0.1:54324`, next to the staff sign-in emails, looking as it would in Gmail.
+- `EMAIL_PROVIDER=console`: emails are written as `.eml` files instead.
 
 | What | Where |
 |------|-------|
-| The full pass email | `.mail/*.eml`. Double-click to open it in Apple Mail. |
-| **The QR image alone** | **`.mail/qr/<Event>-<First>.png`**, e.g. `Demo-Hack-Day-Ada.png` |
-| QR images for the seeded demo people | `.seed/Demo-Hack-Day-<First>.png` |
-| Printed-badge QRs (60 seeded badges, the first 20 linked to people) | `.seed/badges/Demo-Hack-Day-B-0001.png` … |
+| The full pass email | Mailpit (`mailpit`), or `.mail/*.eml` (`console`: double-click to open it in Apple Mail) |
+| **The QR image alone** | **`.mail/qr/<Event>-<First>.png`**, e.g. `Demo-Hack-Day-Ada.png` (both providers) |
+| Printed-badge QRs (60 seeded badges, none linked: link one per person at the Door) | `.seed/badges/Demo-Hack-Day-B-0001.png` … |
 
-Every pass email also has a **Set up your profile** link (`/edit#…`). Opening it signs that person in at `localhost:3000/me` with a cookie, so use a private window if you're also signed in as staff in the same browser and want to keep the two apart. **Get a new link** on `/me` sends a `Your … profile link` email to `.mail/`.
+Every pass email also has a **Set up your profile** link (`/edit#…`). Opening it signs that person in at `localhost:3000/me` with a cookie, so use a private window if you're also signed in as staff in the same browser and want to keep the two apart. **Get a new link** on `/me` sends a `Your … profile link` email (to Mailpit, or `.mail/`).
 
 Folders starting with a dot are hidden in Finder. Open them from the terminal with `open .mail/qr` or `open .seed`.
 
@@ -156,8 +161,9 @@ The camera and Web NFC only work over HTTPS, and a phone can't reach `localhost`
 1. Stop `pnpm dev` if it's running (both use port 3000), then run **`pnpm dev:phone`**. It prints a QR of the tunnel URL. Scan it with the phone; give the tunnel about 20 seconds to come online.
 2. **Seed passes for that URL** in another tab, using the command it prints: `NEXT_PUBLIC_APP_ORIGIN=https://….trycloudflare.com pnpm seed`. The scanner only accepts pass QRs for the app's current address, so passes seeded for `localhost` scan as "Not a Passline code".
 3. **Sign in on the phone:** open `/login`, enter `organizer@example.test`, then type the **6-digit code** from the newest email in Mailpit (on the laptop, `http://127.0.0.1:54324`).
-4. **Register badges** (Android Chrome): Admin → Badges → Register → **Start NFC**, then tap each blank badge. The app writes the badge URL onto it and saves the chip serial.
-5. Scan a seed pass at the Door (show `.seed/*.png` on the laptop screen) → ADMIT → **Tap a blank badge** links it. Then switch checkpoints and tap the badge in **NFC** mode.
+4. **Door:** open the scanner on Door, press **Start NFC** once, scan a seed pass (show `.seed/*.png` on the laptop screen) → ADMIT → **Link a badge to {name}**. The camera pauses; hold a blank badge to the back of the phone for a second and it is written, registered and linked in one go ("B-0001 linked to …"). The step stays until a badge is linked (or a confirmed **No badge right now**); re-scanning that person's pass later brings it back. Pre-registering on Admin → Badges → Register is optional.
+5. **Checkpoints:** switch to Lunch, a workshop or Raffle, choose **NFC** (the camera turns off: Android doesn't deliver NFC taps while the camera runs), then tap the badge.
+6. `/nfc-test` (development only) shows exactly what Chrome reads from a badge, if something seems off.
 
 Things to know:
 - **The URL changes every time the tunnel restarts**, and badges hold the URL they were written with. Rewrite test badges after a restart (Register overwrites them), and **never set a password on a test badge**: that's only for the final domain.

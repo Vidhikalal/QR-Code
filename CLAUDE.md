@@ -11,7 +11,7 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 - Supabase (Postgres, Auth, Storage) with the local stack via Docker
 - zod · sharp · qrcode
 - Vitest (unit + integration) · Playwright (e2e)
-- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in dev and test.
+- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in tests; in dev, `console` or `mailpit` (the local Mailpit inbox; refuses non-local URLs).
 
 ## Commands
 | Task | Command |
@@ -29,7 +29,7 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 | Reset DB (re-run all migrations + seed) | `pnpm db:reset` (`supabase db reset`) |
 | New migration | `supabase migration new <snake_case_name>` |
 | Regenerate DB types | `pnpm db:types` (`supabase gen types typescript --local > lib/db/types.gen.ts`) |
-| Seed demo event (50 fake participants, QR PNGs to `./.seed/`; 60 badges, 20 linked, badge QRs to `./.seed/badges/`; `organizer@example.test` is created as organizer) | `pnpm seed` |
+| Seed demo event (10 accepted applicants, their acceptance emails sent via the outbox to Mailpit or `.mail/`; 60 badges (none linked), badge QRs to `./.seed/badges/`; `organizer@example.test` as organizer; the `SEED_ADMIN_EMAIL` admin from `.env.local`) | `pnpm seed` |
 | Make a platform admin (create events at `/admin/new`; refuses non-local without `--yes`) | `pnpm admin:add <email>` |
 | Read dev emails | `./.mail/*.eml` (open in Apple Mail); QR images in `./.mail/qr/<Event>-<First>.png` |
 | Delete dev emails + seed images | `pnpm clean:dev` |

@@ -1,6 +1,7 @@
 import 'server-only';
 import { env } from '@/lib/env';
 import { createConsoleProvider } from './console';
+import { createMailpitProvider } from './mailpit';
 import type { EmailProvider } from './provider';
 import { createResendProvider } from './resend';
 
@@ -10,6 +11,11 @@ export function getProvider(): EmailProvider {
     // CLAUDE.md: never call a real email provider from tests.
     if (process.env.NODE_ENV === 'test') throw new Error('EMAIL_PROVIDER=resend is not allowed in tests');
     return createResendProvider({ apiKey: e.RESEND_API_KEY ?? '' });
+  }
+  // Dev: the local Mailpit inbox (never in tests, which use the console provider).
+  if (e.EMAIL_PROVIDER === 'mailpit') {
+    if (process.env.NODE_ENV === 'test') throw new Error('EMAIL_PROVIDER=mailpit is not allowed in tests');
+    return createMailpitProvider({ url: e.MAILPIT_URL });
   }
   return createConsoleProvider();
 }
