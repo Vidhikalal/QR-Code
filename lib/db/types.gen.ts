@@ -356,6 +356,7 @@ export type Database = {
       }
       participants: {
         Row: {
+          accessibility_notes: string | null
           badge_role: string
           created_at: string
           deleted_at: string | null
@@ -368,6 +369,7 @@ export type Database = {
           is_test: boolean
           last_name: string
           linkedin_url: string | null
+          owner_edited: string[]
           photo_path: string | null
           photo_updated_at: string | null
           search_text: string
@@ -377,6 +379,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          accessibility_notes?: string | null
           badge_role?: string
           created_at?: string
           deleted_at?: string | null
@@ -389,6 +392,7 @@ export type Database = {
           is_test?: boolean
           last_name?: string
           linkedin_url?: string | null
+          owner_edited?: string[]
           photo_path?: string | null
           photo_updated_at?: string | null
           search_text: string
@@ -398,6 +402,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          accessibility_notes?: string | null
           badge_role?: string
           created_at?: string
           deleted_at?: string | null
@@ -410,6 +415,7 @@ export type Database = {
           is_test?: boolean
           last_name?: string
           linkedin_url?: string | null
+          owner_edited?: string[]
           photo_path?: string | null
           photo_updated_at?: string | null
           search_text?: string
@@ -524,10 +530,12 @@ export type Database = {
           github_url: string | null
           hidden_by_staff_at: string | null
           linkedin_url: string | null
+          looking_for: string[]
           nickname: string | null
           participant_id: string
           program: string | null
           pronouns: string | null
+          public_fields: string[]
           updated_at: string
           visibility: string
           website_url: string | null
@@ -540,10 +548,12 @@ export type Database = {
           github_url?: string | null
           hidden_by_staff_at?: string | null
           linkedin_url?: string | null
+          looking_for?: string[]
           nickname?: string | null
           participant_id: string
           program?: string | null
           pronouns?: string | null
+          public_fields?: string[]
           updated_at?: string
           visibility?: string
           website_url?: string | null
@@ -556,10 +566,12 @@ export type Database = {
           github_url?: string | null
           hidden_by_staff_at?: string | null
           linkedin_url?: string | null
+          looking_for?: string[]
           nickname?: string | null
           participant_id?: string
           program?: string | null
           pronouns?: string | null
+          public_fields?: string[]
           updated_at?: string
           visibility?: string
           website_url?: string | null
@@ -1002,6 +1014,15 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      _ingest_profile_answers: {
+        Args: {
+          p_looking_for: string[]
+          p_participant_id: string
+          p_skills: string[]
+          p_update: boolean
+        }
+        Returns: undefined
+      }
       _labels_ok: { Args: { a: string[] }; Returns: boolean }
       _prior: {
         Args: { me: string; s: Database["public"]["Tables"]["scans"]["Row"] }
@@ -1160,6 +1181,7 @@ export type Database = {
       holder_involvement: { Args: { p_participant_id: string }; Returns: Json }
       ingest_sheet_row: {
         Args: {
+          p_accessibility_notes?: string
           p_dietary_notes?: string
           p_dry_run?: boolean
           p_email: string
@@ -1168,7 +1190,9 @@ export type Database = {
           p_first_name: string
           p_last_name: string
           p_linkedin_url?: string
+          p_looking_for?: string[]
           p_search_text: string
+          p_skills?: string[]
           p_status: Database["public"]["Enums"]["participant_status"]
         }
         Returns: string
@@ -1230,6 +1254,10 @@ export type Database = {
           starts_at: string
           timezone: string
         }[]
+      }
+      mark_owner_edited: {
+        Args: { p_fields: string[]; p_participant_id: string }
+        Returns: undefined
       }
       my_connections: { Args: { p_participant_id: string }; Returns: Json }
       open_profile_session: {

@@ -66,6 +66,8 @@ type StaffPanel = {
   checkpoints: StationCheckpoint[];
   involvement: Involvement | null;
   timezone: string;
+  /** Every profile field, including organizers-only ones (staff audience). */
+  profile: PublicProfile;
 };
 
 export type BadgeView =
@@ -151,6 +153,8 @@ export function badgeView(input: BadgeInput): BadgeView {
       checkpoints: input.staffExtras?.checkpoints ?? [],
       involvement: input.staffExtras?.involvement ?? null,
       timezone: event.timezone ?? 'UTC',
+      // Organizers and volunteers see every field, whatever the owner chose (profiles 2026-10-13).
+      profile: toPublicProfile({ participant, profile: holder.fields, eventName: event.name, extraRoles: input.extraRoles, audience: 'staff' }),
     };
   }
   return view;

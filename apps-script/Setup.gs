@@ -42,10 +42,16 @@ function setupTestForm() {
   form.addParagraphTextItem().setTitle('Dietary Restrictions');
   form.addTextItem().setTitle('LinkedIn URL').setHelpText('Optional, e.g. https://www.linkedin.com/in/your-name')
       .setValidation(FormApp.createTextValidation().setHelpText('Enter a full URL.').requireTextIsUrl().build());
+  // Profile questions (2026-10-13). The titles must match HEADERS in Code.gs; answers seed the profile.
+  form.addTextItem().setTitle('What are you good at?').setHelpText('A few skills, separated by commas (up to 5), e.g. React, design, pitching');
+  form.addCheckboxItem().setTitle('What are you looking for?')
+      .setChoiceValues(['A team', 'A mentor', 'An internship', 'A job', 'Networking']);
+  form.addParagraphTextItem().setTitle('Accessibility or health needs')
+      .setHelpText('Anything organizers should know. Only organizers see this unless you choose to share it on your profile.');
 
   // 2. Send responses to this spreadsheet and wait for the response tab to appear.
   form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
-  const sheet = waitForResponseSheet_(ss.getId(), 6); // Timestamp + 5 questions
+  const sheet = waitForResponseSheet_(ss.getId(), 9); // Timestamp + 8 questions
   if (sheet.getName() !== SHEET_NAME) sheet.setName(SHEET_NAME); // SHEET_NAME comes from Code.gs
 
   // 3. The three organizer columns, with a dropdown on Status (blank = pending).

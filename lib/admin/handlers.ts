@@ -374,8 +374,11 @@ export function createAdminApi(deps: AdminDeps) {
       return json({
         profile: profile && {
           public: profile.public,
-          hiddenByStaff: profile.fields?.hiddenByStaffAt != null,
-          hiddenByOwner: profile.fields?.visibility === 'hidden',
+          // Organizers see every field, whatever the owner shared (profiles 2026-10-13).
+          full: profile.staffView,
+          publicFields: profile.fields.publicFields,
+          hiddenByStaff: profile.fields.hiddenByStaffAt != null,
+          hiddenByOwner: profile.fields.visibility === 'hidden',
         },
         participant: {
           id: p.id,
@@ -387,6 +390,7 @@ export function createAdminApi(deps: AdminDeps) {
           isTest: p.is_test,
           applicantId: p.external_id,
           dietaryNotes: p.dietary_notes,
+          accessibilityNotes: p.accessibility_notes,
           linkedinUrl: p.linkedin_url,
           photoUrl: p.photo_path ? await signedPhotoUrl(db, p.photo_path) : null,
           photoUpdatedAt: p.photo_updated_at,

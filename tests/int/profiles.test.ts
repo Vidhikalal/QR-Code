@@ -73,7 +73,7 @@ describe('/api/me/profile (PLAN §9.2)', () => {
       { participant_id: a.id, nickname: 'Ada', bio: 'Engines.' },
       { participant_id: b.id, nickname: 'Bee', bio: null },
     ]);
-    for (const bad of [{ participantId: b.id, nickname: 'Hijack' }, { githubUrl: 'http://github.com/ada' }, { askMeAbout: ['Rust'] }]) {
+    for (const bad of [{ participantId: b.id, nickname: 'Hijack' }, { githubUrl: 'http://github.com/ada' }, { lookingFor: ['cofounder'] }, { publicFields: ['email'] }]) {
       expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: bad })).status, JSON.stringify(bad)).toBe(400);
     }
     expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: { nickname: 'X' }, origin: 'https://evil.example' })).status).toBe(403);
@@ -85,9 +85,49 @@ describe('/api/me/profile (PLAN §9.2)', () => {
     await me.call('updateProfile', { method: 'PATCH', cookie, body: { nickname: 'Countess', bio: 'Engines.', visibility: 'hidden' } });
     const r = await me.call('getProfile', { method: 'GET', cookie });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ profile: { nickname: 'Countess', bio: 'Engines.', visibility: 'hidden' }, badgeRole: 'participant', canEditTopics: false });
+    expect(r.body).toMatchObject({ profile: { nickname: 'Countess', bio: 'Engines.', visibility: 'hidden' }, badgeRole: 'participant' });
     expect(obj(r.body).public).toEqual({ hidden: true, displayName: 'Countess', badgeRole: 'participant', label: null, eventName: f.e1.name });
     expect(obj(r.body).photo).toEqual({ url: null, locked: false });
+  });
+});
+
+describe('profile fields and per-field visibility (profiles 2026-10-13)', () => {
+  it('PATCH writes dietary/accessibility to the participant row and the rest to the profile, for the caller only', async () => {
+    const a = await f.addParticipant(f.e1.id);
+    const b = await f.addParticipant(f.e1.id);
+    const cookie = await signedIn(a.id);
+    const r = await me.call('updateProfile', {
+      method: 'PATCH',
+      cookie,
+      body: { skills: ['React', 'Pitching'], lookingFor: ['team', 'internship'], dietaryNotes: ' Vegan ', accessibilityNotes: 'Step-free access' },
+    });
+    expect(r.status).toBe(200);
+    expect(obj(r.body).profile).toMatchObject({ skills: ['React', 'Pitching'], lookingFor: ['team', 'internship'], dietaryNotes: 'Vegan', accessibilityNotes: 'Step-free access' });
+    const { rows } = await f.pool.query(
+      `select p.id, p.dietary_notes, p.accessibility_notes, pr.ask_me_about, pr.looking_for, pr.public_fields
+         from participants p left join profiles pr on pr.participant_id = p.id where p.id = any($1) order by p.id = $2 desc`,
+      [[a.id, b.id], a.id],
+    );
+    expect(rows[0]).toMatchObject({ dietary_notes: 'Vegan', accessibility_notes: 'Step-free access', ask_me_about: ['React', 'Pitching'], looking_for: ['team', 'internship'] });
+    expect(rows[0]?.public_fields).not.toContain('dietary'); // organizers-only by default
+    expect(rows[1]).toMatchObject({ dietary_notes: null, accessibility_notes: null, ask_me_about: null });
+    // Dietary alone doesn't need a profile row; an over-long note is a friendly 400.
+    expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: { accessibilityNotes: 'x'.repeat(501) } })).status).toBe(400);
+  });
+
+  it('the preview shows only shared fields; dietary/accessibility appear only after the owner opts in', async () => {
+    const a = await f.addParticipant(f.e1.id);
+    const cookie = await signedIn(a.id);
+    await me.call('updateProfile', { method: 'PATCH', cookie, body: { bio: 'Hi.', skills: ['Rust'], dietaryNotes: 'Vegan', accessibilityNotes: 'Wheelchair' } });
+    let pub = obj((await me.call('getProfile', { method: 'GET', cookie })).body).public as Record<string, unknown>;
+    expect(pub).toMatchObject({ bio: 'Hi.', skills: ['Rust'] });
+    expect(pub).not.toHaveProperty('dietary');
+    expect(pub).not.toHaveProperty('accessibility');
+    await me.call('updateProfile', { method: 'PATCH', cookie, body: { publicFields: ['skills', 'dietary'] } });
+    pub = obj((await me.call('getProfile', { method: 'GET', cookie })).body).public as Record<string, unknown>;
+    expect(pub).toMatchObject({ skills: ['Rust'], dietary: 'Vegan' });
+    expect(pub).not.toHaveProperty('bio');
+    expect(pub).not.toHaveProperty('accessibility');
   });
 });
 
@@ -152,8 +192,8 @@ describe('organizer badge profile (PLAN F15)', () => {
     expect(opened.body).toEqual({ code: 'OPENED', next: '/me' });
     const cookie = opened.setCookie?.split(';')[0] ?? '';
     const profile = await me.call('getProfile', { method: 'GET', cookie });
-    expect(profile.body).toMatchObject({ badgeRole: 'organizer', canEditTopics: true, public: { label: 'Organizer', displayName: 'Zoë Ödegaard' } });
-    expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: { askMeAbout: ['Rust', 'Sponsors'] } })).status).toBe(200);
+    expect(profile.body).toMatchObject({ badgeRole: 'organizer', public: { label: 'Organizer', displayName: 'Zoë Ödegaard' } });
+    expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: { skills: ['Rust', 'Sponsors'] } })).status).toBe(200);
   });
 
   it('F15: volunteers get 403 unless FEATURE_EXTRA_BADGE_ROLES; other events and signed-out callers are refused', async () => {

@@ -51,6 +51,9 @@ export function sheetRow(slug: string, over: Partial<SheetRowInput> = {}): Requi
     last_name: 'Person',
     dietary_notes: '',
     linkedin_url: '',
+    accessibility_notes: '',
+    skills: '',
+    looking_for: '',
     status: 'Accepted',
     ...over,
   };

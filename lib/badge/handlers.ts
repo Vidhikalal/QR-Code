@@ -132,12 +132,12 @@ export async function loadBadgePage(deps: {
   if (tv.assignment) {
     const { data, error: holderError } = await db
       .from('participants')
-      .select('id, first_name, last_name, badge_role, status, photo_path, profiles(*)')
+      .select('id, first_name, last_name, badge_role, status, photo_path, dietary_notes, accessibility_notes, profiles(*)')
       .eq('id', tv.assignment.participantId)
       .single();
     if (holderError) throw new Error(`holder load failed (${holderError.code})`);
     holderRow = data;
-    holder = { participantId: data.id, firstName: data.first_name, lastName: data.last_name, badgeRole: data.badge_role as BadgeRole, fields: profileFields(data.profiles) };
+    holder = { participantId: data.id, firstName: data.first_name, lastName: data.last_name, badgeRole: data.badge_role as BadgeRole, fields: profileFields(data.profiles, data) };
   }
 
   let lastHolder: BadgeInput['lastHolder'] = null;

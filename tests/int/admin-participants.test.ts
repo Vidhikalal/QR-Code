@@ -45,17 +45,18 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
 
   it('T-ADM-05: delete → tombstone per §5.1; counts unchanged; old token → REVOKED (deleted); no PII in audit', async () => {
     await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.B });
+    await f.pool.query(`update participants set accessibility_notes = 'Step-free access' where id = $1`, [f.p.B]);
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     const res = await c.call('deleteParticipant', org, { slug: f.slug, id: f.p.B }, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const { rows } = await f.pool.query(
-      `select first_name, last_name, email, search_text, dietary_notes, linkedin_url, photo_path, deleted_at is not null as deleted
+      `select first_name, last_name, email, search_text, dietary_notes, accessibility_notes, linkedin_url, photo_path, deleted_at is not null as deleted
          from participants where id = $1`,
       [f.p.B],
     );
     expect(rows[0]).toEqual({
       first_name: 'Deleted', last_name: '', email: `deleted+${f.p.B}@invalid`, search_text: '',
-      dietary_notes: null, linkedin_url: null, photo_path: null, deleted: true,
+      dietary_notes: null, accessibility_notes: null, linkedin_url: null, photo_path: null, deleted: true,
     });
     const after = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     expect(after.rows[0]?.n).toBe(before.rows[0]?.n);

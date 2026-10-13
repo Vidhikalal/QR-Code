@@ -16,6 +16,10 @@ const rowSchema = z
     last_name: cell,
     dietary_notes: cell,
     linkedin_url: cell,
+    // Profiles part B: optional form answers (old Sheets don't send them).
+    accessibility_notes: cell,
+    skills: cell,
+    looking_for: cell,
     status: cell,
   })
   .strict();

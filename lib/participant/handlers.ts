@@ -9,7 +9,7 @@ import { CONNECT_CODES } from '@/lib/connections/copy';
 import { myPoints } from '@/lib/leaderboard/handlers';
 import { isCheckedIn, MAX_PHOTO_REQUEST_BYTES, storeParticipantPhoto } from '@/lib/photo/process';
 import { loadProfile } from '@/lib/profile/load';
-import { profilePatchSchema, TOPIC_ROLES, type ProfilePatch } from '@/lib/profile/schema';
+import { profilePatchSchema, type ProfilePatch } from '@/lib/profile/schema';
 import { signedPhotoUrl } from '@/lib/storage/photos';
 import { clearParticipantCookie, readSessionValue, serializeParticipantCookie } from './session';
 
@@ -195,12 +195,41 @@ export function createParticipantApi(deps: ParticipantDeps) {
       if (!current) return unauthorized();
       const body = profilePatchSchema({ badgeRole: current.badgeRole, extraRoles: deps.extraRoles ?? false }).safeParse(await request.json().catch(() => undefined));
       if (!body.success) return json({ error: 'invalid_request', fields: body.error.issues.map((i) => i.path.join('.')) }, 400);
-      const { error } = await db
-        .from('profiles')
-        .upsert({ participant_id: who.participantId, ...profileColumns(body.data), updated_at: new Date().toISOString() }, { onConflict: 'participant_id' });
-      // The table's checks are the authority; the schema mirrors them, so this is a backstop.
-      if (error?.code === '23514') return json({ error: 'invalid_request' }, 400);
-      if (error) throw new Error(`profile update failed (${error.code})`);
+      // Dietary and accessibility notes live on the participant row (staff use them at meals; retention
+      // clears them); everything else on the profile row. Both writes are scoped to the caller.
+      const { dietaryNotes, accessibilityNotes, ...rest } = body.data;
+      const now = new Date().toISOString();
+      // Profiles part B: fields the owner saved are theirs; Sheet re-syncs no longer overwrite them.
+      const edited = [
+        dietaryNotes !== undefined && 'dietary',
+        accessibilityNotes !== undefined && 'accessibility',
+        rest.skills !== undefined && 'skills',
+        rest.lookingFor !== undefined && 'lookingFor',
+      ].filter((x): x is string => typeof x === 'string');
+      if (edited.length > 0) {
+        const { error } = await db.rpc('mark_owner_edited', { p_participant_id: who.participantId, p_fields: edited });
+        if (error) throw new Error(`mark_owner_edited failed (${error.code})`);
+      }
+      if (dietaryNotes !== undefined || accessibilityNotes !== undefined) {
+        const { error } = await db
+          .from('participants')
+          .update({
+            ...(dietaryNotes !== undefined && { dietary_notes: dietaryNotes }),
+            ...(accessibilityNotes !== undefined && { accessibility_notes: accessibilityNotes }),
+            updated_at: now,
+          })
+          .eq('id', who.participantId);
+        if (error?.code === '23514') return json({ error: 'invalid_request' }, 400);
+        if (error) throw new Error(`participant notes update failed (${error.code})`);
+      }
+      if (Object.keys(rest).length > 0) {
+        const { error } = await db
+          .from('profiles')
+          .upsert({ participant_id: who.participantId, ...profileColumns(rest), updated_at: now }, { onConflict: 'participant_id' });
+        // The table's checks are the authority; the schema mirrors them, so this is a backstop.
+        if (error?.code === '23514') return json({ error: 'invalid_request' }, 400);
+        if (error) throw new Error(`profile update failed (${error.code})`);
+      }
       return json(await profileView(db, who.participantId, deps.extraRoles ?? false));
     },
 
@@ -241,11 +270,13 @@ const COLUMNS = {
   githubUrl: 'github_url',
   websiteUrl: 'website_url',
   discordHandle: 'discord_handle',
-  askMeAbout: 'ask_me_about',
+  skills: 'ask_me_about',
+  lookingFor: 'looking_for',
+  publicFields: 'public_fields',
   visibility: 'visibility',
 } as const;
 
-function profileColumns(patch: ProfilePatch): Record<string, unknown> {
+function profileColumns(patch: Omit<ProfilePatch, 'dietaryNotes' | 'accessibilityNotes'>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(patch).map(([k, v]) => [COLUMNS[k as keyof typeof COLUMNS], v]));
 }
 
@@ -255,12 +286,11 @@ export async function profileView(db: Db, participantId: string, extraRoles: boo
   if (!loaded) throw new Error('participant vanished');
   const { data: pa, error } = await db.from('participants').select('first_name, photo_path, events(name)').eq('id', participantId).single();
   if (error) throw new Error(`participant load failed (${error.code})`);
-  const { hiddenByStaffAt, ...editable } = loaded.fields ?? EMPTY_PROFILE;
+  const { hiddenByStaffAt, ...editable } = loaded.fields;
   return {
     firstName: pa.first_name,
     event: { name: pa.events.name },
     badgeRole: loaded.badgeRole,
-    canEditTopics: TOPIC_ROLES.includes(loaded.badgeRole),
     canEditDiscord: extraRoles,
     profile: editable,
     hiddenByStaff: hiddenByStaffAt !== null,
@@ -269,20 +299,6 @@ export async function profileView(db: Db, participantId: string, extraRoles: boo
   };
 }
 
-const EMPTY_PROFILE = {
-  nickname: null,
-  pronouns: null,
-  program: null,
-  yearLabel: null,
-  bio: null,
-  linkedinUrl: null,
-  githubUrl: null,
-  websiteUrl: null,
-  discordHandle: null,
-  askMeAbout: [],
-  visibility: 'public',
-  hiddenByStaffAt: null,
-} as const;
 
 export async function participantSummary(db: Db, participantId: string): Promise<{ firstName: string; event: { name: string } }> {
   const { data, error } = await db.from('participants').select('first_name, events(name)').eq('id', participantId).single();

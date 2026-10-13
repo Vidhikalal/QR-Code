@@ -3,6 +3,14 @@ import styles from './public-profile-card.module.css';
 
 const LINK_REL = 'noopener noreferrer nofollow ugc';
 
+export const LOOKING_FOR_LABEL: Record<string, string> = {
+  team: 'a team',
+  mentor: 'a mentor',
+  internship: 'an internship',
+  job: 'a job',
+  networking: 'networking',
+};
+
 // Renders PublicProfile (I-19) and nothing else. Every value is a React text node (escaped); links are
 // https-only by the DB checks, open in a new tab, and are never fetched or previewed server-side.
 export function PublicProfileCard({ profile, privateNote = 'This profile is private.' }: { profile: PublicProfile; privateNote?: string }) {
@@ -19,16 +27,21 @@ export function PublicProfileCard({ profile, privateNote = 'This profile is priv
             <p className={styles.meta}>{[profile.pronouns, profile.program, profile.yearLabel].filter(Boolean).join(' · ')}</p>
           )}
           {profile.bio && <p className={styles.bio}>{profile.bio}</p>}
-          {profile.askMeAbout.length > 0 && (
+          {profile.skills.length > 0 && (
             <>
-              <p className={styles.meta}>Ask me about</p>
+              <p className={styles.meta}>What I’m good at</p>
               <ul className={styles.topics}>
-                {profile.askMeAbout.map((t) => (
+                {profile.skills.map((t) => (
                   <li key={t}>{t}</li>
                 ))}
               </ul>
             </>
           )}
+          {profile.lookingFor.length > 0 && (
+            <p className={styles.meta}>Looking for: {profile.lookingFor.map((x) => LOOKING_FOR_LABEL[x] ?? x).join(', ')}</p>
+          )}
+          {profile.dietary && <p className={styles.meta}>Dietary: {profile.dietary}</p>}
+          {profile.accessibility && <p className={styles.meta}>Accessibility / health: {profile.accessibility}</p>}
           {(profile.links.linkedin || profile.links.github || profile.links.website || profile.discord) && (
             <ul className={styles.links}>
               {profile.links.linkedin && (

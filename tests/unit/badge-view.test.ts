@@ -14,7 +14,12 @@ const fields: ProfileFields = {
   githubUrl: null,
   websiteUrl: null,
   discordHandle: null,
-  askMeAbout: [],
+  skills: [],
+  lookingFor: [],
+  // Organizers-only by default: T-BADGE-02 proves it never reaches a non-staff view.
+  dietaryNotes: 'Vegan',
+  accessibilityNotes: 'Step-free access',
+  publicFields: ['pronouns', 'program', 'year', 'bio', 'links', 'skills', 'lookingFor', 'discord'],
   visibility: 'public',
   hiddenByStaffAt: null,
 };
@@ -130,7 +135,7 @@ describe('badgeView (PLAN §8.2)', () => {
   });
 
   it('T-BADGE-02 (pure): no non-staff view carries email, photo, dietary, status or scans keys, or a staff field', () => {
-    const forbidden = /email|photo|dietary|^status$|scans|^staff$/i;
+    const forbidden = /email|photo|dietary|accessib|^status$|scans|^staff$/i;
     const inputs = [linked(), linked({ assignment: null, holder: null }), linked({ tag: { id: 't', label: 'B', retiredAt: '2026-10-10T00:00:00Z' }, assignment: null })];
     for (const viewer of [anon, sameEventParticipant, otherEventParticipant, owner]) {
       for (const input of inputs) {
@@ -138,6 +143,13 @@ describe('badgeView (PLAN §8.2)', () => {
         expect(keys.filter((k) => forbidden.test(k)), viewer.kind).toEqual([]);
       }
     }
+  });
+
+  it('Profiles 2026-10-13: the staff panel carries every field, including organizers-only notes; the public card does not', () => {
+    const staffViewer: Viewer = { kind: 'staff', userId: 'u-vol', eventId: 'e1', role: 'volunteer' };
+    const v = badgeView(linked({ viewer: staffViewer, staffExtras }));
+    expect(v).toMatchObject({ kind: 'linked', staff: { profile: { dietary: 'Vegan', accessibility: 'Step-free access', bio: 'Engines.' } } });
+    if (v.kind === 'linked') expect(v.profile).not.toHaveProperty('dietary');
   });
 
   it('PLAN F24 (V6): Connect status is offered to a signed-in attendee of the event, never to the owner or a stranger', () => {

@@ -4,7 +4,13 @@ import { z } from 'zod';
 // instead of a database error. The database stays the authority (CLAUDE.md "constraints live in the DB").
 
 export type BadgeRole = 'participant' | 'organizer' | 'mentor' | 'judge' | 'volunteer';
-export const TOPIC_ROLES: readonly BadgeRole[] = ['organizer', 'mentor'];
+
+// Profiles 2026-10-13. Mirrors the profiles.looking_for and profiles.public_fields checks.
+export const LOOKING_FOR = ['team', 'mentor', 'internship', 'job', 'networking'] as const;
+export const PUBLIC_FIELDS = ['pronouns', 'program', 'year', 'bio', 'links', 'skills', 'lookingFor', 'discord', 'dietary', 'accessibility'] as const;
+export type PublicField = (typeof PUBLIC_FIELDS)[number];
+/** The column default: everything except the organizers-only health fields. */
+export const DEFAULT_PUBLIC_FIELDS: PublicField[] = ['pronouns', 'program', 'year', 'bio', 'links', 'skills', 'lookingFor', 'discord'];
 
 // Postgres length() counts characters, not UTF-16 units.
 const chars = (s: string) => [...s].length;
@@ -32,9 +38,10 @@ export const WEBSITE = /^https:\/\/[^\s<>"]{4,200}$/;
 export const DISCORD = /^[a-z0-9_.]{2,32}$/;
 
 // Labels must already be trimmed (the DB checks x = btrim(x)); the UI trims each chip before sending.
-const topics = z
-  .array(z.string().refine((x) => x === x.trim() && chars(x) >= 1 && chars(x) <= 30, 'each topic 1–30 characters, no surrounding spaces'))
-  .max(5, 'at most 5 topics');
+const skills = z
+  .array(z.string().refine((x) => x === x.trim() && chars(x) >= 1 && chars(x) <= 30, 'each skill 1–30 characters, no surrounding spaces'))
+  .max(5, 'at most 5 skills');
+const unique = <T,>(xs: T[]) => new Set(xs).size === xs.length;
 
 export function profilePatchSchema(opts: { badgeRole: BadgeRole; extraRoles: boolean }) {
   const base = {
@@ -47,7 +54,12 @@ export function profilePatchSchema(opts: { badgeRole: BadgeRole; extraRoles: boo
     githubUrl: pattern(GITHUB, 'a github.com/… link starting with https://'),
     websiteUrl: pattern(WEBSITE, 'a link starting with https://'),
     visibility: z.enum(['public', 'hidden']),
-    ...(TOPIC_ROLES.includes(opts.badgeRole) && { askMeAbout: topics }),
+    skills,
+    lookingFor: z.array(z.enum(LOOKING_FOR)).refine(unique, 'each choice once'),
+    publicFields: z.array(z.enum(PUBLIC_FIELDS)).refine(unique, 'each field once'),
+    // Stored on the participant row (meal check-ins, retention), edited here by the owner.
+    dietaryNotes: text(500),
+    accessibilityNotes: text(500),
     ...(opts.extraRoles && { discordHandle: pattern(DISCORD, '2–32 lowercase letters, digits, _ or .') }),
   };
   return z.object(base).partial().strict();

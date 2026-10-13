@@ -56,6 +56,9 @@ async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: 
     p_dietary_notes: v.row.dietaryNotes ?? undefined,
     p_linkedin_url: v.row.linkedinUrl ?? undefined,
     p_dry_run: dryRun,
+    p_accessibility_notes: v.row.accessibilityNotes ?? undefined,
+    p_skills: v.row.skills,
+    p_looking_for: v.row.lookingFor,
   });
   if (error) throw new Error(`ingest_sheet_row failed (${error.code})`);
   if (!isDbResult(data)) throw new Error('ingest_sheet_row returned an unknown result');

@@ -56,10 +56,22 @@ describe('badge page loader (PLAN §8.1)', () => {
     await f.pool.query(`update participants set photo_path = 'x/y.jpg', dietary_notes = 'Vegan' where id = $1`, [f.p.A]);
     const views = [await load(b.tag.T1.publicId), await load(b.tag.T1.publicId, { cookie: await participantCookie(f.p.B) }), await load(b.tag.T1.publicId, { cookie: await participantCookie(f.p.A) })];
     expect(views.map((v) => (v.kind === 'linked' ? v.audience : v.kind))).toEqual(['anonymous', 'participant', 'owner']);
-    for (const v of views) expect(keysDeep(v).filter((k) => /email|photo|dietary|^status$|scans|^staff$/i.test(k))).toEqual([]);
+    for (const v of views) expect(keysDeep(v).filter((k) => /email|photo|dietary|accessib|^status$|scans|^staff$/i.test(k))).toEqual([]);
     expect(JSON.stringify(views)).not.toMatch(/Vegan|@|x\/y\.jpg/);
     // The fake path has no storage object; restore it so staff views (which sign photos) work.
     await f.pool.query('update participants set photo_path = null, dietary_notes = null where id = $1', [f.p.A]);
+  });
+
+  it('T-BADGE-02 (I, profiles 2026-10-13): accessibility notes stay private by default; an owner\'s opt-in shows them to participants, staff always see them', async () => {
+    await f.pool.query(`update participants set accessibility_notes = 'Step-free access' where id = $1`, [f.p.A]);
+    await f.pool.query(`insert into profiles (participant_id) values ($1) on conflict (participant_id) do nothing`, [f.p.A]);
+    const asB = async () => load(b.tag.T1.publicId, { cookie: await participantCookie(f.p.B) });
+    expect(JSON.stringify(await asB())).not.toMatch(/Step-free/);
+    expect(await load(b.tag.T1.publicId, { jwt: vol1 })).toMatchObject({ staff: { profile: { accessibility: 'Step-free access' } } });
+    await f.pool.query(`update profiles set public_fields = array_append(public_fields, 'accessibility') where participant_id = $1`, [f.p.A]);
+    expect(await asB()).toMatchObject({ profile: { accessibility: 'Step-free access' } });
+    await f.pool.query(`update participants set accessibility_notes = null where id = $1`, [f.p.A]);
+    await f.pool.query(`update profiles set public_fields = array_remove(public_fields, 'accessibility') where participant_id = $1`, [f.p.A]);
   });
 
   it('T-BADGE-03: an E2 volunteer opening an E1 badge is treated as non-staff', async () => {

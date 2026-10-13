@@ -68,9 +68,47 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
         searchText: 'a',
         dietaryNotes: null,
         linkedinUrl: null,
+        accessibilityNotes: null,
+        skills: [],
+        lookingFor: [],
         status: 'pending',
       },
     });
+  });
+
+  it('Profiles part B: "What are you good at?" splits into up to 5 skills; bad entries are dropped, never INVALID', () => {
+    const skills = (raw: string) => {
+      const v = validateRow({ ...good, skills: raw });
+      return v.ok ? v.row.skills : v.result;
+    };
+    expect(skills('React, design ; Pitching\nreact,  ')).toEqual(['React', 'design', 'Pitching']); // case-insensitive duplicates
+    expect(skills('a, b, c, d, e, f, g')).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(skills(`ok, ${'x'.repeat(31)}`)).toEqual(['ok']);
+    expect(skills('')).toEqual([]);
+  });
+
+  it('Profiles part B: "What are you looking for?" maps Google\'s checkbox text by keyword; unknown choices dropped', () => {
+    const lf = (raw: string) => {
+      const v = validateRow({ ...good, looking_for: raw });
+      return v.ok ? v.row.lookingFor : v.result;
+    };
+    expect(lf('A team, Networking')).toEqual(['team', 'networking']);
+    expect(lf('A mentor, An internship, A job')).toEqual(['mentor', 'internship', 'job']);
+    expect(lf('A cofounder, a TEAM, A team')).toEqual(['team']);
+    expect(lf('')).toEqual([]);
+  });
+
+  it('Profiles part B: accessibility notes over 500 characters are INVALID, like dietary notes', () => {
+    expect(validateRow({ ...good, accessibility_notes: ' Step-free access ' })).toMatchObject({ ok: true, row: { accessibilityNotes: 'Step-free access' } });
+    expect(validateRow({ ...good, accessibility_notes: 'x'.repeat(501) })).toEqual({ ok: false, result: 'INVALID:accessibility_notes' });
+  });
+
+  it('Profiles part B: the new form questions map by their exact titles', () => {
+    const values = [
+      ['Applicant ID', 'Email Address', 'First Name', 'Status', 'What are you good at?', 'What are you looking for?', 'Accessibility or health needs'],
+      ['id-1', 'ada@example.com', 'Ada', 'Accepted', 'React, design', 'A team', 'Step-free access'],
+    ];
+    expect(mapSheetValues(values)[0]).toMatchObject({ skills: 'React, design', looking_for: 'A team', accessibility_notes: 'Step-free access' });
   });
 
   it('T-GAS-07: maps rows by header name regardless of column order; skips blank rows', () => {
@@ -81,8 +119,8 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
       ['1/2', '', 'ben@example.com', 'Ben', 'id-2'],
     ];
     expect(mapSheetValues(values)).toEqual([
-      { external_id: 'id-1', email: 'ada@example.com', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: '', status: 'Accepted' },
-      { external_id: 'id-2', email: 'ben@example.com', first_name: 'Ben', last_name: '', dietary_notes: '', linkedin_url: '', status: '' },
+      { external_id: 'id-1', email: 'ada@example.com', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', status: 'Accepted' },
+      { external_id: 'id-2', email: 'ben@example.com', first_name: 'Ben', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', status: '' },
     ]);
     expect(() => mapSheetValues([['Email Address', 'First Name']])).toThrow(/Applicant ID/);
   });

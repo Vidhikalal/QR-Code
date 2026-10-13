@@ -193,7 +193,7 @@ For a Sheet to connect:
 1. **The form is linked to the Sheet,** and the responses tab is named `Form Responses 1` (or change `SHEET_NAME` in `Code.gs`).
 2. **Row-1 headers match `HEADERS` in `Code.gs` exactly:**
    - Required: `Email Address`, `First Name`, `Applicant ID`, `Status`, `Sync Status`.
-   - Optional: `Last Name`, `Dietary Restrictions`, `LinkedIn URL`.
+   - Optional: `Last Name`, `Dietary Restrictions`, `LinkedIn URL`, and the profile questions `What are you good at?` (comma-separated), `What are you looking for?` (checkboxes: A team, A mentor, An internship, A job, Networking) and `Accessibility or health needs`. Their answers start the person's profile; once someone edits a field in their profile, re-syncs no longer overwrite it. `setupTestForm` creates all of these; for an existing form, add the three questions with exactly these titles, then re-paste `Code.gs`.
 
    If your questions are worded differently, edit the values in `HEADERS` rather than renaming columns. Google's built-in "Collect email addresses" setting already produces `Email Address`.
 3. **Status** is Accepted, Waitlisted, Rejected or Withdrawn. Blank means undecided.

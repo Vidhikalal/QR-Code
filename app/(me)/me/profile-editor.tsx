@@ -2,10 +2,10 @@
 
 import Image from 'next/image';
 import { useMemo, useState } from 'react';
-import { PublicProfileCard } from '@/components/public-profile-card';
+import { LOOKING_FOR_LABEL } from '@/components/public-profile-card';
 import { PHOTO_ERRORS, shrinkPhoto } from '@/lib/photo/shrink';
 import type { PublicProfile } from '@/lib/profile/public';
-import { profilePatchSchema, type BadgeRole } from '@/lib/profile/schema';
+import { LOOKING_FOR, profilePatchSchema, type BadgeRole, type PublicField } from '@/lib/profile/schema';
 import styles from '../me.module.css';
 
 type Editable = {
@@ -18,13 +18,17 @@ type Editable = {
   githubUrl: string | null;
   websiteUrl: string | null;
   discordHandle: string | null;
-  askMeAbout: readonly string[];
+  skills: readonly string[];
+  lookingFor: readonly string[];
+  dietaryNotes: string | null;
+  accessibilityNotes: string | null;
+  publicFields: readonly PublicField[];
   visibility: 'public' | 'hidden';
 };
 
 export interface ProfileViewData {
+  firstName: string;
   badgeRole: BadgeRole;
-  canEditTopics: boolean;
   canEditDiscord: boolean;
   profile: Editable;
   hiddenByStaff: boolean;
@@ -32,72 +36,104 @@ export interface ProfileViewData {
   photo: { url: string | null; locked: boolean };
 }
 
-const TEXT_FIELDS = [
-  ['nickname', 'Nickname', 'What people call you. Shown instead of your name.', 40],
-  ['pronouns', 'Pronouns', 'e.g. she/her', 30],
-  ['program', 'Program', 'e.g. Computer Science', 80],
-  ['yearLabel', 'Year', 'e.g. 3rd year', 30],
-] as const;
-const LINK_FIELDS = [
+type TextKey = 'nickname' | 'pronouns' | 'program' | 'yearLabel' | 'bio' | 'discordHandle' | 'dietaryNotes' | 'accessibilityNotes';
+type Row =
+  | { id: string; label: string; kind: 'text' | 'textarea'; key: TextKey; max: number; hint: string; vis: PublicField | null }
+  | { id: 'links'; label: string; kind: 'links'; vis: PublicField }
+  | { id: 'skills'; label: string; kind: 'skills'; vis: PublicField }
+  | { id: 'lookingFor'; label: string; kind: 'lookingFor'; vis: PublicField };
+
+const LINKS = [
   ['linkedinUrl', 'LinkedIn', 'https://www.linkedin.com/in/your-name'],
   ['githubUrl', 'GitHub', 'https://github.com/your-name'],
   ['websiteUrl', 'Website', 'https://…'],
 ] as const;
 
-type Form = { [K in Exclude<keyof Editable, 'askMeAbout' | 'visibility'>]: string } & { askMeAbout: string[]; visibility: 'public' | 'hidden' };
+function rowsFor(canEditDiscord: boolean): Row[] {
+  return [
+    { id: 'nickname', label: 'Nickname', kind: 'text', key: 'nickname', max: 40, hint: 'What people call you. Shown instead of your name.', vis: null },
+    { id: 'pronouns', label: 'Pronouns', kind: 'text', key: 'pronouns', max: 30, hint: 'e.g. she/her', vis: 'pronouns' },
+    { id: 'program', label: 'Program', kind: 'text', key: 'program', max: 80, hint: 'e.g. Computer Science', vis: 'program' },
+    { id: 'yearLabel', label: 'Year', kind: 'text', key: 'yearLabel', max: 30, hint: 'e.g. 3rd year', vis: 'year' },
+    { id: 'bio', label: 'Bio', kind: 'textarea', key: 'bio', max: 280, hint: 'A sentence or two about you.', vis: 'bio' },
+    { id: 'skills', label: 'What I’m good at', kind: 'skills', vis: 'skills' },
+    { id: 'lookingFor', label: 'Looking for', kind: 'lookingFor', vis: 'lookingFor' },
+    { id: 'links', label: 'Links', kind: 'links', vis: 'links' },
+    ...(canEditDiscord ? [{ id: 'discordHandle', label: 'Discord', kind: 'text', key: 'discordHandle', max: 32, hint: 'your.handle', vis: 'discord' } as const] : []),
+    { id: 'dietaryNotes', label: 'Dietary restrictions', kind: 'textarea', key: 'dietaryNotes', max: 500, hint: 'e.g. vegetarian, nut allergy', vis: 'dietary' },
+    { id: 'accessibilityNotes', label: 'Accessibility / health needs', kind: 'textarea', key: 'accessibilityNotes', max: 500, hint: 'Anything organizers should know', vis: 'accessibility' },
+  ];
+}
 
-const toForm = (p: Editable): Form => ({
-  nickname: p.nickname ?? '',
-  pronouns: p.pronouns ?? '',
-  program: p.program ?? '',
-  yearLabel: p.yearLabel ?? '',
-  bio: p.bio ?? '',
-  linkedinUrl: p.linkedinUrl ?? '',
-  githubUrl: p.githubUrl ?? '',
-  websiteUrl: p.websiteUrl ?? '',
-  discordHandle: p.discordHandle ?? '',
-  askMeAbout: [...p.askMeAbout],
-  visibility: p.visibility,
-});
+const HEALTH_FIELDS: readonly PublicField[] = ['dietary', 'accessibility'];
 
-// PLAN §10.4: the owner's profile form. Validated live with the same schema the server uses.
+// The profile page (profiles 2026-10-13): "How others see you" IS the editor. Tap a line to edit it;
+// each line's switch decides whether other participants see it. Organizers always see everything.
+// Every save is one PATCH validated with the same schema the server uses.
 export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
   const [view, setView] = useState(initial);
-  const [form, setForm] = useState<Form>(() => toForm(initial.profile));
-  const [topic, setTopic] = useState('');
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [skill, setSkill] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
-
+  const p = view.profile;
   const schema = useMemo(() => profilePatchSchema({ badgeRole: view.badgeRole, extraRoles: view.canEditDiscord }), [view.badgeRole, view.canEditDiscord]);
-  const body = useMemo(() => {
-    const { askMeAbout, discordHandle, ...rest } = form;
-    return { ...rest, ...(view.canEditTopics && { askMeAbout }), ...(view.canEditDiscord && { discordHandle }) };
-  }, [form, view.canEditTopics, view.canEditDiscord]);
-  const parsed = schema.safeParse(body);
-  const errors = new Map<string, string>(parsed.success ? [] : parsed.error.issues.map((i) => [String(i.path[0]), i.message]));
+  const rows = useMemo(() => rowsFor(view.canEditDiscord), [view.canEditDiscord]);
 
-  const set = (key: keyof Form, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  const parsed = editing ? schema.safeParse(draft) : null;
+  const errors = new Map<string, string>(parsed && !parsed.success ? parsed.error.issues.map((i) => [String(i.path[0]), i.message]) : []);
 
-  async function save() {
-    if (!parsed.success) return;
+  async function patch(body: Record<string, unknown>, done: string): Promise<boolean> {
     setSaving(true);
     setMessage(null);
     const res = await fetch('/api/me/profile', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
     setSaving(false);
     if (res?.ok) {
-      const next = (await res.json()) as ProfileViewData;
-      setView(next);
-      setForm(toForm(next.profile));
-      setMessage({ ok: true, text: '✓ Saved.' });
-    } else if (res?.status === 401) setMessage({ ok: false, text: '✕ You’ve been signed out. Open your newest profile link.' });
-    else setMessage({ ok: false, text: '✕ Couldn’t save. Check the highlighted fields and try again.' });
+      setView((await res.json()) as ProfileViewData);
+      setMessage({ ok: true, text: `✓ ${done}` });
+      return true;
+    }
+    setMessage({ ok: false, text: res?.status === 401 ? '✕ You’ve been signed out. Open your newest profile link.' : '✕ Couldn’t save. Check the field and try again.' });
+    return false;
   }
 
-  function addTopic() {
-    const t = topic.trim();
-    if (!t || form.askMeAbout.includes(t) || form.askMeAbout.length >= 5) return;
-    setForm((f) => ({ ...f, askMeAbout: [...f.askMeAbout, t] }));
-    setTopic('');
+  function startEdit(row: Row) {
+    setMessage(null);
+    setSkill('');
+    setEditing(row.id);
+    if (row.kind === 'text' || row.kind === 'textarea') setDraft({ [row.key]: p[row.key] ?? '' });
+    else if (row.kind === 'links') setDraft({ linkedinUrl: p.linkedinUrl ?? '', githubUrl: p.githubUrl ?? '', websiteUrl: p.websiteUrl ?? '' });
+    else if (row.kind === 'skills') setDraft({ skills: [...p.skills] });
+    else setDraft({ lookingFor: [...p.lookingFor] });
+  }
+
+  async function saveEdit(row: Row) {
+    if (!parsed?.success) return;
+    // Close only this row's editor: another row may have been opened while the save was in flight.
+    if (await patch(draft, `${row.label} saved.`)) setEditing((current) => (current === row.id ? null : current));
+  }
+
+  // Optimistic: the switch moves at once; a failed save puts it back.
+  async function setHidden(hide: boolean) {
+    const before = view;
+    setView({ ...view, profile: { ...view.profile, visibility: hide ? 'hidden' : 'public' } });
+    const ok = await patch({ visibility: hide ? 'hidden' : 'public' }, hide ? 'Your profile is hidden: others only see your name.' : 'Your profile is visible again.');
+    if (!ok) setView(before);
+  }
+
+  const isPublic = (f: PublicField) => p.publicFields.includes(f);
+  function toggle(f: PublicField, label: string) {
+    const next = isPublic(f) ? p.publicFields.filter((x) => x !== f) : [...p.publicFields, f];
+    void patch({ publicFields: next }, isPublic(f) ? `${label}: only organizers can see this now.` : `${label}: other participants can see this now.`);
+  }
+
+  function addSkill() {
+    const t = skill.trim();
+    const list = (draft.skills as string[] | undefined) ?? [];
+    if (!t || list.includes(t) || list.length >= 5) return;
+    setDraft({ skills: [...list, t] });
+    setSkill('');
   }
 
   async function uploadPhoto(file: File) {
@@ -120,31 +156,95 @@ export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
     setMessage({ ok: true, text: '✓ Photo saved.' });
   }
 
-  const field = (key: keyof Form, label: string, hint: string, extra: { max?: number; type?: string } = {}) => {
-    const id = `f-${key}`;
-    const err = errors.get(key);
+  const valueOf = (row: Row): string | null => {
+    if (row.kind === 'text' || row.kind === 'textarea') return p[row.key];
+    if (row.kind === 'skills') return p.skills.length ? p.skills.join(' · ') : null;
+    if (row.kind === 'lookingFor') return p.lookingFor.length ? p.lookingFor.map((x) => LOOKING_FOR_LABEL[x] ?? x).join(', ') : null;
+    const links = LINKS.filter(([k]) => p[k]).map(([, label]) => label);
+    return links.length ? links.join(' · ') : null;
+  };
+
+  const editor = (row: Row) => {
+    if (row.kind === 'text' || row.kind === 'textarea') {
+      const id = `f-${row.key}`;
+      const err = errors.get(row.key);
+      const value = String(draft[row.key] ?? '');
+      return (
+        <label className={styles.field} htmlFor={id}>
+          {row.label}
+          {row.kind === 'textarea' ? (
+            <textarea id={id} className={styles.textarea} rows={3} value={value} placeholder={row.hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft({ [row.key]: e.target.value })} autoFocus />
+          ) : (
+            <input id={id} className={styles.input} value={value} placeholder={row.hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft({ [row.key]: e.target.value })} autoFocus />
+          )}
+          <span className={err ? styles.fieldError : styles.muted}>{err ? `✕ ${err}` : `${[...value.trim()].length}/${row.max}`}</span>
+        </label>
+      );
+    }
+    if (row.kind === 'links') {
+      return LINKS.map(([key, label, hint]) => {
+        const err = errors.get(key);
+        return (
+          <label className={styles.field} htmlFor={`f-${key}`} key={key}>
+            {label}
+            <input id={`f-${key}`} type="url" className={styles.input} value={String(draft[key] ?? '')} placeholder={hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))} />
+            {err && <span className={styles.fieldError}>✕ {err}</span>}
+          </label>
+        );
+      });
+    }
+    if (row.kind === 'skills') {
+      const list = (draft.skills as string[] | undefined) ?? [];
+      return (
+        <>
+          <ul className={styles.chips}>
+            {list.map((t) => (
+              <li key={t}>
+                {t}{' '}
+                <button type="button" className={styles.chipRemove} aria-label={`Remove ${t}`} onClick={() => setDraft({ skills: list.filter((x) => x !== t) })}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+          <div className={styles.actions}>
+            <input
+              className={styles.input}
+              aria-label="New skill"
+              placeholder="e.g. React, design, pitching"
+              maxLength={30}
+              value={skill}
+              onChange={(e) => setSkill(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addSkill();
+                }
+              }}
+            />
+            <button type="button" className={styles.secondary} disabled={list.length >= 5} onClick={addSkill}>
+              Add skill
+            </button>
+          </div>
+          <span className={styles.muted}>Up to 5.</span>
+        </>
+      );
+    }
+    const chosen = (draft.lookingFor as string[] | undefined) ?? [];
     return (
-      <label className={styles.field} htmlFor={id} key={key}>
-        {label}
-        <input
-          id={id}
-          className={styles.input}
-          type={extra.type ?? 'text'}
-          value={form[key] as string}
-          placeholder={hint}
-          aria-invalid={err ? true : undefined}
-          aria-describedby={err ? `${id}-err` : undefined}
-          onChange={(e) => set(key, e.target.value)}
-        />
-        {err && (
-          <span id={`${id}-err`} className={styles.fieldError}>
-            ✕ {err}
-          </span>
-        )}
-      </label>
+      <fieldset className={styles.fieldset}>
+        <legend>Looking for</legend>
+        {LOOKING_FOR.map((x) => (
+          <label className={styles.radio} key={x}>
+            <input type="checkbox" checked={chosen.includes(x)} onChange={(e) => setDraft({ lookingFor: e.target.checked ? [...chosen, x] : chosen.filter((y) => y !== x) })} />{' '}
+            {LOOKING_FOR_LABEL[x]}
+          </label>
+        ))}
+      </fieldset>
     );
   };
 
+  const hidden = p.visibility === 'hidden' || view.hiddenByStaff;
   return (
     <>
       {view.hiddenByStaff && (
@@ -153,90 +253,74 @@ export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
           <span>An organizer has hidden your profile. Others only see your name. Contact the organizers if you think this is a mistake.</span>
         </p>
       )}
-      <form
-        className={styles.card}
-        aria-labelledby="profile-heading"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-      >
-        <h2 id="profile-heading">Your profile</h2>
-        {TEXT_FIELDS.map(([key, label, hint]) => field(key, label, hint))}
-        <label className={styles.field} htmlFor="f-bio">
-          Bio
-          <textarea
-            id="f-bio"
-            className={styles.textarea}
-            rows={4}
-            value={form.bio}
-            aria-invalid={errors.has('bio') ? true : undefined}
-            aria-describedby="f-bio-count"
-            onChange={(e) => set('bio', e.target.value)}
-          />
-          <span id="f-bio-count" className={errors.has('bio') ? styles.fieldError : styles.muted}>
-            {[...form.bio.trim()].length}/280
-          </span>
+      <section className={styles.card} aria-labelledby="preview-heading">
+        <h2 id="preview-heading">How others see you</h2>
+        <p className={styles.muted}>
+          Tap a line to edit it. 👁 Visible to other participants · 🔒 Organizers only. Organizers can always see everything.
+        </p>
+        <label className={styles.radio}>
+          <input type="checkbox" checked={p.visibility === 'hidden'} disabled={saving} onChange={(e) => void setHidden(e.target.checked)} />
+          Hide my whole profile (others only see my name)
         </label>
-        {LINK_FIELDS.map(([key, label, hint]) => field(key, label, hint, { type: 'url' }))}
-        {view.canEditDiscord && field('discordHandle', 'Discord', 'your.handle')}
-        {view.canEditTopics && (
-          <fieldset className={styles.fieldset}>
-            <legend>Ask me about… (up to 5)</legend>
-            <ul className={styles.chips}>
-              {form.askMeAbout.map((t) => (
-                <li key={t}>
-                  {t}{' '}
-                  <button type="button" className={styles.chipRemove} aria-label={`Remove ${t}`} onClick={() => setForm((f) => ({ ...f, askMeAbout: f.askMeAbout.filter((x) => x !== t) }))}>
-                    ×
-                  </button>
+        <article className={`${styles.profileCard} ${hidden ? styles.dim : ''}`} aria-label={`Profile of ${view.public.displayName}`}>
+          <p className={styles.eyebrow}>{view.public.eventName}</p>
+          <h3 className={styles.profileName}>{view.public.displayName}</h3>
+          {view.public.label && <span className={styles.label}>{view.public.label}</span>}
+          {hidden && <p className={styles.muted}>Hidden: others only see your name.</p>}
+          <ul className={styles.rows}>
+            {rows.map((row) => {
+              const value = valueOf(row);
+              const pub = row.vis === null || isPublic(row.vis);
+              return (
+                <li key={row.id} className={`${styles.row} ${pub ? '' : styles.rowPrivate}`} data-testid={`row-${row.id}`}>
+                  {editing === row.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void saveEdit(row);
+                      }}
+                    >
+                      {editor(row)}
+                      <div className={styles.actions}>
+                        <button type="submit" disabled={saving || !parsed?.success}>
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                        <button type="button" className={styles.secondary} onClick={() => setEditing(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className={styles.rowView}>
+                      <button type="button" className={styles.rowButton} aria-label={`Edit ${row.label}`} onClick={() => startEdit(row)}>
+                        <span className={styles.rowLabel}>{row.label}</span>
+                        <span className={value ? styles.rowValue : styles.muted}>{value ?? `Add ${row.label.toLowerCase()}`}</span>
+                      </button>
+                      {row.vis && (
+                        <button
+                          type="button"
+                          className={styles.visToggle}
+                          aria-pressed={pub}
+                          aria-label={`${row.label}: ${pub ? 'visible to participants' : 'organizers only'}`}
+                          disabled={saving}
+                          onClick={() => row.vis && toggle(row.vis, row.label)}
+                        >
+                          <span aria-hidden="true">{pub ? '👁' : '🔒'}</span> {pub ? 'Visible' : 'Organizers only'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!pub && editing !== row.id && row.vis && HEALTH_FIELDS.includes(row.vis) && value && <p className={styles.rowNote}>Only organizers see this.</p>}
                 </li>
-              ))}
-            </ul>
-            <div className={styles.actions}>
-              <input
-                className={styles.input}
-                aria-label="New topic"
-                maxLength={30}
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addTopic();
-                  }
-                }}
-              />
-              <button type="button" className={styles.secondary} disabled={form.askMeAbout.length >= 5} onClick={addTopic}>
-                Add topic
-              </button>
-            </div>
-          </fieldset>
-        )}
-        <fieldset className={styles.fieldset}>
-          <legend>Who can see your profile</legend>
-          <label className={styles.radio}>
-            <input type="radio" name="visibility" checked={form.visibility === 'public'} onChange={() => set('visibility', 'public')} /> Public: anyone who taps your badge sees this
-          </label>
-          <label className={styles.radio}>
-            <input type="radio" name="visibility" checked={form.visibility === 'hidden'} onChange={() => set('visibility', 'hidden')} /> Hidden: only your name
-          </label>
-        </fieldset>
+              );
+            })}
+          </ul>
+        </article>
         {message && (
           <p role="status" className={`${styles.alert} ${message.ok ? styles.alertOk : styles.alertBad}`}>
             {message.text}
           </p>
         )}
-        <div className={styles.actions}>
-          <button type="submit" disabled={saving || !parsed.success}>
-            {saving ? 'Saving…' : 'Save profile'}
-          </button>
-        </div>
-      </form>
-
-      <section className={styles.card} aria-labelledby="preview-heading">
-        <h2 id="preview-heading">How others see you</h2>
-        <PublicProfileCard profile={view.public} privateNote="Hidden: others only see your name." />
       </section>
 
       <section className={styles.card} aria-labelledby="photo-heading">

@@ -31,7 +31,7 @@ beforeAll(async () => {
     const path = photoPath(eventId, pid);
     const { error } = await db.storage.from(PHOTO_BUCKET).upload(path, Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { contentType: 'image/jpeg', upsert: true });
     if (error) throw error;
-    await f.pool.query(`update participants set photo_path = $2, photo_updated_at = now(), dietary_notes = 'Nut allergy' where id = $1`, [pid, path]);
+    await f.pool.query(`update participants set photo_path = $2, photo_updated_at = now(), dietary_notes = 'Nut allergy', accessibility_notes = 'Step-free access' where id = $1`, [pid, path]);
   }
 });
 afterAll(async () => {
@@ -39,8 +39,8 @@ afterAll(async () => {
 });
 
 const person = async (id: string) =>
-  (await f.pool.query<{ photo_path: string | null; photo_updated_at: Date | null; dietary_notes: string | null; first_name: string }>(
-    'select photo_path, photo_updated_at, dietary_notes, first_name from participants where id = $1',
+  (await f.pool.query<{ photo_path: string | null; photo_updated_at: Date | null; dietary_notes: string | null; accessibility_notes: string | null; first_name: string }>(
+    'select photo_path, photo_updated_at, dietary_notes, accessibility_notes, first_name from participants where id = $1',
     [id],
   )).rows[0];
 const objectExists = async (eventId: string, pid: string) => {
@@ -60,12 +60,13 @@ describe('retention (SPEC §15)', () => {
     expect(res.status).toBe(200);
 
     const a = await person(f.p.A);
-    expect(a).toMatchObject({ photo_path: null, photo_updated_at: null, dietary_notes: null, first_name: 'Ada' });
+    expect(a).toMatchObject({ photo_path: null, photo_updated_at: null, dietary_notes: null, accessibility_notes: null, first_name: 'Ada' });
     expect(await objectExists(f.e1.id, f.p.A)).toBe(false);
 
     const x = await person(f.p.X);
     expect(x?.photo_path).toBe(photoPath(f.e2.id, f.p.X));
     expect(x?.dietary_notes).toBe('Nut allergy');
+    expect(x?.accessibility_notes).toBe('Step-free access');
     expect(await objectExists(f.e2.id, f.p.X)).toBe(true);
 
     const { rows } = await f.pool.query<{ actor_kind: string; detail: { participants: number; photos: number } }>(

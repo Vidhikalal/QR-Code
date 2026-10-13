@@ -24,28 +24,74 @@ async function signInParticipant(page: Page, participantId: string) {
   await expect(page).toHaveURL(`${E2E_ORIGIN}/me`);
 }
 
-test('PLAN §10.4: a participant edits their profile and the public preview updates', async ({ browser }) => {
+async function editRow(page: Page, label: string, fill: (page: Page) => Promise<void>) {
+  await page.getByRole('button', { name: `Edit ${label}` }).click();
+  await fill(page);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: `${label} saved` })).toBeVisible();
+}
+
+test('Profiles 2026-10-13: edit directly on the "How others see you" card, with validation', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   const person = await f.addParticipant(f.e1.id);
   await signInParticipant(page, person.id);
-  const preview = page.getByRole('article', { name: /Profile of/ });
-  await expect(preview).toContainText('Extra F.');
-  await page.getByLabel('Nickname').fill('Lace');
-  await page.getByLabel('Bio').fill('Analytical engines.');
+  const card = page.getByRole('article', { name: /Profile of/ });
+  await expect(card).toContainText('Extra F.');
+  await editRow(page, 'Nickname', (p) => p.getByLabel('Nickname').fill('Lace'));
+  await expect(card.getByRole('heading', { name: 'Lace' })).toBeVisible();
+  await editRow(page, 'Bio', (p) => p.getByLabel('Bio').fill('Analytical engines.'));
+  await expect(page.getByTestId('row-bio')).toContainText('Analytical engines.');
+
+  await page.getByRole('button', { name: 'Edit Links' }).click();
   await page.getByLabel('GitHub').fill('http://github.com/lace');
   await expect(page.getByText('✕ a github.com/… link starting with https://')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await page.getByLabel('GitHub').fill('https://github.com/lace');
-  await page.getByRole('button', { name: 'Save profile' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
-  await expect(preview).toContainText('Lace');
-  await expect(preview.getByRole('link', { name: 'GitHub' })).toHaveAttribute('rel', 'noopener noreferrer nofollow ugc');
-  await page.getByLabel(/Hidden: only your name/).check();
-  await page.getByRole('button', { name: 'Save profile' }).click();
-  await expect(preview).toContainText('Hidden: others only see your name.');
-  await expect(preview).not.toContainText('Analytical engines.');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Links saved' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit Links' })).toContainText('GitHub');
+
+  await editRow(page, 'What I’m good at', async (p) => {
+    await p.getByLabel('New skill').fill('Rust');
+    await p.getByRole('button', { name: 'Add skill' }).click();
+  });
+  await expect(page.getByTestId('row-skills')).toContainText('Rust');
+  await editRow(page, 'Looking for', (p) => p.getByLabel('a team').check());
+  await expect(page.getByTestId('row-lookingFor')).toContainText('a team');
+
+  // Health notes start organizers-only.
+  await editRow(page, 'Dietary restrictions', (p) => p.getByLabel('Dietary restrictions').fill('Vegan'));
+  await expect(page.getByRole('button', { name: 'Dietary restrictions: organizers only' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('row-dietaryNotes')).toContainText('Only organizers see this.');
+
+  await page.getByLabel(/Hide my whole profile/).check();
+  await expect(card).toContainText('Hidden: others only see your name.');
   await context.close();
+});
+
+test('Profiles 2026-10-13: a field switched to organizers-only disappears from another participant\'s view of the badge', async ({ browser }) => {
+  const b = await f.addBadges(); // A wears T1
+  await f.pool.query(`insert into profiles (participant_id, bio) values ($1, 'Engines and poems.') on conflict (participant_id) do update set bio = excluded.bio, public_fields = default, visibility = 'public'`, [f.p.A]);
+  const owner = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
+  const me = await owner.newPage();
+  await signInParticipant(me, f.p.A);
+  const other = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
+  const them = await other.newPage();
+  await signInParticipant(them, f.p.B);
+  await them.goto(`/t/${b.tag.T1.publicId}`);
+  await expect(them.getByRole('article', { name: /Profile of/ })).toContainText('Engines and poems.');
+
+  await me.getByRole('button', { name: 'Bio: visible to participants' }).click();
+  await expect(me.getByRole('button', { name: 'Bio: organizers only' })).toHaveAttribute('aria-pressed', 'false');
+  await them.reload();
+  await expect(them.getByRole('article', { name: /Profile of/ })).not.toContainText('Engines and poems.');
+  await me.getByRole('button', { name: 'Bio: organizers only' }).click();
+  await expect(me.getByRole('button', { name: 'Bio: visible to participants' })).toBeVisible();
+  await them.reload();
+  await expect(them.getByRole('article', { name: /Profile of/ })).toContainText('Engines and poems.');
+  await owner.close();
+  await other.close();
 });
 
 test('T-SEC2-05: profile fields with HTML render as text on /me and in the admin drawer', async ({ browser }) => {
@@ -86,7 +132,7 @@ test('T-SEC2-05: profile fields with HTML render as text on /me and in the admin
   expect(dialogs).toEqual([]);
 });
 
-test('F15: an organizer opens My badge profile, lands on /me labelled Organizer, and adds a topic', async ({ browser }) => {
+test('F15: an organizer opens My badge profile, lands on /me labelled Organizer, and adds a skill', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: ORG });
   const page = await context.newPage();
   await page.goto(`/admin/${f.slug}`);
@@ -94,9 +140,10 @@ test('F15: an organizer opens My badge profile, lands on /me labelled Organizer,
   await expect(page).toHaveURL(`${E2E_ORIGIN}/me`);
   const preview = page.getByRole('article', { name: /Profile of/ });
   await expect(preview).toContainText('Organizer');
-  await page.getByLabel('New topic').fill('Sponsorships');
-  await page.getByRole('button', { name: 'Add topic' }).click();
-  await page.getByRole('button', { name: 'Save profile' }).click();
-  await expect(preview.getByRole('listitem').filter({ hasText: 'Sponsorships' })).toBeVisible();
+  await editRow(page, 'What I’m good at', async (p) => {
+    await p.getByLabel('New skill').fill('Sponsorships');
+    await p.getByRole('button', { name: 'Add skill' }).click();
+  });
+  await expect(preview.getByTestId('row-skills')).toContainText('Sponsorships');
   await context.close();
 });

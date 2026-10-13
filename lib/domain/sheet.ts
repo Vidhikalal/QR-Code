@@ -11,6 +11,10 @@ export interface SheetRowInput {
   last_name?: string;
   dietary_notes?: string;
   linkedin_url?: string;
+  // Profiles part B (all optional; old Sheets without these columns send nothing or '').
+  accessibility_notes?: string;
+  skills?: string;
+  looking_for?: string;
   status?: string;
 }
 
@@ -22,8 +26,13 @@ export interface CleanRow {
   searchText: string;
   dietaryNotes: string | null;
   linkedinUrl: string | null;
+  accessibilityNotes: string | null;
+  skills: string[];
+  lookingFor: LookingFor[];
   status: IngestStatus;
 }
+
+export type LookingFor = 'team' | 'mentor' | 'internship' | 'job' | 'networking';
 
 export type RowValidation = { ok: true; row: CleanRow } | { ok: false; result: `INVALID:${string}` };
 
@@ -41,6 +50,41 @@ export function normalizeStatus(raw: string | undefined): IngestStatus | null {
   return (SHEET_STATUSES as readonly string[]).includes(s) ? (s as IngestStatus) : null;
 }
 
+const MAX_SKILLS = 5;
+const MAX_SKILL_CHARS = 30;
+
+/** "React, design; Pitching" → up to 5 trimmed, case-insensitively unique tags of ≤ 30 characters. */
+export function parseSkills(raw: string | undefined): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const part of (raw ?? '').split(/[,;\n]/)) {
+    const t = part.trim();
+    if (!t || chars(t) > MAX_SKILL_CHARS || seen.has(t.toLowerCase())) continue;
+    seen.add(t.toLowerCase());
+    out.push(t);
+    if (out.length === MAX_SKILLS) break;
+  }
+  return out;
+}
+
+// Google Forms writes checkbox answers as "A team, A mentor"; match by keyword so wording tweaks survive.
+const LOOKING_FOR_KEYWORDS: Array<[LookingFor, RegExp]> = [
+  ['team', /\bteam/i],
+  ['mentor', /\bmentor/i],
+  ['internship', /\bintern/i],
+  ['job', /\bjob/i],
+  ['networking', /\bnetwork/i],
+];
+
+export function parseLookingFor(raw: string | undefined): LookingFor[] {
+  const out: LookingFor[] = [];
+  for (const part of (raw ?? '').split(',')) {
+    const hit = LOOKING_FOR_KEYWORDS.find(([, re]) => re.test(part))?.[0];
+    if (hit && !out.includes(hit)) out.push(hit);
+  }
+  return out;
+}
+
 export function validateRow(input: SheetRowInput): RowValidation {
   const externalId = (input.external_id ?? '').trim();
   const email = normalizeEmail(input.email ?? '');
@@ -48,6 +92,7 @@ export function validateRow(input: SheetRowInput): RowValidation {
   const lastName = (input.last_name ?? '').trim();
   const dietary = (input.dietary_notes ?? '').trim();
   const linkedin = (input.linkedin_url ?? '').trim();
+  const accessibility = (input.accessibility_notes ?? '').trim();
   const status = normalizeStatus(input.status);
 
   const bad: string[] = [];
@@ -56,6 +101,7 @@ export function validateRow(input: SheetRowInput): RowValidation {
   if (chars(firstName) < 1 || chars(firstName) > 100) bad.push('first_name');
   if (chars(lastName) > 100) bad.push('last_name');
   if (chars(dietary) > 500) bad.push('dietary_notes');
+  if (chars(accessibility) > 500) bad.push('accessibility_notes');
   if (status === null) bad.push('status');
   if (bad.length > 0 || status === null) return { ok: false, result: `INVALID:${bad.join(',')}` };
 
@@ -70,6 +116,10 @@ export function validateRow(input: SheetRowInput): RowValidation {
       dietaryNotes: dietary === '' ? null : dietary,
       // DECISION §9.2: an invalid LinkedIn URL is dropped, not an INVALID row.
       linkedinUrl: LINKEDIN.test(linkedin) ? linkedin : null,
+      accessibilityNotes: accessibility === '' ? null : accessibility,
+      // Optional answers: bad entries are dropped, never an INVALID row (like LinkedIn).
+      skills: parseSkills(input.skills),
+      lookingFor: parseLookingFor(input.looking_for),
       status,
     },
   };
@@ -86,6 +136,9 @@ export const SHEET_HEADERS = {
   last_name: 'Last Name',
   dietary_notes: 'Dietary Restrictions',
   linkedin_url: 'LinkedIn URL',
+  accessibility_notes: 'Accessibility or health needs',
+  skills: 'What are you good at?',
+  looking_for: 'What are you looking for?',
   status: 'Status',
 } as const satisfies Record<keyof SheetRowInput, string>;
 

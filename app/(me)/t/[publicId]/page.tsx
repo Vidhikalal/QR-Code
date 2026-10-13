@@ -72,7 +72,8 @@ export default async function BadgePage({ params }: { params: Promise<{ publicId
               <OwnerActions />
             </div>
           )}
-          <PublicProfileCard profile={view.profile} />
+          {view.staff && <p className={styles.muted}>Staff view: every field, including what they keep to organizers.</p>}
+          <PublicProfileCard profile={view.staff ? view.staff.profile : view.profile} />
           {view.connect && <ConnectButton publicId={publicId} name={view.profile.displayName} state={view.connect.state} />}
           {view.audience === 'anonymous' && (
             <div className={styles.actions}>

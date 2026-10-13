@@ -3,6 +3,19 @@
 import Image from 'next/image';
 import { PublicProfileCard } from '@/components/public-profile-card';
 import type { PublicProfile } from '@/lib/profile/public';
+
+const FIELD_LABEL: Record<string, string> = {
+  pronouns: 'pronouns',
+  program: 'program',
+  year: 'year',
+  bio: 'bio',
+  links: 'links',
+  skills: 'skills',
+  lookingFor: 'looking for',
+  discord: 'Discord',
+  dietary: 'dietary',
+  accessibility: 'accessibility',
+};
 import { useCallback, useState } from 'react';
 import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
@@ -11,7 +24,7 @@ import { fullName } from './name';
 import { SigninCodeDialog } from '@/components/signin-code-dialog';
 
 interface Detail {
-  profile: { public: PublicProfile; hiddenByStaff: boolean; hiddenByOwner: boolean } | null;
+  profile: { public: PublicProfile; full: PublicProfile; publicFields: string[]; hiddenByStaff: boolean; hiddenByOwner: boolean } | null;
   participant: {
     id: string;
     firstName: string;
@@ -21,6 +34,7 @@ interface Detail {
     source: string;
     applicantId: string | null;
     dietaryNotes: string | null;
+    accessibilityNotes: string | null;
     linkedinUrl: string | null;
     photoUrl: string | null;
     photoUpdatedAt: string | null;
@@ -105,6 +119,12 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
               <dd>{p.dietaryNotes}</dd>
             </>
           )}
+          {p.accessibilityNotes && (
+            <>
+              <dt className={styles.muted}>Accessibility / health needs</dt>
+              <dd>{p.accessibilityNotes}</dd>
+            </>
+          )}
           {p.photoUpdatedAt && (
             <>
               <dt className={styles.muted}>Photo updated</dt>
@@ -128,12 +148,14 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
       )}
       {detail.profile && (
         <>
-          <h3>Public profile</h3>
+          <h3>Profile</h3>
           <p className={styles.muted}>
-            {detail.profile.hiddenByStaff ? 'Hidden by an organizer.' : detail.profile.hiddenByOwner ? 'Hidden by its owner.' : 'Visible to anyone who taps their badge.'}
+            {detail.profile.hiddenByStaff ? 'Hidden by an organizer.' : detail.profile.hiddenByOwner ? 'Hidden by its owner.' : 'Visible to anyone who taps their badge.'} You see every
+            field; other participants see only what they share
+            {detail.profile.publicFields.length ? ` (${detail.profile.publicFields.map((f) => FIELD_LABEL[f] ?? f).join(', ')})` : ' (nothing but their name)'}.
           </p>
           <div style={{ maxWidth: 420 }}>
-            <PublicProfileCard profile={detail.profile.public} />
+            <PublicProfileCard profile={detail.profile.full} />
           </div>
           <div className={styles.actions} style={{ marginTop: 8 }}>
             <button type="button" className={`${detail.profile.hiddenByStaff ? styles.secondary : styles.danger} ${styles.small}`} onClick={() => void setHidden(!detail.profile?.hiddenByStaff)}>
