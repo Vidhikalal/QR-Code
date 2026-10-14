@@ -1,8 +1,8 @@
 # Passline
 
-QR check-in for club events. Accepted applicants get a personal QR pass by email. Volunteers scan it at the door, at meals, at workshops and at any other checkpoint. Organizers watch live counts and export attendance.
+Check-in for club events. Accepted applicants get a personal QR pass by email and show it once at the Door, where staff link them to an **NFC badge**. From then on staff tap the badge at meals, workshops and any other checkpoint. Participants get a public **profile** behind their badge, **connect** with each other by tapping badges, and climb **leaderboards** shown on a projector. Organizers create events in the dashboard, watch live counts, export attendance and send a **recap email** afterwards.
 
-- **How it's supposed to behave:** [SPEC.md](SPEC.md)
+- **How it's supposed to behave:** [SPEC.md](SPEC.md) (v2 details still in progress: [PLAN.md](PLAN.md))
 - **How to work on it with Claude Code:** [CLAUDE.md](CLAUDE.md)
 - **Going live:** [docs/launch-checklist.md](docs/launch-checklist.md)
 
@@ -14,12 +14,17 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 
 | Page | Who | What it's for |
 |------|-----|---------------|
-| `/login` | Staff | Sign in with your email. You get a one-time link (locally it lands in the mail catcher, see below). First sign-in asks for a display name. |
+| `/login` | Staff | Sign in with your email: click the emailed link or type its 6-digit code (locally it lands in the mail catcher, see below). First sign-in asks for a display name. |
+| `/admin` | Staff | Your events list. Platform admins see every event, **New event** (`/admin/new`) and **Join as organizer**. |
 | `/admin/<slug>` | Organizers | The event's control panel (tabs below). |
 | `/scan/<slug>` | Organizers + volunteers | The scanner. Also reachable from the admin tabs ("Scanner ↗"). |
 | `/p#<token>` | Participants | Their pass: name, event, QR code, optional photo upload. They get this link in their email. |
+| `/edit#<key>` → `/me` | Participants | The **Set up your profile** link in their email signs them in; `/me` is where they edit their profile, choose what others see, and see their points. |
+| `/me/connections` | Participants | People they've connected with (both tapped each other's badge). |
+| `/signin` | Participants | **Email me a link** if they lost the email, or a sign-in code shown by staff. |
+| `/t/<id>` | Anyone | The badge page an NFC tap opens. Strangers see the public profile; the owner sees their own; staff of the event get a staff panel (check in, link/replace the badge, sign-in code). |
 
-**Switching events:** there's no event picker yet. Change the slug in the address bar, e.g. `/admin/demo` ↔ `/admin/test-2026`. After signing in you may land on the plain home page; type the `/admin/<slug>` or `/scan/<slug>` address from there.
+**Switching events:** use the event switcher at the top of every admin page, or **All events** to go back to `/admin`. After signing in, staff land on `/admin`.
 
 **"Organizer access only"** means you're signed in with an account that isn't an organizer of *that* event, for example the volunteer account, or `you@example.com` (organizer of `test-2026`, not `demo`). See [Troubleshooting](#troubleshooting).
 
@@ -27,27 +32,33 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 
 | Tab | Use it to |
 |-----|-----------|
-| **Dashboard** | See live check-ins, meals served, session attendance, the arrival chart and email status (pending/failed). It warns you if the event starts soon and the Door is still closed. |
+| **Dashboard** | See live check-ins, meals (first servings vs seconds), session attendance, connections, the arrival chart, email status (pending/failed) and the leaderboards (**Freeze** / **Unfreeze**). It warns you if the event starts soon and the Door is still closed. |
 | **Participants** | Search people. Resend a pass (their old QR stops working), revoke a pass, add a walk-in, mark someone as test data, delete someone, view or void their scans. |
-| **Checkpoints** | Add the Door, meals, workshops and custom stations (raffle, swag). **Open** a checkpoint before scanning there; new ones start closed. Set capacity and whether a door check-in is required. |
+| **Checkpoints** | Add meals, workshops and custom stations (raffle, swag); every event already has a Door. **Open** a checkpoint before scanning there; new ones start closed. Set capacity, whether a door check-in is required, **points** (not for meals) and, for meals, **Seconds open** (repeat servings without the warning). |
 | **Staff** | Invite volunteers and organizers by email; remove them. Removal takes effect on their very next scan. |
 | **Sync** | "Sync now": compare the Google Sheet with the app, preview the changes, then apply. Needs the Google service account (see the launch checklist). |
-| **Export** | Download CSVs of participants, scans and per-checkpoint totals. |
+| **Export** | Download CSVs of participants, scans, per-checkpoint totals, meal servings and a connections summary (counts only, never who met whom). |
+| **Badges** | Badge counts and list, **Register** blank badges on an Android phone, **Import CSV** from a vendor, **Export ids**, **Print sheet** of badge QRs. |
+| **Screen** | The projector: top 3 on the Activity and Networking boards, refreshing on the schedule set in Settings. |
+| **Recap** | Write the after-event email (placeholders like `{nickname}`, `{connections}`), preview it, and send it once the event has ended. |
+| **Settings** | Leaderboard refresh, organizer bonus, whether organizers compete, the badge unlock password, profile retention days. |
 
 ### The scanner (`/scan/<slug>`)
 
 1. Pick the checkpoint. The coloured banner at the top always shows where you are; switching asks you to confirm.
-2. Point the camera at a pass. Results:
+2. Point the camera at a pass or a badge's printed QR, or switch to **NFC** (Android Chrome: press **Start NFC**, then tap badges; the camera turns off because Android won't read NFC while it runs). On iPhones, tapping a badge opens its badge page instead. Results:
    - 🟢 **Green (ADMIT / SERVE / RECORDED):** let them through. It clears by itself.
    - 🟠 **Amber:** needs action, e.g. *old code* (ask for their newest email), *not checked in yet* (send them to the Door), *checkpoint closed*, *no result* (network hiccup: rescan, don't admit yet). Tap to dismiss.
-   - 🔴 **Red:** stop, e.g. *already scanned* (with who and when; compare the photo), *pass cancelled*, *not accepted*, *wrong event*, *full*, *unknown code*. Tap to dismiss.
+   - 🔴 **Red:** stop, e.g. *already scanned* (with who and when; compare the photo), *pass cancelled*, *not accepted*, *wrong event*, *full*, *unknown code*, *old badge*. Tap to dismiss.
+   - **At the Door**, after ADMIT, anyone without a badge goes to **Link a badge to {name}**: tap a blank badge and it's written, registered and linked in one go. Leaving without one needs a confirmed **No badge right now**.
+   - **At meals**, a second serving shows **SERVED 1× ALREADY** with **Serve again** / **Don't serve**.
 3. **Manual search:** for a broken screen or a lost email. Search by name (accents optional: `zoe` finds Zoë) and record the scan.
 4. **Undo:** you can void your own scan for 2 minutes; give a reason. Organizers can void any scan from the Participants tab.
 5. **OFFLINE banner:** no connection, so scanning is disabled. Use the printed roster (see the launch checklist) until it's back.
 
 ### How a pass gets to someone
 
-Google Form → Google Sheet → an organizer sets **Status = Accepted** → the Sheet notifies the app (`Sync Status` shows `PASS_QUEUED`) → the app emails the pass → the participant shows the QR at the Door.
+Google Form → Google Sheet → an organizer sets **Status = Accepted** → the Sheet notifies the app (`Sync Status` shows `PASS_QUEUED`) → the app emails the pass and a profile link → the participant shows the QR at the Door → staff link a badge → the badge is used everywhere else.
 
 Setting someone to Withdrawn or Rejected cancels their pass. Clearing an accepted status on purpose does nothing (`IGNORED_CLEAR`), so an accidental delete can't cancel a pass.
 
@@ -55,7 +66,7 @@ Setting someone to Withdrawn or Rejected cancels their pass. Clearing an accepte
 
 ## Running it locally
 
-**Prerequisites:** Node 22, pnpm 10, Docker Desktop (running), the Supabase CLI, and `cloudflared` (`brew install cloudflared`) for the Google Sheet connection.
+**Prerequisites:** Node 22, pnpm 10, a Docker runtime (Docker Desktop, or Colima with `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock`), the Supabase CLI, and `cloudflared` (`brew install cloudflared`) for the Google Sheet connection.
 
 ### First time only
 
@@ -72,9 +83,11 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
 SHEET_INGEST_SECRET=$(openssl rand -hex 32)
 DRAIN_SECRET=$(openssl rand -hex 32)
-EMAIL_PROVIDER=console
+EMAIL_PROVIDER=mailpit
 ENV
 ```
+
+Optional settings (a dev admin with a password, feature flags, two hostnames) are documented in [.env.example](.env.example).
 
 Check that both keys are filled in (each line should continue with `eyJ…`):
 
@@ -88,7 +101,7 @@ Use three terminal tabs.
 
 **Tab 1: the app.**
 ```bash
-open -a Docker                     # wait until Docker says it's running
+open -a Docker                     # or: colima start. Wait until it's running
 supabase start
 pnpm dev                           # http://localhost:3000, leave it running
 ```
@@ -102,7 +115,7 @@ cloudflared tunnel --url http://localhost:3000     # leave it running
 ```bash
 pnpm clean:dev                     # delete .mail/ and .seed/
 pnpm db:reset                      # empty database: deletes ALL events, people and sign-ins
-pnpm seed                          # "demo" event: 50 accepted people, Door/Lunch/Workshop/Raffle open
+pnpm seed                          # "demo" event: 10 accepted applicants (emails sent), 60 unlinked badges, Door/Lunch/Workshop/Raffle open
 ```
 
 `pnpm db:reset` deletes the `demo` event too. **Always run `pnpm seed` straight after it**, or the Sheet gets `ERROR HTTP 404` and every earlier QR image scans as an unknown code. You'll also need to sign in again.
@@ -290,6 +303,7 @@ on conflict (event_id, user_id) do update set role = 'organizer';
 | `pnpm check` | Typecheck, lint, unit tests, integration tests (needs `supabase start`) |
 | `pnpm test:unit` | Fast, no database |
 | `pnpm test:int` | Against the local database |
-| `pnpm test:e2e` | Playwright browser tests |
+| `pnpm test:e2e` | Playwright browser tests (main config, then the two-hostname config) |
+| `pnpm test:e2e:hosts` | Only the two-hostname tests (`*.passline.test` → 127.0.0.1) |
 
 Test names start with the SPEC ID they cover (e.g. `T-SCAN-11`), so you can look up what each one is supposed to prove.
