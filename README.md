@@ -215,7 +215,7 @@ Keep `NEXT_PUBLIC_APP_ORIGIN=http://localhost:3000`. QR codes then match the lap
 **Why not something permanent?**
 - **Tailscale Funnel** gives a fixed URL and worked from a browser, but Google Apps Script refused it with `Address unavailable`.
 - **ngrok's free static domain** is stable but shows a warning page to browsers.
-- **The permanent fix is either of these.** Once the club owns a domain (you'll need one for Resend anyway), use a named Cloudflare tunnel on something like `dev.yourclub.ca`. Or, better, deploy to Vercel ([docs/launch-checklist.md](docs/launch-checklist.md)): the Sheet then points at a fixed Vercel address and no tunnel is needed.
+- **The permanent fix is either of these.** Once the club owns a domain (we'll need one for Resend anyway), we could use a named Cloudflare tunnel on something like `dev.yourclub.ca`. Or, deploy to Vercel ([docs/launch-checklist.md](docs/launch-checklist.md)): the Sheet then points at a fixed Vercel address and no tunnel is needed.
 
 ---
 
