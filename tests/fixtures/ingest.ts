@@ -54,6 +54,7 @@ export function sheetRow(slug: string, over: Partial<SheetRowInput> = {}): Requi
     accessibility_notes: '',
     skills: '',
     looking_for: '',
+    year_label: '',
     status: 'Accepted',
     ...over,
   };

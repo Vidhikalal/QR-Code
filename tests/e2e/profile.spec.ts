@@ -24,55 +24,82 @@ async function signInParticipant(page: Page, participantId: string) {
   await expect(page).toHaveURL(`${E2E_ORIGIN}/me`);
 }
 
-async function editRow(page: Page, label: string, fill: (page: Page) => Promise<void>) {
-  await page.getByRole('button', { name: `Edit ${label}` }).click();
-  await fill(page);
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: `${label} saved` })).toBeVisible();
+async function save(page: Page) {
+  await page.getByRole('button', { name: 'Save profile' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Profile saved' })).toBeVisible();
 }
 
-test('Profiles 2026-10-13: edit directly on the "How others see you" card, with validation', async ({ browser }) => {
+test('Demo feedback 2026-10-14: one Save for the whole profile; Year, dietary and top-3 skills are picked from lists', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
   const person = await f.addParticipant(f.e1.id);
   await signInParticipant(page, person.id);
   const card = page.getByRole('article', { name: /Profile of/ });
   await expect(card).toContainText('Extra F.');
-  await editRow(page, 'Nickname', (p) => p.getByLabel('Nickname').fill('Lace'));
-  await expect(card.getByRole('heading', { name: 'Lace' })).toBeVisible();
-  await editRow(page, 'Bio', (p) => p.getByLabel('Bio').fill('Analytical engines.'));
-  await expect(page.getByTestId('row-bio')).toContainText('Analytical engines.');
+  const patches: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'PATCH' && r.url().endsWith('/api/me/profile')) patches.push(r.postData() ?? '');
+  });
 
-  await page.getByRole('button', { name: 'Edit Links' }).click();
+  await page.getByLabel('Nickname').fill('Lace');
+  await page.getByRole('textbox', { name: 'Bio' }).fill('Analytical engines.');
+  await page.getByRole('combobox', { name: 'Year' }).selectOption('3rd year');
   await page.getByLabel('GitHub').fill('http://github.com/lace');
   await expect(page.getByText('✕ a github.com/… link starting with https://')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
   await page.getByLabel('GitHub').fill('https://github.com/lace');
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Links saved' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit Links' })).toContainText('GitHub');
 
-  await editRow(page, 'What I’m good at', async (p) => {
-    await p.getByLabel('New skill').fill('Rust');
-    await p.getByRole('button', { name: 'Add skill' }).click();
-  });
-  await expect(page.getByTestId('row-skills')).toContainText('Rust');
-  await editRow(page, 'Looking for', (p) => p.getByLabel('a team').check());
-  await expect(page.getByTestId('row-lookingFor')).toContainText('a team');
+  // Skills are required: no skill, no save.
+  await expect(page.getByText('✕ pick at least one skill')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save profile' })).toBeDisabled();
+  await page.getByLabel('Frontend').check();
+  await page.getByLabel('AI / ML').check();
+  await page.getByLabel('Other skill').fill('Rust, Go');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(page.getByText('3 of 3 picked')).toBeVisible();
+  await expect(page.getByLabel('Backend')).toBeDisabled(); // a fourth pick is blocked
+  await expect(page.getByLabel('Other skill')).toBeDisabled();
 
+  await page.getByLabel('a team').check();
+  await page.getByLabel('Vegan').check();
+  await page.getByLabel('Nut allergy').check();
+  await page.getByLabel('Other', { exact: true }).check();
+  await page.getByLabel('Other dietary restriction').fill('no sesame');
+  await expect(page.getByText('Unsaved changes')).toBeVisible();
+  await save(page);
+
+  expect(patches).toHaveLength(1);
+  expect(JSON.parse(patches[0] ?? '{}')).toMatchObject({ nickname: 'Lace', yearLabel: '3rd year', skills: ['Frontend', 'AI / ML', 'Rust, Go'], dietaryNotes: 'Vegan, Nut allergy, no sesame' });
+  await expect(card.getByRole('heading', { name: 'Lace' })).toBeVisible();
+  await expect(card).toContainText('3rd year');
+  await expect(card).toContainText('Analytical engines.');
+  await expect(card).toContainText('Rust, Go');
   // Health notes start organizers-only.
-  await editRow(page, 'Dietary restrictions', (p) => p.getByLabel('Dietary restrictions').fill('Vegan'));
+  await expect(card).not.toContainText('Vegan');
   await expect(page.getByRole('button', { name: 'Dietary restrictions: organizers only' })).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByTestId('row-dietaryNotes')).toContainText('Only organizers see this.');
+  const { rows } = await f.pool.query('select dietary_notes from participants where id = $1', [person.id]);
+  expect(rows[0]).toEqual({ dietary_notes: 'Vegan, Nut allergy, no sesame' });
+
+  // After a reload the lists read the saved values back.
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Year' })).toHaveValue('3rd year');
+  await expect(page.getByLabel('Nut allergy')).toBeChecked();
+  await expect(page.getByLabel('Other dietary restriction')).toHaveValue('no sesame');
+  await expect(page.getByText('All changes saved')).toBeVisible();
 
   await page.getByLabel(/Hide my whole profile/).check();
-  await expect(card).toContainText('Hidden: others only see your name.');
+  await save(page);
+  await expect(card).toContainText('This profile is private.');
   await context.close();
 });
 
 test('Profiles 2026-10-13: a field switched to organizers-only disappears from another participant\'s view of the badge', async ({ browser }) => {
   const b = await f.addBadges(); // A wears T1
-  await f.pool.query(`insert into profiles (participant_id, bio) values ($1, 'Engines and poems.') on conflict (participant_id) do update set bio = excluded.bio, public_fields = default, visibility = 'public'`, [f.p.A]);
+  await f.pool.query(
+    `insert into profiles (participant_id, bio, ask_me_about) values ($1, 'Engines and poems.', '{Research}')
+     on conflict (participant_id) do update set bio = excluded.bio, ask_me_about = excluded.ask_me_about, public_fields = default, visibility = 'public'`,
+    [f.p.A],
+  );
   const owner = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
   const me = await owner.newPage();
   await signInParticipant(me, f.p.A);
@@ -85,9 +112,12 @@ test('Profiles 2026-10-13: a field switched to organizers-only disappears from a
   await me.getByRole('button', { name: 'Bio: visible to participants' }).click();
   await expect(me.getByRole('button', { name: 'Bio: organizers only' })).toHaveAttribute('aria-pressed', 'false');
   await them.reload();
+  await expect(them.getByRole('article', { name: /Profile of/ })).toContainText('Engines and poems.'); // not saved yet
+  await save(me);
+  await them.reload();
   await expect(them.getByRole('article', { name: /Profile of/ })).not.toContainText('Engines and poems.');
   await me.getByRole('button', { name: 'Bio: organizers only' }).click();
-  await expect(me.getByRole('button', { name: 'Bio: visible to participants' })).toBeVisible();
+  await save(me);
   await them.reload();
   await expect(them.getByRole('article', { name: /Profile of/ })).toContainText('Engines and poems.');
   await owner.close();
@@ -140,10 +170,9 @@ test('F15: an organizer opens My badge profile, lands on /me labelled Organizer,
   await expect(page).toHaveURL(`${E2E_ORIGIN}/me`);
   const preview = page.getByRole('article', { name: /Profile of/ });
   await expect(preview).toContainText('Organizer');
-  await editRow(page, 'What I’m good at', async (p) => {
-    await p.getByLabel('New skill').fill('Sponsorships');
-    await p.getByRole('button', { name: 'Add skill' }).click();
-  });
-  await expect(preview.getByTestId('row-skills')).toContainText('Sponsorships');
+  await page.getByLabel('Other skill').fill('Sponsorships');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await save(page);
+  await expect(preview).toContainText('Sponsorships');
   await context.close();
 });

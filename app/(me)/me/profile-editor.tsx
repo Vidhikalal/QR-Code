@@ -1,9 +1,10 @@
 'use client';
 
 import Image from 'next/image';
-import { useMemo, useState } from 'react';
-import { LOOKING_FOR_LABEL } from '@/components/public-profile-card';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { LOOKING_FOR_LABEL, PublicProfileCard } from '@/components/public-profile-card';
 import { PHOTO_ERRORS, shrinkPhoto } from '@/lib/photo/shrink';
+import { DIETARY_OPTIONS, MAX_SKILLS, SKILL_OPTIONS, YEAR_OPTIONS, formatDietary, parseDietary, type DietaryOption } from '@/lib/profile/choices';
 import type { PublicProfile } from '@/lib/profile/public';
 import { LOOKING_FOR, profilePatchSchema, type BadgeRole, type PublicField } from '@/lib/profile/schema';
 import styles from '../me.module.css';
@@ -36,104 +37,114 @@ export interface ProfileViewData {
   photo: { url: string | null; locked: boolean };
 }
 
-type TextKey = 'nickname' | 'pronouns' | 'program' | 'yearLabel' | 'bio' | 'discordHandle' | 'dietaryNotes' | 'accessibilityNotes';
-type Row =
-  | { id: string; label: string; kind: 'text' | 'textarea'; key: TextKey; max: number; hint: string; vis: PublicField | null }
-  | { id: 'links'; label: string; kind: 'links'; vis: PublicField }
-  | { id: 'skills'; label: string; kind: 'skills'; vis: PublicField }
-  | { id: 'lookingFor'; label: string; kind: 'lookingFor'; vis: PublicField };
+type TextKey = 'nickname' | 'pronouns' | 'program' | 'bio' | 'discordHandle' | 'accessibilityNotes' | 'linkedinUrl' | 'githubUrl' | 'websiteUrl';
+
+// The whole form; dietary is kept as its options + Other and turned into one text on save.
+interface Form {
+  text: Record<TextKey, string>;
+  yearLabel: string;
+  skills: string[];
+  lookingFor: string[];
+  dietary: { none: boolean; chosen: DietaryOption[]; otherOn: boolean; other: string };
+  publicFields: PublicField[];
+  visibility: 'public' | 'hidden';
+}
 
 const LINKS = [
   ['linkedinUrl', 'LinkedIn', 'https://www.linkedin.com/in/your-name'],
   ['githubUrl', 'GitHub', 'https://github.com/your-name'],
   ['websiteUrl', 'Website', 'https://…'],
 ] as const;
-
-function rowsFor(canEditDiscord: boolean): Row[] {
-  return [
-    { id: 'nickname', label: 'Nickname', kind: 'text', key: 'nickname', max: 40, hint: 'What people call you. Shown instead of your name.', vis: null },
-    { id: 'pronouns', label: 'Pronouns', kind: 'text', key: 'pronouns', max: 30, hint: 'e.g. she/her', vis: 'pronouns' },
-    { id: 'program', label: 'Program', kind: 'text', key: 'program', max: 80, hint: 'e.g. Computer Science', vis: 'program' },
-    { id: 'yearLabel', label: 'Year', kind: 'text', key: 'yearLabel', max: 30, hint: 'e.g. 3rd year', vis: 'year' },
-    { id: 'bio', label: 'Bio', kind: 'textarea', key: 'bio', max: 280, hint: 'A sentence or two about you.', vis: 'bio' },
-    { id: 'skills', label: 'What I’m good at', kind: 'skills', vis: 'skills' },
-    { id: 'lookingFor', label: 'Looking for', kind: 'lookingFor', vis: 'lookingFor' },
-    { id: 'links', label: 'Links', kind: 'links', vis: 'links' },
-    ...(canEditDiscord ? [{ id: 'discordHandle', label: 'Discord', kind: 'text', key: 'discordHandle', max: 32, hint: 'your.handle', vis: 'discord' } as const] : []),
-    { id: 'dietaryNotes', label: 'Dietary restrictions', kind: 'textarea', key: 'dietaryNotes', max: 500, hint: 'e.g. vegetarian, nut allergy', vis: 'dietary' },
-    { id: 'accessibilityNotes', label: 'Accessibility / health needs', kind: 'textarea', key: 'accessibilityNotes', max: 500, hint: 'Anything organizers should know', vis: 'accessibility' },
-  ];
-}
-
+const TEXT_KEYS: TextKey[] = ['nickname', 'pronouns', 'program', 'bio', 'discordHandle', 'accessibilityNotes', 'linkedinUrl', 'githubUrl', 'websiteUrl'];
 const HEALTH_FIELDS: readonly PublicField[] = ['dietary', 'accessibility'];
 
-// The profile page (profiles 2026-10-13): "How others see you" IS the editor. Tap a line to edit it;
-// each line's switch decides whether other participants see it. Organizers always see everything.
-// Every save is one PATCH validated with the same schema the server uses.
+function formOf(p: Editable): Form {
+  const d = parseDietary(p.dietaryNotes);
+  return {
+    text: Object.fromEntries(TEXT_KEYS.map((k) => [k, p[k] ?? ''])) as Record<TextKey, string>,
+    yearLabel: p.yearLabel ?? '',
+    skills: [...p.skills],
+    lookingFor: [...p.lookingFor],
+    dietary: { none: false, chosen: d.chosen, otherOn: d.other !== '', other: d.other },
+    publicFields: [...p.publicFields],
+    visibility: p.visibility,
+  };
+}
+
+/** The PATCH body for every field (schema input shape). */
+function bodyOf(f: Form, canEditDiscord: boolean): Record<string, unknown> {
+  const { discordHandle, ...text } = f.text;
+  return {
+    ...text,
+    ...(canEditDiscord && { discordHandle }),
+    yearLabel: f.yearLabel,
+    skills: f.skills,
+    lookingFor: f.lookingFor,
+    dietaryNotes: f.dietary.none ? '' : (formatDietary(f.dietary.chosen, f.dietary.otherOn ? f.dietary.other : '') ?? ''),
+    publicFields: f.publicFields,
+    visibility: f.visibility,
+  };
+}
+
+// The profile page (demo feedback 2026-10-14): one form, one Save at the end. Each line's switch decides
+// whether other participants see it; organizers always see everything. Only changed fields are sent, so
+// Sheet answers the owner never touched keep following the Sheet (participants.owner_edited).
 export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
   const [view, setView] = useState(initial);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Record<string, unknown>>({});
-  const [skill, setSkill] = useState('');
+  const [form, setForm] = useState(() => formOf(initial.profile));
+  const [customSkill, setCustomSkill] = useState('');
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
-  const p = view.profile;
   const schema = useMemo(() => profilePatchSchema({ badgeRole: view.badgeRole, extraRoles: view.canEditDiscord }), [view.badgeRole, view.canEditDiscord]);
-  const rows = useMemo(() => rowsFor(view.canEditDiscord), [view.canEditDiscord]);
 
-  const parsed = editing ? schema.safeParse(draft) : null;
-  const errors = new Map<string, string>(parsed && !parsed.success ? parsed.error.issues.map((i) => [String(i.path[0]), i.message]) : []);
+  const body = bodyOf(form, view.canEditDiscord);
+  const saved = bodyOf(formOf(view.profile), view.canEditDiscord);
+  const changed = Object.keys(body).filter((k) => JSON.stringify(body[k]) !== JSON.stringify(saved[k]));
+  const dirty = changed.length > 0;
+  const parsed = schema.safeParse(body);
+  const errors = new Map<string, string>(parsed.success ? [] : parsed.error.issues.map((i) => [String(i.path[0]), i.message]));
 
-  async function patch(body: Record<string, unknown>, done: string): Promise<boolean> {
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  const setText = (k: TextKey, v: string) => setForm((f) => ({ ...f, text: { ...f.text, [k]: v } }));
+  const setDietary = (d: Partial<Form['dietary']>) => setForm((f) => ({ ...f, dietary: { ...f.dietary, ...d } }));
+  const isPublic = (field: PublicField) => form.publicFields.includes(field);
+  const toggleVisible = (field: PublicField) =>
+    setForm((f) => ({ ...f, publicFields: f.publicFields.includes(field) ? f.publicFields.filter((x) => x !== field) : [...f.publicFields, field] }));
+
+  function toggleSkill(s: string) {
+    setForm((f) => (f.skills.includes(s) ? { ...f, skills: f.skills.filter((x) => x !== s) } : f.skills.length < MAX_SKILLS ? { ...f, skills: [...f.skills, s] } : f));
+  }
+  function addCustomSkill() {
+    const t = customSkill.trim();
+    if (!t || form.skills.length >= MAX_SKILLS) return;
+    // A typed name of a listed skill picks that one, in its own spelling.
+    const listed = SKILL_OPTIONS.find((o) => o.toLowerCase() === t.toLowerCase());
+    const skill = listed ?? t;
+    if (!form.skills.some((x) => x.toLowerCase() === skill.toLowerCase())) setForm((f) => ({ ...f, skills: [...f.skills, skill] }));
+    setCustomSkill('');
+  }
+
+  async function save() {
+    if (!parsed.success || !dirty) return;
     setSaving(true);
     setMessage(null);
-    const res = await fetch('/api/me/profile', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => null);
+    const patch = Object.fromEntries(changed.map((k) => [k, body[k]]));
+    const res = await fetch('/api/me/profile', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch) }).catch(() => null);
     setSaving(false);
     if (res?.ok) {
-      setView((await res.json()) as ProfileViewData);
-      setMessage({ ok: true, text: `✓ ${done}` });
-      return true;
+      const next = (await res.json()) as ProfileViewData;
+      setView(next);
+      setForm(formOf(next.profile));
+      setMessage({ ok: true, text: '✓ Profile saved.' });
+      return;
     }
-    setMessage({ ok: false, text: res?.status === 401 ? '✕ You’ve been signed out. Open your newest profile link.' : '✕ Couldn’t save. Check the field and try again.' });
-    return false;
-  }
-
-  function startEdit(row: Row) {
-    setMessage(null);
-    setSkill('');
-    setEditing(row.id);
-    if (row.kind === 'text' || row.kind === 'textarea') setDraft({ [row.key]: p[row.key] ?? '' });
-    else if (row.kind === 'links') setDraft({ linkedinUrl: p.linkedinUrl ?? '', githubUrl: p.githubUrl ?? '', websiteUrl: p.websiteUrl ?? '' });
-    else if (row.kind === 'skills') setDraft({ skills: [...p.skills] });
-    else setDraft({ lookingFor: [...p.lookingFor] });
-  }
-
-  async function saveEdit(row: Row) {
-    if (!parsed?.success) return;
-    // Close only this row's editor: another row may have been opened while the save was in flight.
-    if (await patch(draft, `${row.label} saved.`)) setEditing((current) => (current === row.id ? null : current));
-  }
-
-  // Optimistic: the switch moves at once; a failed save puts it back.
-  async function setHidden(hide: boolean) {
-    const before = view;
-    setView({ ...view, profile: { ...view.profile, visibility: hide ? 'hidden' : 'public' } });
-    const ok = await patch({ visibility: hide ? 'hidden' : 'public' }, hide ? 'Your profile is hidden: others only see your name.' : 'Your profile is visible again.');
-    if (!ok) setView(before);
-  }
-
-  const isPublic = (f: PublicField) => p.publicFields.includes(f);
-  function toggle(f: PublicField, label: string) {
-    const next = isPublic(f) ? p.publicFields.filter((x) => x !== f) : [...p.publicFields, f];
-    void patch({ publicFields: next }, isPublic(f) ? `${label}: only organizers can see this now.` : `${label}: other participants can see this now.`);
-  }
-
-  function addSkill() {
-    const t = skill.trim();
-    const list = (draft.skills as string[] | undefined) ?? [];
-    if (!t || list.includes(t) || list.length >= 5) return;
-    setDraft({ skills: [...list, t] });
-    setSkill('');
+    setMessage({ ok: false, text: res?.status === 401 ? '✕ You’ve been signed out. Open your newest profile link.' : '✕ Couldn’t save. Check the highlighted fields and try again.' });
   }
 
   async function uploadPhoto(file: File) {
@@ -156,95 +167,54 @@ export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
     setMessage({ ok: true, text: '✓ Photo saved.' });
   }
 
-  const valueOf = (row: Row): string | null => {
-    if (row.kind === 'text' || row.kind === 'textarea') return p[row.key];
-    if (row.kind === 'skills') return p.skills.length ? p.skills.join(' · ') : null;
-    if (row.kind === 'lookingFor') return p.lookingFor.length ? p.lookingFor.map((x) => LOOKING_FOR_LABEL[x] ?? x).join(', ') : null;
-    const links = LINKS.filter(([k]) => p[k]).map(([, label]) => label);
-    return links.length ? links.join(' · ') : null;
+  const visSwitch = (field: PublicField, label: string) => {
+    const pub = isPublic(field);
+    return (
+      <button type="button" className={styles.visToggle} aria-pressed={pub} aria-label={`${label}: ${pub ? 'visible to participants' : 'organizers only'}`} onClick={() => toggleVisible(field)}>
+        <span aria-hidden="true">{pub ? '👁' : '🔒'}</span> {pub ? 'Visible' : 'Organizers only'}
+      </button>
+    );
+  };
+  const errorLine = (key: string) => {
+    const err = errors.get(key);
+    return err ? <span className={styles.fieldError}>✕ {err}</span> : null;
   };
 
-  const editor = (row: Row) => {
-    if (row.kind === 'text' || row.kind === 'textarea') {
-      const id = `f-${row.key}`;
-      const err = errors.get(row.key);
-      const value = String(draft[row.key] ?? '');
-      return (
-        <label className={styles.field} htmlFor={id}>
-          {row.label}
-          {row.kind === 'textarea' ? (
-            <textarea id={id} className={styles.textarea} rows={3} value={value} placeholder={row.hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft({ [row.key]: e.target.value })} autoFocus />
-          ) : (
-            <input id={id} className={styles.input} value={value} placeholder={row.hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft({ [row.key]: e.target.value })} autoFocus />
-          )}
-          <span className={err ? styles.fieldError : styles.muted}>{err ? `✕ ${err}` : `${[...value.trim()].length}/${row.max}`}</span>
-        </label>
-      );
-    }
-    if (row.kind === 'links') {
-      return LINKS.map(([key, label, hint]) => {
-        const err = errors.get(key);
-        return (
-          <label className={styles.field} htmlFor={`f-${key}`} key={key}>
-            {label}
-            <input id={`f-${key}`} type="url" className={styles.input} value={String(draft[key] ?? '')} placeholder={hint} aria-invalid={err ? true : undefined} onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))} />
-            {err && <span className={styles.fieldError}>✕ {err}</span>}
-          </label>
-        );
-      });
-    }
-    if (row.kind === 'skills') {
-      const list = (draft.skills as string[] | undefined) ?? [];
-      return (
-        <>
-          <ul className={styles.chips}>
-            {list.map((t) => (
-              <li key={t}>
-                {t}{' '}
-                <button type="button" className={styles.chipRemove} aria-label={`Remove ${t}`} onClick={() => setDraft({ skills: list.filter((x) => x !== t) })}>
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className={styles.actions}>
-            <input
-              className={styles.input}
-              aria-label="New skill"
-              placeholder="e.g. React, design, pitching"
-              maxLength={30}
-              value={skill}
-              onChange={(e) => setSkill(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  addSkill();
-                }
-              }}
-            />
-            <button type="button" className={styles.secondary} disabled={list.length >= 5} onClick={addSkill}>
-              Add skill
-            </button>
-          </div>
-          <span className={styles.muted}>Up to 5.</span>
-        </>
-      );
-    }
-    const chosen = (draft.lookingFor as string[] | undefined) ?? [];
+  // One line of the form: label, visibility switch, the input(s) and any error.
+  const row = (id: string, label: string, vis: PublicField | null, children: ReactNode, hint?: ReactNode) => (
+    <li key={id} className={`${styles.row} ${vis && !isPublic(vis) ? styles.rowPrivate : ''}`} data-testid={`row-${id}`}>
+      <div className={styles.rowHead}>
+        <span className={styles.rowLabel} id={`l-${id}`}>
+          {label}
+        </span>
+        {vis && visSwitch(vis, label)}
+      </div>
+      {children}
+      {hint}
+      {vis && HEALTH_FIELDS.includes(vis) && !isPublic(vis) && <p className={styles.rowNote}>Only organizers see this.</p>}
+    </li>
+  );
+
+  const textInput = (key: TextKey, max: number, placeholder: string, multiline = false) => {
+    const value = form.text[key];
+    const err = errors.get(key);
+    const props = { id: `f-${key}`, value, placeholder, 'aria-labelledby': `l-${key}`, 'aria-invalid': err ? true : undefined } as const;
     return (
-      <fieldset className={styles.fieldset}>
-        <legend>Looking for</legend>
-        {LOOKING_FOR.map((x) => (
-          <label className={styles.radio} key={x}>
-            <input type="checkbox" checked={chosen.includes(x)} onChange={(e) => setDraft({ lookingFor: e.target.checked ? [...chosen, x] : chosen.filter((y) => y !== x) })} />{' '}
-            {LOOKING_FOR_LABEL[x]}
-          </label>
-        ))}
-      </fieldset>
+      <>
+        {multiline ? (
+          <textarea {...props} className={styles.textarea} rows={3} onChange={(e) => setText(key, e.target.value)} />
+        ) : (
+          <input {...props} className={styles.input} onChange={(e) => setText(key, e.target.value)} />
+        )}
+        <span className={err ? styles.fieldError : styles.muted}>{err ? `✕ ${err}` : `${[...value.trim()].length}/${max}`}</span>
+      </>
     );
   };
 
-  const hidden = p.visibility === 'hidden' || view.hiddenByStaff;
+  const customSkills = form.skills.filter((s) => !(SKILL_OPTIONS as readonly string[]).includes(s));
+  const full = form.skills.length >= MAX_SKILLS;
+  const hidden = form.visibility === 'hidden' || view.hiddenByStaff;
+
   return (
     <>
       {view.hiddenByStaff && (
@@ -253,79 +223,183 @@ export function ProfileEditor({ initial }: { initial: ProfileViewData }) {
           <span>An organizer has hidden your profile. Others only see your name. Contact the organizers if you think this is a mistake.</span>
         </p>
       )}
-      <section className={styles.card} aria-labelledby="preview-heading">
-        <h2 id="preview-heading">How others see you</h2>
-        <p className={styles.muted}>
-          Tap a line to edit it. 👁 Visible to other participants · 🔒 Organizers only. Organizers can always see everything.
-        </p>
+      <form
+        className={styles.card}
+        aria-labelledby="profile-heading"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <h2 id="profile-heading">Your profile</h2>
+        <p className={styles.muted}>👁 Visible to other participants · 🔒 Organizers only. Organizers can always see everything.</p>
         <label className={styles.radio}>
-          <input type="checkbox" checked={p.visibility === 'hidden'} disabled={saving} onChange={(e) => void setHidden(e.target.checked)} />
+          <input type="checkbox" checked={form.visibility === 'hidden'} onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.checked ? 'hidden' : 'public' }))} />
           Hide my whole profile (others only see my name)
         </label>
-        <article className={`${styles.profileCard} ${hidden ? styles.dim : ''}`} aria-label={`Profile of ${view.public.displayName}`}>
-          <p className={styles.eyebrow}>{view.public.eventName}</p>
-          <h3 className={styles.profileName}>{view.public.displayName}</h3>
-          {view.public.label && <span className={styles.label}>{view.public.label}</span>}
-          {hidden && <p className={styles.muted}>Hidden: others only see your name.</p>}
-          <ul className={styles.rows}>
-            {rows.map((row) => {
-              const value = valueOf(row);
-              const pub = row.vis === null || isPublic(row.vis);
-              return (
-                <li key={row.id} className={`${styles.row} ${pub ? '' : styles.rowPrivate}`} data-testid={`row-${row.id}`}>
-                  {editing === row.id ? (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void saveEdit(row);
-                      }}
-                    >
-                      {editor(row)}
-                      <div className={styles.actions}>
-                        <button type="submit" disabled={saving || !parsed?.success}>
-                          {saving ? 'Saving…' : 'Save'}
-                        </button>
-                        <button type="button" className={styles.secondary} onClick={() => setEditing(null)}>
-                          Cancel
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className={styles.rowView}>
-                      <button type="button" className={styles.rowButton} aria-label={`Edit ${row.label}`} onClick={() => startEdit(row)}>
-                        <span className={styles.rowLabel}>{row.label}</span>
-                        <span className={value ? styles.rowValue : styles.muted}>{value ?? `Add ${row.label.toLowerCase()}`}</span>
+        {hidden && <p className={styles.muted}>Hidden: others only see your name.</p>}
+        <ul className={styles.rows}>
+          {row('nickname', 'Nickname', null, textInput('nickname', 40, 'What people call you. Shown instead of your name.'))}
+          {row('pronouns', 'Pronouns', 'pronouns', textInput('pronouns', 30, 'e.g. she/her'))}
+          {row('program', 'Program', 'program', textInput('program', 80, 'e.g. Computer Science'))}
+          {row(
+            'yearLabel',
+            'Year',
+            'year',
+            <select id="f-yearLabel" className={styles.input} aria-labelledby="l-yearLabel" value={form.yearLabel} onChange={(e) => setForm((f) => ({ ...f, yearLabel: e.target.value }))}>
+              <option value="">Choose…</option>
+              {YEAR_OPTIONS.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>,
+            errorLine('yearLabel'),
+          )}
+          {row('bio', 'Bio', 'bio', textInput('bio', 280, 'A sentence or two about you.', true))}
+          {row(
+            'skills',
+            'What I’m good at (required)',
+            'skills',
+            <fieldset className={styles.fieldset} aria-describedby="skills-count">
+              <legend>Pick your top {MAX_SKILLS}</legend>
+              <div className={styles.choices}>
+                {SKILL_OPTIONS.map((s) => (
+                  <label className={styles.radio} key={s}>
+                    <input type="checkbox" checked={form.skills.includes(s)} disabled={full && !form.skills.includes(s)} onChange={() => toggleSkill(s)} /> {s}
+                  </label>
+                ))}
+              </div>
+              {customSkills.length > 0 && (
+                <ul className={styles.chips} aria-label="Your own skills">
+                  {customSkills.map((t) => (
+                    <li key={t}>
+                      {t}{' '}
+                      <button type="button" className={styles.chipRemove} aria-label={`Remove ${t}`} onClick={() => toggleSkill(t)}>
+                        ×
                       </button>
-                      {row.vis && (
-                        <button
-                          type="button"
-                          className={styles.visToggle}
-                          aria-pressed={pub}
-                          aria-label={`${row.label}: ${pub ? 'visible to participants' : 'organizers only'}`}
-                          disabled={saving}
-                          onClick={() => row.vis && toggle(row.vis, row.label)}
-                        >
-                          <span aria-hidden="true">{pub ? '👁' : '🔒'}</span> {pub ? 'Visible' : 'Organizers only'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {!pub && editing !== row.id && row.vis && HEALTH_FIELDS.includes(row.vis) && value && <p className={styles.rowNote}>Only organizers see this.</p>}
-                </li>
-              );
-            })}
-          </ul>
-        </article>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className={styles.actions}>
+                <input
+                  className={styles.input}
+                  aria-label="Other skill"
+                  placeholder="Other: type your own"
+                  maxLength={30}
+                  value={customSkill}
+                  disabled={full}
+                  onChange={(e) => setCustomSkill(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addCustomSkill();
+                    }
+                  }}
+                />
+                <button type="button" className={styles.secondary} disabled={full || !customSkill.trim()} onClick={addCustomSkill}>
+                  Add
+                </button>
+              </div>
+              <span id="skills-count" className={errors.has('skills') ? styles.fieldError : styles.muted}>
+                {errors.has('skills') ? `✕ ${errors.get('skills')}` : `${form.skills.length} of ${MAX_SKILLS} picked`}
+              </span>
+            </fieldset>,
+          )}
+          {row(
+            'lookingFor',
+            'Looking for',
+            'lookingFor',
+            <fieldset className={styles.fieldset}>
+              <legend>Looking for</legend>
+              {LOOKING_FOR.map((x) => (
+                <label className={styles.radio} key={x}>
+                  <input
+                    type="checkbox"
+                    checked={form.lookingFor.includes(x)}
+                    onChange={(e) => setForm((f) => ({ ...f, lookingFor: e.target.checked ? [...f.lookingFor, x] : f.lookingFor.filter((y) => y !== x) }))}
+                  />{' '}
+                  {LOOKING_FOR_LABEL[x]}
+                </label>
+              ))}
+            </fieldset>,
+          )}
+          {row(
+            'links',
+            'Links',
+            'links',
+            LINKS.map(([key, label, hint]) => (
+              <label className={styles.field} htmlFor={`f-${key}`} key={key}>
+                {label}
+                <input
+                  id={`f-${key}`}
+                  type="url"
+                  className={styles.input}
+                  value={form.text[key]}
+                  placeholder={hint}
+                  aria-invalid={errors.has(key) ? true : undefined}
+                  onChange={(e) => setText(key, e.target.value)}
+                />
+                {errorLine(key)}
+              </label>
+            )),
+          )}
+          {view.canEditDiscord && row('discordHandle', 'Discord', 'discord', textInput('discordHandle', 32, 'your.handle'))}
+          {row(
+            'dietaryNotes',
+            'Dietary restrictions',
+            'dietary',
+            <fieldset className={styles.fieldset}>
+              <legend>Dietary restrictions</legend>
+              <div className={styles.choices}>
+                <label className={styles.radio}>
+                  <input type="checkbox" checked={form.dietary.none} onChange={(e) => setDietary(e.target.checked ? { none: true, chosen: [], otherOn: false, other: '' } : { none: false })} /> None
+                </label>
+                {DIETARY_OPTIONS.map((o) => (
+                  <label className={styles.radio} key={o}>
+                    <input
+                      type="checkbox"
+                      checked={form.dietary.chosen.includes(o)}
+                      onChange={(e) => setDietary({ none: false, chosen: e.target.checked ? [...form.dietary.chosen, o] : form.dietary.chosen.filter((x) => x !== o) })}
+                    />{' '}
+                    {o}
+                  </label>
+                ))}
+                <label className={styles.radio}>
+                  <input type="checkbox" checked={form.dietary.otherOn} onChange={(e) => setDietary({ none: false, otherOn: e.target.checked })} /> Other
+                </label>
+              </div>
+              {form.dietary.otherOn && <input className={styles.input} aria-label="Other dietary restriction" placeholder="Tell us what to avoid" value={form.dietary.other} onChange={(e) => setDietary({ other: e.target.value })} />}
+              {errorLine('dietaryNotes')}
+            </fieldset>,
+          )}
+          {row('accessibilityNotes', 'Accessibility / health needs', 'accessibility', textInput('accessibilityNotes', 500, 'Anything organizers should know', true))}
+        </ul>
+        <div className={styles.saveBar}>
+          <button type="submit" disabled={saving || !dirty || !parsed.success}>
+            {saving ? 'Saving…' : 'Save profile'}
+          </button>
+          <span className={styles.muted} aria-live="polite">
+            {dirty ? (parsed.success ? 'Unsaved changes' : 'Fix the highlighted fields to save') : 'All changes saved'}
+          </span>
+        </div>
         {message && (
-          <p role="status" className={`${styles.alert} ${message.ok ? styles.alertOk : styles.alertBad}`}>
+          <p role="alert" className={`${styles.alert} ${message.ok ? styles.alertOk : styles.alertBad}`}>
             {message.text}
           </p>
         )}
+      </form>
+
+      <section className={styles.card} aria-labelledby="preview-heading">
+        <h2 id="preview-heading">How others see you</h2>
+        <p className={styles.muted}>Your saved profile, as other participants see it when they tap your badge.</p>
+        <PublicProfileCard profile={view.public} />
       </section>
 
       <section className={styles.card} aria-labelledby="photo-heading">
         <h2 id="photo-heading">Check-in photo</h2>
-        <p className={styles.muted}>Only organizers and volunteers see this, at check-in. It’s never on your public profile.</p>
+        <p className={styles.muted}>Only organizers and volunteers see this, at check-in. It’s never on your public profile. It saves as soon as you pick it.</p>
         {view.photo.url && <Image src={view.photo.url} alt="Your check-in photo" width={160} height={160} unoptimized className={styles.photo} />}
         {view.photo.locked ? (
           <p className={styles.muted}>Locked: you’ve checked in, so your photo can’t change.</p>

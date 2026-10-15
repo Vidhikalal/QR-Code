@@ -43,3 +43,7 @@
 .visToggle { min-height: 44px; padding: 0 10px; font-size: 13px; background: #fff; color: var(--fg); border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
 .visToggle[aria-pressed="false"] { background: #f3f4f6; }
 .rowNote { margin: 0 4px 4px; font-size: 13px; color: var(--muted); }
+/* Demo feedback 2026-10-14: one form with a single Save at the end. */
+.rowHead { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px; }
+.saveBar { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 16px -4px 0; padding: 12px 4px; background: #fff; border-top: 1px solid var(--line); }

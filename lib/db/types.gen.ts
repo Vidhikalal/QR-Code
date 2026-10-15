@@ -1020,6 +1020,7 @@ export type Database = {
           p_participant_id: string
           p_skills: string[]
           p_update: boolean
+          p_year: string
         }
         Returns: undefined
       }
@@ -1194,6 +1195,7 @@ export type Database = {
           p_search_text: string
           p_skills?: string[]
           p_status: Database["public"]["Enums"]["participant_status"]
+          p_year_label?: string
         }
         Returns: string
       }

@@ -59,6 +59,7 @@ async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: 
     p_accessibility_notes: v.row.accessibilityNotes ?? undefined,
     p_skills: v.row.skills,
     p_looking_for: v.row.lookingFor,
+    p_year_label: v.row.yearLabel ?? undefined,
   });
   if (error) throw new Error(`ingest_sheet_row failed (${error.code})`);
   if (!isDbResult(data)) throw new Error('ingest_sheet_row returned an unknown result');

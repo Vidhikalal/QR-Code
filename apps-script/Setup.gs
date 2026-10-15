@@ -17,6 +17,18 @@ const CONFIG = {
   INGEST_SECRET: 'PASTE_SHEET_INGEST_SECRET_FROM_.env.local',
 };
 
+// The profile choice lists (2026-10-14). Keep them identical to lib/profile/choices.ts: the app matches
+// answers against these exact names (tests/unit/profile-choices.test.ts checks this file). Google joins
+// checkbox answers with ", ", so no option may contain a comma.
+const YEAR_OPTIONS = ['1st year', '2nd year', '3rd year', '4th year', '5+ year', 'Alumni'];
+const DIETARY_OPTIONS = ['Vegetarian', 'Vegan', 'Halal', 'Kosher', 'Gluten-free', 'Dairy-free', 'Nut allergy', 'Shellfish allergy'];
+const SKILL_OPTIONS = [
+  'Frontend', 'Backend', 'Full-stack', 'Mobile apps', 'AI / ML', 'Data science', 'Data analysis', 'Databases',
+  'Cloud / DevOps', 'Cybersecurity', 'Embedded / hardware', 'Game development', 'Blockchain / Web3',
+  'Competitive programming', 'UI/UX design', 'Graphic design', 'Product management', 'Project management',
+  'Research', 'Pitching', 'Public speaking', 'Marketing', 'Business strategy', 'Writing',
+];
+
 function requireConfig_() {
   if (CONFIG.ENDPOINT.includes('YOUR-TUNNEL') || CONFIG.INGEST_SECRET.length < 32) {
     throw new Error('Fill in CONFIG first (ENDPOINT and INGEST_SECRET).');
@@ -39,11 +51,15 @@ function setupTestForm() {
   form.addTextItem().setTitle('Last Name');
   form.addTextItem().setTitle('Email Address').setRequired(true)
       .setValidation(FormApp.createTextValidation().setHelpText('Enter a valid email.').requireTextIsEmail().build());
-  form.addParagraphTextItem().setTitle('Dietary Restrictions');
+  form.addListItem().setTitle('Year of study').setChoiceValues(YEAR_OPTIONS);
+  form.addCheckboxItem().setTitle('Dietary Restrictions').setChoiceValues(DIETARY_OPTIONS).showOtherOption(true)
+      .setHelpText('Pick all that apply, or leave blank if none.');
   form.addTextItem().setTitle('LinkedIn URL').setHelpText('Optional, e.g. https://www.linkedin.com/in/your-name')
       .setValidation(FormApp.createTextValidation().setHelpText('Enter a full URL.').requireTextIsUrl().build());
   // Profile questions (2026-10-13). The titles must match HEADERS in Code.gs; answers seed the profile.
-  form.addTextItem().setTitle('What are you good at?').setHelpText('A few skills, separated by commas (up to 5), e.g. React, design, pitching');
+  form.addCheckboxItem().setTitle('What are you good at?').setHelpText('Pick your top 3. Use Other for one of your own.')
+      .setChoiceValues(SKILL_OPTIONS).showOtherOption(true).setRequired(true)
+      .setValidation(FormApp.createCheckboxValidation().setHelpText('Pick up to 3.').requireSelectAtMost(3).build());
   form.addCheckboxItem().setTitle('What are you looking for?')
       .setChoiceValues(['A team', 'A mentor', 'An internship', 'A job', 'Networking']);
   form.addParagraphTextItem().setTitle('Accessibility or health needs')
@@ -51,7 +67,7 @@ function setupTestForm() {
 
   // 2. Send responses to this spreadsheet and wait for the response tab to appear.
   form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
-  const sheet = waitForResponseSheet_(ss.getId(), 9); // Timestamp + 8 questions
+  const sheet = waitForResponseSheet_(ss.getId(), 10); // Timestamp + 9 questions
   if (sheet.getName() !== SHEET_NAME) sheet.setName(SHEET_NAME); // SHEET_NAME comes from Code.gs
 
   // 3. The three organizer columns, with a dropdown on Status (blank = pending).

@@ -71,20 +71,32 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
         accessibilityNotes: null,
         skills: [],
         lookingFor: [],
+        yearLabel: null,
         status: 'pending',
       },
     });
   });
 
-  it('Profiles part B: "What are you good at?" splits into up to 5 skills; bad entries are dropped, never INVALID', () => {
+  it('Demo feedback 2026-10-14: "What are you good at?" checkboxes → known options plus one Other skill, top 3, never INVALID', () => {
     const skills = (raw: string) => {
       const v = validateRow({ ...good, skills: raw });
       return v.ok ? v.row.skills : v.result;
     };
-    expect(skills('React, design ; Pitching\nreact,  ')).toEqual(['React', 'design', 'Pitching']); // case-insensitive duplicates
-    expect(skills('a, b, c, d, e, f, g')).toEqual(['a', 'b', 'c', 'd', 'e']);
-    expect(skills(`ok, ${'x'.repeat(31)}`)).toEqual(['ok']);
+    expect(skills('frontend, UI/UX design, Rust, Go')).toEqual(['Frontend', 'UI/UX design', 'Rust, Go']);
+    expect(skills('Frontend, Backend, Mobile apps, Databases')).toEqual(['Frontend', 'Backend', 'Mobile apps']);
+    expect(skills(`Backend, ${'x'.repeat(31)}`)).toEqual(['Backend', 'x'.repeat(30)]);
     expect(skills('')).toEqual([]);
+  });
+
+  it('Demo feedback 2026-10-14: "Year of study" maps to one of the six options; anything else is dropped, never INVALID', () => {
+    const year = (raw: string) => {
+      const v = validateRow({ ...good, year_label: raw });
+      return v.ok ? v.row.yearLabel : v.result;
+    };
+    expect(year('4th year')).toBe('4th year');
+    expect(year('Alumni')).toBe('Alumni');
+    expect(year('Senior')).toBeNull();
+    expect(year('')).toBeNull();
   });
 
   it('Profiles part B: "What are you looking for?" maps Google\'s checkbox text by keyword; unknown choices dropped', () => {
@@ -105,10 +117,10 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
 
   it('Profiles part B: the new form questions map by their exact titles', () => {
     const values = [
-      ['Applicant ID', 'Email Address', 'First Name', 'Status', 'What are you good at?', 'What are you looking for?', 'Accessibility or health needs'],
-      ['id-1', 'ada@example.com', 'Ada', 'Accepted', 'React, design', 'A team', 'Step-free access'],
+      ['Applicant ID', 'Email Address', 'First Name', 'Status', 'What are you good at?', 'What are you looking for?', 'Accessibility or health needs', 'Year of study'],
+      ['id-1', 'ada@example.com', 'Ada', 'Accepted', 'React, design', 'A team', 'Step-free access', '2nd year'],
     ];
-    expect(mapSheetValues(values)[0]).toMatchObject({ skills: 'React, design', looking_for: 'A team', accessibility_notes: 'Step-free access' });
+    expect(mapSheetValues(values)[0]).toMatchObject({ skills: 'React, design', looking_for: 'A team', accessibility_notes: 'Step-free access', year_label: '2nd year' });
   });
 
   it('T-GAS-07: maps rows by header name regardless of column order; skips blank rows', () => {
@@ -119,8 +131,8 @@ describe('sheet rows (SPEC F3, §9.2)', () => {
       ['1/2', '', 'ben@example.com', 'Ben', 'id-2'],
     ];
     expect(mapSheetValues(values)).toEqual([
-      { external_id: 'id-1', email: 'ada@example.com', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', status: 'Accepted' },
-      { external_id: 'id-2', email: 'ben@example.com', first_name: 'Ben', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', status: '' },
+      { external_id: 'id-1', email: 'ada@example.com', first_name: 'Ada', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', year_label: '', status: 'Accepted' },
+      { external_id: 'id-2', email: 'ben@example.com', first_name: 'Ben', last_name: '', dietary_notes: '', linkedin_url: '', accessibility_notes: '', skills: '', looking_for: '', year_label: '', status: '' },
     ]);
     expect(() => mapSheetValues([['Email Address', 'First Name']])).toThrow(/Applicant ID/);
   });

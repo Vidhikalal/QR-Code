@@ -73,7 +73,7 @@ describe('/api/me/profile (PLAN §9.2)', () => {
       { participant_id: a.id, nickname: 'Ada', bio: 'Engines.' },
       { participant_id: b.id, nickname: 'Bee', bio: null },
     ]);
-    for (const bad of [{ participantId: b.id, nickname: 'Hijack' }, { githubUrl: 'http://github.com/ada' }, { lookingFor: ['cofounder'] }, { publicFields: ['email'] }]) {
+    for (const bad of [{ participantId: b.id, nickname: 'Hijack' }, { githubUrl: 'http://github.com/ada' }, { lookingFor: ['cofounder'] }, { publicFields: ['email'] }, { skills: [] }, { skills: ['a', 'b', 'c', 'd'] }, { yearLabel: 'Senior' }]) {
       expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: bad })).status, JSON.stringify(bad)).toBe(400);
     }
     expect((await me.call('updateProfile', { method: 'PATCH', cookie, body: { nickname: 'X' }, origin: 'https://evil.example' })).status).toBe(403);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_SKILLS, YEAR_OPTIONS } from './choices';
 
 // PLAN §6.3: mirrors every check on the profiles table, so the API answers 400 with a friendly reason
 // instead of a database error. The database stays the authority (CLAUDE.md "constraints live in the DB").
@@ -37,18 +38,29 @@ export const GITHUB = /^https:\/\/(www\.)?github\.com\/[A-Za-z0-9-]{1,39}\/?$/;
 export const WEBSITE = /^https:\/\/[^\s<>"]{4,200}$/;
 export const DISCORD = /^[a-z0-9_.]{2,32}$/;
 
+const unique = <T,>(xs: T[]) => new Set(xs).size === xs.length;
+
 // Labels must already be trimmed (the DB checks x = btrim(x)); the UI trims each chip before sending.
+// Demo feedback 2026-10-14: the top 3, required on save (the DB allows none: profiles exist before
+// their first edit).
 const skills = z
   .array(z.string().refine((x) => x === x.trim() && chars(x) >= 1 && chars(x) <= 30, 'each skill 1–30 characters, no surrounding spaces'))
-  .max(5, 'at most 5 skills');
-const unique = <T,>(xs: T[]) => new Set(xs).size === xs.length;
+  .min(1, 'pick at least one skill')
+  .max(MAX_SKILLS, `pick up to ${MAX_SKILLS} skills`)
+  .refine(unique, 'each skill once');
+
+// One of the six options (profiles_year_label_check); blank clears it.
+const year = z
+  .union([z.enum(YEAR_OPTIONS), z.literal('')])
+  .transform((s) => (s === '' ? null : s))
+  .nullable();
 
 export function profilePatchSchema(opts: { badgeRole: BadgeRole; extraRoles: boolean }) {
   const base = {
     nickname: text(40),
     pronouns: text(30),
     program: text(80),
-    yearLabel: text(30),
+    yearLabel: year,
     bio: text(280),
     linkedinUrl: pattern(LINKEDIN, 'a linkedin.com/in/… link starting with https://'),
     githubUrl: pattern(GITHUB, 'a github.com/… link starting with https://'),

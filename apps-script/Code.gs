@@ -7,6 +7,7 @@ const HEADERS = {
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
   // Optional profile questions (2026-10-13): their answers seed the participant's profile.
   skills: 'What are you good at?', lookingFor: 'What are you looking for?', accessibility: 'Accessibility or health needs',
+  year: 'Year of study', // 2026-10-14
 };
 const REQUIRED = ['id', 'email', 'first', 'status', 'sync'];
 
@@ -53,6 +54,7 @@ function syncRows_(sheet, cols, first, last) {
     last_name: get(v, 'last'), dietary_notes: get(v, 'dietary'),
     linkedin_url: get(v, 'linkedin'), status: get(v, 'status'),
     skills: get(v, 'skills'), looking_for: get(v, 'lookingFor'), accessibility_notes: get(v, 'accessibility'),
+    year_label: get(v, 'year'),
   }));
   const body = JSON.stringify({ event_slug: prop_('EVENT_SLUG'), rows: rows });
   const ts = String(Math.floor(Date.now() / 1000));

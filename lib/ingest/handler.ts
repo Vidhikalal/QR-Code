@@ -20,6 +20,7 @@ const rowSchema = z
     accessibility_notes: cell,
     skills: cell,
     looking_for: cell,
+    year_label: cell,
     status: cell,
   })
   .strict();

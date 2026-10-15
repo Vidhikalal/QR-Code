@@ -48,6 +48,16 @@ describe('profile schema mirrors the profiles table checks (PLAN §6.3)', () => 
     expect(ok(P, { skills: ['Rust'] })).toBe(true);
     expect(ok(ORG, { skills: ['Rust'] })).toBe(true);
     expect(ok(P, { askMeAbout: ['Rust'] })).toBe(false); // the old name is gone from the API
+  });
+
+  it('Demo feedback 2026-10-14: skills are required (1–3); Year is a dropdown of six options, blank clears it', () => {
+    expect(ok(P, { skills: [] })).toBe(false);
+    expect(ok(P, { skills: ['Frontend', 'Backend', 'Rust'] })).toBe(true);
+    expect(ok(P, { skills: ['Frontend', 'Backend', 'Rust', 'Go'] })).toBe(false);
+    expect(ok(P, { skills: ['Rust', 'Rust'] })).toBe(false);
+    expect(ok(P, { yearLabel: '1st year' })).toBe(true);
+    expect(ok(P, { yearLabel: '3rd yr' })).toBe(false);
+    expect(P.parse({ yearLabel: '' })).toEqual({ yearLabel: null });
     expect(ok(ORG, { discordHandle: 'ada.l' })).toBe(false);
     expect(ok(profilePatchSchema({ badgeRole: 'participant', extraRoles: true }), { discordHandle: 'ada.l' })).toBe(true);
   });

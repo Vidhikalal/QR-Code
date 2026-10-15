@@ -206,7 +206,9 @@ For a Sheet to connect:
 1. **The form is linked to the Sheet,** and the responses tab is named `Form Responses 1` (or change `SHEET_NAME` in `Code.gs`).
 2. **Row-1 headers match `HEADERS` in `Code.gs` exactly:**
    - Required: `Email Address`, `First Name`, `Applicant ID`, `Status`, `Sync Status`.
-   - Optional: `Last Name`, `Dietary Restrictions`, `LinkedIn URL`, and the profile questions `What are you good at?` (comma-separated), `What are you looking for?` (checkboxes: A team, A mentor, An internship, A job, Networking) and `Accessibility or health needs`. Their answers start the person's profile; once someone edits a field in their profile, re-syncs no longer overwrite it. `setupTestForm` creates all of these; for an existing form, add the three questions with exactly these titles, then re-paste `Code.gs`.
+   - Optional: `Last Name`, `Dietary Restrictions`, `LinkedIn URL`, and the profile questions `Year of study`, `What are you good at?`, `What are you looking for?` (checkboxes: A team, A mentor, An internship, A job, Networking) and `Accessibility or health needs`. Their answers start the person's profile; once someone edits a field in their profile, re-syncs no longer overwrite it.
+   - The choice questions use the **same lists as the profile page** (they're at the top of `Setup.gs`): `Year of study` is a dropdown of the six years, `Dietary Restrictions` is checkboxes with **Other**, and `What are you good at?` is required checkboxes with **Other** and the rule *Select at most 3*. Copy the option names exactly; the app matches answers by name.
+   - `setupTestForm` creates all of these. **For a form you already have**, edit it by hand in Google Forms: add `Year of study`, change `Dietary Restrictions` and `What are you good at?` to checkbox questions with the options above, then re-paste `Code.gs`.
 
    If your questions are worded differently, edit the values in `HEADERS` rather than renaming columns. Google's built-in "Collect email addresses" setting already produces `Email Address`.
 3. **Status** is Accepted, Waitlisted, Rejected or Withdrawn. Blank means undecided.

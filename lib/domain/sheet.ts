@@ -1,3 +1,4 @@
+import { parseSkillsAnswer, parseYear } from '@/lib/profile/choices';
 import { normalizeEmail, toSearchText } from './normalize';
 
 // SPEC F3 / §9.2 / Appendix A. Pure row handling for the Sheet bridge.
@@ -15,6 +16,8 @@ export interface SheetRowInput {
   accessibility_notes?: string;
   skills?: string;
   looking_for?: string;
+  // Demo feedback 2026-10-14: the "Year of study" dropdown.
+  year_label?: string;
   status?: string;
 }
 
@@ -29,6 +32,7 @@ export interface CleanRow {
   accessibilityNotes: string | null;
   skills: string[];
   lookingFor: LookingFor[];
+  yearLabel: string | null;
   status: IngestStatus;
 }
 
@@ -50,21 +54,9 @@ export function normalizeStatus(raw: string | undefined): IngestStatus | null {
   return (SHEET_STATUSES as readonly string[]).includes(s) ? (s as IngestStatus) : null;
 }
 
-const MAX_SKILLS = 5;
-const MAX_SKILL_CHARS = 30;
-
-/** "React, design; Pitching" → up to 5 trimmed, case-insensitively unique tags of ≤ 30 characters. */
+/** "What are you good at?" checkboxes (demo feedback 2026-10-14): known options plus one Other skill, top 3. */
 export function parseSkills(raw: string | undefined): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const part of (raw ?? '').split(/[,;\n]/)) {
-    const t = part.trim();
-    if (!t || chars(t) > MAX_SKILL_CHARS || seen.has(t.toLowerCase())) continue;
-    seen.add(t.toLowerCase());
-    out.push(t);
-    if (out.length === MAX_SKILLS) break;
-  }
-  return out;
+  return parseSkillsAnswer(raw);
 }
 
 // Google Forms writes checkbox answers as "A team, A mentor"; match by keyword so wording tweaks survive.
@@ -120,6 +112,7 @@ export function validateRow(input: SheetRowInput): RowValidation {
       // Optional answers: bad entries are dropped, never an INVALID row (like LinkedIn).
       skills: parseSkills(input.skills),
       lookingFor: parseLookingFor(input.looking_for),
+      yearLabel: parseYear(input.year_label),
       status,
     },
   };
@@ -139,6 +132,7 @@ export const SHEET_HEADERS = {
   accessibility_notes: 'Accessibility or health needs',
   skills: 'What are you good at?',
   looking_for: 'What are you looking for?',
+  year_label: 'Year of study',
   status: 'Status',
 } as const satisfies Record<keyof SheetRowInput, string>;
 

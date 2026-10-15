@@ -205,6 +205,7 @@ export function createParticipantApi(deps: ParticipantDeps) {
         accessibilityNotes !== undefined && 'accessibility',
         rest.skills !== undefined && 'skills',
         rest.lookingFor !== undefined && 'lookingFor',
+        rest.yearLabel !== undefined && 'year',
       ].filter((x): x is string => typeof x === 'string');
       if (edited.length > 0) {
         const { error } = await db.rpc('mark_owner_edited', { p_participant_id: who.participantId, p_fields: edited });
