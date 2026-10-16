@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createCheckpointsHandler, createScanHandler, createSearchHandler, createVoidHandler } from '@/lib/scan/handlers';
+import { createBadgeLinkHandler, createCheckpointsHandler, createScanHandler, createSearchHandler, createVoidHandler } from '@/lib/scan/handlers';
 import { serviceClient } from './mail';
 import { asBearer, bearerAuth } from './staff';
 
@@ -10,6 +10,7 @@ export function scanApi() {
   const searchH = createSearchHandler(deps);
   const voidH = createVoidHandler(deps);
   const checkpointsH = createCheckpointsHandler(deps);
+  const linkH = createBadgeLinkHandler(deps);
 
   const jsonOf = async (res: Response) => ({ status: res.status, body: (await res.json()) as Record<string, unknown> });
 
@@ -35,6 +36,18 @@ export function scanApi() {
     },
     async checkpoints(jwt: string | null, slug: string) {
       return jsonOf(await checkpointsH(new Request(`http://localhost/api/events/${slug}/checkpoints`, { headers: asBearer(jwt) }), { slug }));
+    },
+    async linkBadge(jwt: string | null, slug: string, body: unknown) {
+      return jsonOf(
+        await linkH(
+          new Request(`http://localhost/api/events/${slug}/badges`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...asBearer(jwt) },
+            body: JSON.stringify(body),
+          }),
+          { slug },
+        ),
+      );
     },
     async voidScan(jwt: string | null, id: string, body: unknown) {
       return jsonOf(

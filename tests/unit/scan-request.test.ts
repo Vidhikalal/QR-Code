@@ -27,4 +27,16 @@ describe('POST /api/scan body (SPEC §9.1)', () => {
     expect(ok({ ...base, method: 'qr', token, extra: 1 })).toBe(false);
     expect(ok({ ...base, method: 'nfc', token })).toBe(false);
   });
+
+  it('T-NFC-02: nfc needs a normalized badgeUid and nothing else; qr and manual reject badgeUid', () => {
+    const badgeUid = '04a1b2c3d4e5f6';
+    expect(ok({ ...base, method: 'nfc', badgeUid })).toBe(true);
+    expect(ok({ ...base, method: 'nfc' })).toBe(false);
+    expect(ok({ ...base, method: 'nfc', badgeUid: '04:A1:B2:C3:D4:E5:F6' })).toBe(false);
+    expect(ok({ ...base, method: 'nfc', badgeUid: '04a1b' })).toBe(false);
+    expect(ok({ ...base, method: 'nfc', badgeUid, token })).toBe(false);
+    expect(ok({ ...base, method: 'nfc', badgeUid, participantId: base.checkpointId })).toBe(false);
+    expect(ok({ ...base, method: 'qr', token, badgeUid })).toBe(false);
+    expect(ok({ ...base, method: 'manual', participantId: base.checkpointId, badgeUid })).toBe(false);
+  });
 });

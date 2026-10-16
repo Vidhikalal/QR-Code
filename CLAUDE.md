@@ -47,7 +47,7 @@ lib/
   db/         server-only Supabase client, typed queries, generated types
   auth/       requireStaff(eventId, role?) and session helpers
   email/      provider interface, console + resend impls, templates
-  scanner/    QrScanner interface + implementation
+  scanner/    QrScanner interface + implementation, Web NFC reader (nfc.ts)
 supabase/migrations/  SQL migrations (never edit applied ones)
 apps-script/Code.gs   Google Sheet bridge (SPEC Appendix A)
 tests/unit | tests/int | tests/e2e | tests/fixtures | tests/assets (QR .y4m videos, EXIF images)
@@ -120,6 +120,7 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
   - the email provider,
   - the clock (`vi.useFakeTimers` or an injected `now()`),
   - the camera (Playwright fake device),
+  - Web NFC (a fake `window.NDEFReader` installed with `addInitScript`),
   - Google APIs.
 - **Isolation.** Each test file creates its own event through `tests/fixtures/standard.ts` with a unique slug. Never depend on another file's data or on execution order.
 - **Concurrency tests use genuinely parallel connections.** Use a `pg.Pool` sized ≥ N plus `Promise.all`, calling `select record_scan(...)` directly. Sequential `await`s in a loop do not test concurrency. The retry race in T-CONC-02 only shows up about 5% of the time, so the nightly loop (T-CONC-07) matters.

@@ -40,4 +40,11 @@ describe('lib/env (S0 smoke)', () => {
   it('rejects an app origin with a path or trailing slash', () => {
     expect(() => parseServerEnv({ ...valid, NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000/' })).toThrow(/APP_ORIGIN/);
   });
+
+  it('T-NFC-15: BADGE_ORIGIN is optional and, when set, a bare origin like the app origin', () => {
+    expect(parseServerEnv(valid).BADGE_ORIGIN).toBeUndefined();
+    expect(parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com' }).BADGE_ORIGIN).toBe('https://nfc.yvesdonato.com');
+    expect(() => parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com/' })).toThrow(/BADGE_ORIGIN/);
+    expect(() => parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com/profile' })).toThrow(/BADGE_ORIGIN/);
+  });
 });

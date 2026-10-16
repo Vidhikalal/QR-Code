@@ -27,6 +27,8 @@ const lookupSchema = z.object({
     deleted: z.boolean(),
     photoPath: z.string().nullable(),
     photoUpdatedAt: z.string().nullable(),
+    profilePublic: z.boolean(),
+    hasLinkedin: z.boolean(),
   }),
   event: z.object({ name: z.string(), venue: z.string(), startsAt: z.string(), timezone: z.string() }),
   checkedIn: z.boolean(),
@@ -82,7 +84,37 @@ export function createPassHandler(deps: { db: Db }) {
         updatedAt: participant.photoUpdatedAt,
       },
       photoLocked: found.checkedIn,
+      profile: { public: participant.profilePublic, hasLinkedin: participant.hasLinkedin },
     });
+  };
+}
+
+const profileBody = z.object({ token: z.string().max(512), profilePublic: z.boolean() }).strict();
+
+// PATCH /api/pass (SPEC §6.5, §9.3): the pass holder opts in or out of the badge profile.
+// Same token-in-body auth and per-IP limit as POST; only an active pass may change it.
+export function createPassProfileHandler(deps: { db: Db }) {
+  return async (request: Request): Promise<Response> => {
+    if (!(await withinLimit(deps.db, ipKey(request), 60, 30))) return json({ error: 'rate_limited' }, 429);
+
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return json({ error: 'invalid_body' }, 400);
+    }
+    const body = profileBody.safeParse(raw);
+    if (!body.success) return json({ error: 'invalid_body' }, 400);
+
+    const found = await lookupToken(deps.db, body.data.token);
+    if (!found || passState(found) !== 'active') return json({ state: 'not_found' }, 404);
+
+    const { error } = await deps.db.rpc('set_profile_public', {
+      p_participant_id: found.participant.id,
+      p_public: body.data.profilePublic,
+    });
+    if (error) throw new Error(`set_profile_public failed (${error.code})`);
+    return json({ profile: { public: body.data.profilePublic, hasLinkedin: found.participant.hasLinkedin } });
   };
 }
 

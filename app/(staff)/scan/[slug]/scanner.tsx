@@ -3,10 +3,12 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { normalizeUid } from '@/lib/domain/badge';
 import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper } from '@/lib/scanner/dedupe';
 import { playFeedback, unlockAudio } from '@/lib/scanner/feedback';
+import { useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
 import { submitScan } from '@/lib/scanner/submit';
@@ -16,7 +18,7 @@ import { CheckpointPicker } from './checkpoint-picker';
 import { ManualSearch } from './manual-search';
 import { ResultScreen } from './result-screen';
 import styles from './scanner.module.css';
-import { CAMERA_KEY, checkpointKey, KIND_LABEL, readPref, writePref, type Checkpoint } from './types';
+import { CAMERA_KEY, checkpointKey, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint } from './types';
 import { UndoDialog } from './undo-dialog';
 
 type CameraState = 'starting' | 'ready' | CameraFailure;
@@ -52,6 +54,10 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [lastOwn, setLastOwn] = useState<{ at: number; scanId: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState<string | null>(null);
+  // §10.5 Link badge: the last participant admitted at the door; armed = the next tap links instead of scanning.
+  const [linkTarget, setLinkTarget] = useState<{ participantId: string; name: string } | null>(null);
+  const [linkArmed, setLinkArmed] = useState(false);
+  const [linking, setLinking] = useState(false);
 
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const offline = !online || networkDown;
@@ -104,8 +110,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     return () => window.removeEventListener('online', clear);
   }, [networkDown]);
 
-  const show = useCallback((outcome: Outcome, cp: Checkpoint) => {
-    const view = viewFor(outcome, { checkpointKind: cp.kind, checkpointName: cp.name, timezone, now: new Date() });
+  const show = useCallback((outcome: Outcome, cp: Checkpoint, method?: ScanRequest['method']) => {
+    const view = viewFor(outcome, { checkpointKind: cp.kind, checkpointName: cp.name, timezone, now: new Date(), method });
     const id = ++resultSeq.current;
     setResult({ view, id, shownAt: performance.now() });
     playFeedback(view.sound);
@@ -115,10 +121,13 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }, [timezone]);
 
   const record = useCallback(
-    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId'>) => {
+    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'badgeUid'>) => {
       if (!checkpoint) return;
       setBusy(true);
       setNotice(null);
+      // A badge tap (e.g. a new badge tapped before "Link badge") keeps the person to link it to.
+      if (part.method !== 'nfc') setLinkTarget(null);
+      setLinkArmed(false);
       // A new physical scan gets a new clientScanId; submitScan's retries reuse it (§10.2).
       const outcome = await submitScan({
         checkpointId: checkpoint.id,
@@ -130,21 +139,27 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       if (outcome.kind === 'unauthorized') return toLogin();
       if (outcome.kind === 'offline') {
         setNetworkDown(true);
-        return show({ kind: 'network' }, checkpoint);
+        return show({ kind: 'network' }, checkpoint, part.method);
       }
       if (outcome.kind === 'response') {
-        if (outcome.data.code === 'ACCEPTED' && outcome.data.scanId && !outcome.data.voided) {
-          setLastOwn({ at: Date.now(), scanId: outcome.data.scanId });
+        const { data } = outcome;
+        if (data.code === 'ACCEPTED' && data.scanId && !data.voided) {
+          setLastOwn({ at: Date.now(), scanId: data.scanId });
           setNow(Date.now());
         }
-        return show({ kind: 'server', data: outcome.data }, checkpoint);
+        // Badges are handed out at the door, to someone admitted (or re-scanned) by QR or manual search.
+        const atDoor = data.code === 'ACCEPTED' || data.code === 'ALREADY_SCANNED';
+        if (atDoor && checkpoint.kind === 'door' && part.method !== 'nfc' && data.participant) {
+          setLinkTarget({ participantId: data.participant.id, name: data.participant.displayName });
+        }
+        return show({ kind: 'server', data }, checkpoint, part.method);
       }
-      show({ kind: outcome.kind }, checkpoint);
+      show({ kind: outcome.kind }, checkpoint, part.method);
     },
     [checkpoint, show, toLogin],
   );
 
-  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || !checkpoint;
+  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || linkArmed || linking || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);
   useEffect(() => {
     onDecode.current = (text: string) => {
@@ -156,6 +171,60 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       void record({ method: 'qr', token: parsed.token });
     };
   }, [scanningPaused, checkpoint, appOrigin, record, show]);
+
+  // §10.5 Link badge. The outcome is a notice, never a result screen (only a scan can be green, I-1).
+  const linkBadge = useCallback(
+    async (uid: string, target: { participantId: string; name: string }) => {
+      setLinkArmed(false);
+      setLinking(true); // scanning stays paused until the link settles
+      setNotice('Linking badge…');
+      const res = await fetch(`/api/events/${encodeURIComponent(slug)}/badges`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ participantId: target.participantId, uid }),
+      }).catch(() => null);
+      setLinking(false);
+      if (!res) return setNotice('✕ Badge not linked: no connection.');
+      if (res.status === 401) return toLogin();
+      const body = (await res.json().catch(() => ({}))) as { code?: string };
+      if (body.code === 'LINKED') {
+        setLinkTarget((t) => (t?.participantId === target.participantId ? null : t));
+        setNotice(`✓ Badge linked to ${target.name}.`);
+      } else if (body.code === 'BADGE_TAKEN') {
+        setNotice('✕ That badge belongs to someone else. Ask an organizer.');
+      } else {
+        setNotice('✕ Badge not linked. Try again.');
+      }
+    },
+    [slug, toLogin],
+  );
+
+  // NFC taps follow the QR rules: dedupe, pause while anything is on screen, MALFORMED without a request.
+  const onTag = useRef<(tag: NfcTag) => void>(() => undefined);
+  useEffect(() => {
+    onTag.current = ({ serial }) => {
+      if (linkArmed && linkTarget) {
+        // Registered with the deduper so Android reporting this tap again isn't scanned right after.
+        deduper.current.shouldHandle(`nfc:${serial}`, Date.now());
+        const uid = normalizeUid(serial);
+        if (!uid) return setNotice('✕ Couldn’t read that badge. Hold it still and try again.');
+        if (!offline) void linkBadge(uid, linkTarget);
+        return;
+      }
+      if (scanningPaused || !checkpoint) return;
+      if (!deduper.current.shouldHandle(`nfc:${serial}`, Date.now())) return;
+      const uid = normalizeUid(serial);
+      if (!uid) return show({ kind: 'malformed' }, checkpoint);
+      void record({ method: 'nfc', badgeUid: uid });
+    };
+  }, [linkArmed, linkTarget, offline, scanningPaused, checkpoint, linkBadge, record, show]);
+
+  // Kept running while a result is shown (taps are ignored above) so Android doesn't open the tag's URL.
+  const nfc = useNfcReader({
+    prefKey: NFC_KEY,
+    onTag: (tag) => onTag.current(tag),
+    onUnreadable: () => setNotice('✕ Couldn’t read that badge. Hold it still and try again.'),
+  });
 
   // Camera: started once; decoding pauses while anything else is on screen (§10.2).
   useEffect(() => {
@@ -209,6 +278,21 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     setCheckpointSetAt(performance.now());
     setPickerOpen(false);
     setLastOwn(null);
+    setLinkTarget(null);
+    setLinkArmed(false);
+    // A deliberate switch makes the same code a new scan here (e.g. the badge just linked at the door).
+    deduper.current = createDeduper();
+  }
+
+  function toggleLink() {
+    if (linkArmed) {
+      setLinkArmed(false);
+      return setNotice(null);
+    }
+    if (!linkTarget) return;
+    if (nfc.state === 'off') void nfc.start(); // this tap is the user gesture Chrome needs
+    setLinkArmed(true);
+    setNotice(`Tap the badge to link it to ${linkTarget.name}.`);
   }
 
   async function undo(reason: string) {
@@ -224,6 +308,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     const body = (await res.json().catch(() => ({}))) as { code?: string };
     if (body.code === 'VOIDED' || body.code === 'ALREADY_VOIDED') {
       setLastOwn(null);
+      setLinkTarget(null); // e.g. "Wrong person": don't offer to link a badge to them
+      setLinkArmed(false);
       setNotice('✓ Last scan undone.');
     } else if (body.code === 'FORBIDDEN') {
       setLastOwn(null);
@@ -234,6 +320,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }
 
   const showUndo = undoVisible(lastOwn, now) && !offline;
+  const showLink = nfc.supported && !!linkTarget && checkpoint?.kind === 'door' && !offline;
 
   return (
     <main
@@ -282,7 +369,27 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
             Undo last
           </button>
         )}
+        {nfc.supported && (
+          <button
+            type="button"
+            className={styles.secondary}
+            aria-pressed={nfc.state !== 'off'}
+            onClick={() => (nfc.state === 'off' ? void nfc.start() : nfc.stop())}
+          >
+            {nfc.state === 'on' ? 'Badge reader: on' : nfc.state === 'starting' ? 'Badge reader: starting…' : 'Badge reader: off'}
+          </button>
+        )}
+        {showLink && linkTarget && (
+          <button type="button" className={styles.secondary} aria-pressed={linkArmed} onClick={toggleLink} disabled={linking}>
+            {linkArmed ? 'Cancel linking' : `Link badge to ${linkTarget.name}`}
+          </button>
+        )}
       </div>
+      {nfc.error && (
+        <p className={styles.notice} role="alert">
+          ✕ {nfc.error}
+        </p>
+      )}
       {notice && (
         <p className={styles.notice} role="status">
           {notice}

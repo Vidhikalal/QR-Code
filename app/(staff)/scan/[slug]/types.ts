@@ -15,6 +15,7 @@ export const KIND_ICON: Record<CheckpointKind, string> = { door: '🚪', meal: '
 // localStorage holds scanner preferences only (CLAUDE.md), never participant data.
 export const checkpointKey = (slug: string) => `passline:checkpoint:${slug}`;
 export const CAMERA_KEY = 'passline:camera';
+export const NFC_KEY = 'passline:nfc';
 
 export function readPref(key: string): string | null {
   try {

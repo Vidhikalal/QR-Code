@@ -1,10 +1,14 @@
 import 'server-only';
 import { z } from 'zod';
 
+const bareOrigin = z.url().refine((u) => new URL(u).origin === u, 'must be a bare origin, no trailing slash');
+
 // SPEC §19. Parsed once, on first use; any problem throws with every bad key listed.
 export const serverEnvSchema = z
   .object({
-    NEXT_PUBLIC_APP_ORIGIN: z.url().refine((u) => new URL(u).origin === u, 'must be a bare origin, no trailing slash'),
+    NEXT_PUBLIC_APP_ORIGIN: bareOrigin,
+    /** §6.5: written onto badge tags; defaults to NEXT_PUBLIC_APP_ORIGIN. */
+    BADGE_ORIGIN: bareOrigin.optional(),
     NEXT_PUBLIC_SUPABASE_URL: z.url(),
     NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),

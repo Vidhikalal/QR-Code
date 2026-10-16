@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, type Browser, type Page } from '@playwright/test';
+import { formatUid } from '@/lib/domain/badge';
 import { latestMagicLink } from './mailpit';
 
 export const E2E_ORIGIN = 'http://localhost:3100';
@@ -37,6 +38,44 @@ export const fakeCameraArgs = (videoFile?: string) => [
   '--use-fake-device-for-media-stream',
   ...(videoFile ? [`--use-file-for-fake-video-capture=${videoFile}`] : []),
 ];
+
+// Web NFC fake (CLAUDE.md mock list): a `window.NDEFReader` that tests drive with `nfcTap`. Every
+// started reader receives each tap; `write()` calls are recorded in `window.__nfcWrites`.
+export async function installFakeNfc(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    const readers = new Set<EventTarget>();
+    const writes: unknown[] = [];
+    class FakeNDEFReader extends EventTarget {
+      async scan(options: { signal?: AbortSignal } = {}): Promise<void> {
+        readers.add(this);
+        options.signal?.addEventListener('abort', () => readers.delete(this));
+      }
+      async write(message: unknown): Promise<void> {
+        writes.push(message);
+      }
+    }
+    w.NDEFReader = FakeNDEFReader;
+    w.__nfcWrites = writes;
+    w.__nfcTap = (serialNumber: string, urls: string[]) => {
+      const records = urls.map((u) => ({ recordType: 'url', data: new DataView(new TextEncoder().encode(u).buffer) }));
+      for (const r of readers) r.dispatchEvent(Object.assign(new Event('reading'), { serialNumber, message: { records } }));
+    };
+  });
+}
+
+type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcWrites: unknown[] };
+
+export async function nfcTap(page: Page, serial: string, urls: string[] = []): Promise<void> {
+  await page.evaluate(([s, u]) => (window as unknown as NfcWindow).__nfcTap(s, u), [serial, urls] as const);
+}
+
+export async function nfcWrites(page: Page): Promise<unknown[]> {
+  return page.evaluate(() => (window as unknown as NfcWindow).__nfcWrites);
+}
+
+/** Chrome's serial-number format for a stored UID: "04a1b2c3" → "04:A1:B2:C3". */
+export const serialOf = formatUid;
 
 export async function chooseCheckpoint(page: Page, name: string): Promise<void> {
   await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^\\S*\\s*${name}\\b`) }).click();

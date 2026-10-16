@@ -26,6 +26,7 @@ describe('POST /api/pass (SPEC F5)', () => {
       event: { name: f.e1.name, venue: 'Fixture Hall', startsAt: expect.any(String), timezone: 'America/Toronto' },
       photo: { url: null, updatedAt: null },
       photoLocked: false,
+      profile: { public: false, hasLinkedin: false }, // §6.5 badge profile opt-in (v0.3)
     });
     await f.checkIn(f.p.A, f.token.A);
     expect(await (await c.lookup({ token: f.token.A })).json()).toMatchObject({ photoLocked: true });

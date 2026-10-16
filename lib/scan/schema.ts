@@ -1,20 +1,26 @@
 import { z } from 'zod';
+import { BADGE_UID_RE } from '@/lib/domain/badge';
 import { SCAN_CODES } from '@/lib/domain/scan-codes';
 
 // SPEC §9.1 request body. Client-safe: the scanner builds requests with the same schema.
 export const scanRequestSchema = z
   .object({
     checkpointId: z.uuid(),
-    method: z.enum(['qr', 'manual']),
+    method: z.enum(['qr', 'manual', 'nfc']),
     token: z.string().regex(/^[A-Za-z0-9_-]{32}$/).optional(),
     participantId: z.uuid().optional(),
+    badgeUid: z.string().regex(BADGE_UID_RE).optional(),
     clientScanId: z.uuidv4(),
     clientScannedAt: z.iso.datetime({ offset: true }),
   })
   .strict()
-  .refine((b) => (b.method === 'qr' ? b.token !== undefined && b.participantId === undefined : b.participantId !== undefined && b.token === undefined), {
-    message: 'token iff qr, participantId iff manual',
-  });
+  .refine(
+    (b) => {
+      const given = { qr: b.token, manual: b.participantId, nfc: b.badgeUid };
+      return given[b.method] !== undefined && Object.values(given).filter((v) => v !== undefined).length === 1;
+    },
+    { message: 'token iff qr, participantId iff manual, badgeUid iff nfc' },
+  );
 
 export type ScanRequest = z.infer<typeof scanRequestSchema>;
 

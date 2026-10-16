@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Authenticate } from '@/lib/auth/session';
 import { requireStaffBySlug } from '@/lib/auth/staff';
 import type { Database } from '@/lib/db/types.gen';
+import { BADGE_UID_RE, LINK_CODES } from '@/lib/domain/badge';
 import { maskEmail } from '@/lib/domain/mask';
 import { sanitizeError } from '@/lib/domain/outbox';
 import { SCAN_CODES, VOID_CODES } from '@/lib/domain/scan-codes';
@@ -90,16 +91,25 @@ export function createScanHandler(deps: ApiDeps) {
     const started = performance.now();
     // Generated types mark every argument without a default as non-null, but record_scan takes NULL
     // for whichever of token hash / participant id the method doesn't use (SPEC §8).
-    const args = {
-      p_checkpoint_id: body.checkpointId,
-      p_staff_user_id: user.id,
-      p_method: body.method,
-      p_token_hash: body.token !== undefined ? sha256hex(body.token) : null,
-      p_participant_id: body.participantId ?? null,
-      p_client_scan_id: body.clientScanId,
-      p_client_scanned_at: body.clientScannedAt,
-    } as RecordScanArgs;
-    const { data, error } = await deps.db.rpc('record_scan', args);
+    const { data, error } =
+      body.badgeUid !== undefined
+        ? // NFC (§8 note): record_badge_scan resolves the badge, then calls record_scan in the same transaction.
+          await deps.db.rpc('record_badge_scan', {
+            p_checkpoint_id: body.checkpointId,
+            p_staff_user_id: user.id,
+            p_badge_uid: body.badgeUid,
+            p_client_scan_id: body.clientScanId,
+            p_client_scanned_at: body.clientScannedAt,
+          })
+        : await deps.db.rpc('record_scan', {
+            p_checkpoint_id: body.checkpointId,
+            p_staff_user_id: user.id,
+            p_method: body.method,
+            p_token_hash: body.token !== undefined ? sha256hex(body.token) : null,
+            p_participant_id: body.participantId ?? null,
+            p_client_scan_id: body.clientScanId,
+            p_client_scanned_at: body.clientScannedAt,
+          } as RecordScanArgs);
     if (error) throw new Error(`record_scan failed (${error.code})`);
     const result = scanResultSchema.parse(data);
     const latencyMs = Math.round(performance.now() - started);
@@ -157,6 +167,30 @@ export function createCheckpointsHandler(deps: ApiDeps) {
         capacity: c.capacity,
       })),
     });
+  };
+}
+
+const linkBody = z.object({ participantId: z.uuid(), uid: z.string().regex(BADGE_UID_RE) }).strict();
+
+// POST /api/events/[slug]/badges (SPEC §6.5). Any staff member of the event may link an unlinked
+// badge; only an organizer's link moves a badge that belongs to someone else. Rules live in link_badge().
+export function createBadgeLinkHandler(deps: ApiDeps) {
+  return async (request: Request, params: { slug: string }): Promise<Response> => {
+    const user = await deps.authenticate(request);
+    if (!user) return unauthorized();
+    const staff = await requireStaffBySlug(deps.db, user.id, params.slug);
+    if (!staff) return forbidden();
+    const body = linkBody.safeParse(await readJson(request));
+    if (!body.success) return badRequest();
+    const { data, error } = await deps.db.rpc('link_badge', {
+      p_event_id: staff.eventId,
+      p_participant_id: body.data.participantId,
+      p_uid: body.data.uid,
+      p_actor: user.id,
+      p_move: staff.role === 'organizer',
+    });
+    if (error) throw new Error(`link_badge failed (${error.code})`);
+    return json({ code: z.enum(LINK_CODES).parse(data) });
   };
 }
 

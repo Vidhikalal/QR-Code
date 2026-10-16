@@ -40,17 +40,18 @@ export type Database = {
           actor_kind: string
           actor_user_id: string | null
           created_at: string
-          detail: Json
+          detail: NonNullable<Json>
           event_id: string | null
           id: number
           subject_id: string | null
         }
+        ComputedFields: never
         Insert: {
           action: string
           actor_kind: string
           actor_user_id?: string | null
           created_at?: string
-          detail?: Json
+          detail?: NonNullable<Json>
           event_id?: string | null
           id?: never
           subject_id?: string | null
@@ -60,7 +61,7 @@ export type Database = {
           actor_kind?: string
           actor_user_id?: string | null
           created_at?: string
-          detail?: Json
+          detail?: NonNullable<Json>
           event_id?: string | null
           id?: never
           subject_id?: string | null
@@ -72,6 +73,43 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      badges: {
+        Row: {
+          event_id: string
+          linked_at: string
+          participant_id: string
+          uid: string
+        }
+        ComputedFields: never
+        Insert: {
+          event_id: string
+          linked_at?: string
+          participant_id: string
+          uid: string
+        }
+        Update: {
+          event_id?: string
+          linked_at?: string
+          participant_id?: string
+          uid?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "badges_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "badges_participant_id_event_id_fkey"
+            columns: ["participant_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id", "event_id"]
           },
         ]
       }
@@ -87,6 +125,7 @@ export type Database = {
           sort_order: number
           starts_at: string | null
         }
+        ComputedFields: never
         Insert: {
           capacity?: number | null
           event_id: string
@@ -133,6 +172,7 @@ export type Database = {
           sent_at: string | null
           status: Database["public"]["Enums"]["outbox_status"]
         }
+        ComputedFields: never
         Insert: {
           attempts?: number
           created_at?: string
@@ -176,6 +216,7 @@ export type Database = {
           role: Database["public"]["Enums"]["staff_role"]
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           added_at?: string
           event_id: string
@@ -210,6 +251,7 @@ export type Database = {
           timezone: string
           venue: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           ends_at: string
@@ -249,11 +291,13 @@ export type Database = {
           linkedin_url: string | null
           photo_path: string | null
           photo_updated_at: string | null
+          profile_public: boolean
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
           updated_at: string
         }
+        ComputedFields: never
         Insert: {
           created_at?: string
           deleted_at?: string | null
@@ -268,6 +312,7 @@ export type Database = {
           linkedin_url?: string | null
           photo_path?: string | null
           photo_updated_at?: string | null
+          profile_public?: boolean
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
@@ -287,6 +332,7 @@ export type Database = {
           linkedin_url?: string | null
           photo_path?: string | null
           photo_updated_at?: string | null
+          profile_public?: boolean
           search_text?: string
           source?: string
           status?: Database["public"]["Enums"]["participant_status"]
@@ -311,6 +357,7 @@ export type Database = {
           revoked_at: string | null
           token_hash: string
         }
+        ComputedFields: never
         Insert: {
           id?: string
           issued_at?: string
@@ -343,6 +390,7 @@ export type Database = {
           key: string
           window_start: string
         }
+        ComputedFields: never
         Insert: {
           hits?: number
           key: string
@@ -366,6 +414,7 @@ export type Database = {
           result_code: string
           staff_user_id: string | null
         }
+        ComputedFields: never
         Insert: {
           checkpoint_id?: string | null
           created_at?: string
@@ -426,6 +475,7 @@ export type Database = {
           voided_at: string | null
           voided_by: string | null
         }
+        ComputedFields: never
         Insert: {
           checkpoint_id: string
           client_scan_id: string
@@ -493,6 +543,7 @@ export type Database = {
           event_id: string
           role: Database["public"]["Enums"]["staff_role"]
         }
+        ComputedFields: never
         Insert: {
           email: string
           event_id: string
@@ -518,6 +569,7 @@ export type Database = {
           display_name: string
           user_id: string
         }
+        ComputedFields: never
         Insert: {
           display_name: string
           user_id: string
@@ -539,6 +591,7 @@ export type Database = {
           live_scans: number | null
           name: string | null
         }
+        ComputedFields: never
         Relationships: [
           {
             foreignKeyName: "checkpoints_event_id_fkey"
@@ -552,13 +605,22 @@ export type Database = {
     }
     Functions: {
       _prior: {
-        Args: { me: string; s: Database["public"]["Tables"]["scans"]["Row"] }
+        Args: {
+          me: string
+          s: Omit<
+            Database["public"]["Tables"]["scans"]["Row"],
+            Database["public"]["Tables"]["scans"]["ComputedFields"]
+          >
+        }
         Returns: Json
       }
       _who: {
         Args: {
           k: Database["public"]["Enums"]["checkpoint_kind"]
-          pa: Database["public"]["Tables"]["participants"]["Row"]
+          pa: Omit<
+            Database["public"]["Tables"]["participants"]["Row"],
+            Database["public"]["Tables"]["participants"]["ComputedFields"]
+          >
         }
         Returns: Json
       }
@@ -600,6 +662,7 @@ export type Database = {
           status: Database["public"]["Enums"]["participant_status"]
         }[]
       }
+      badge_profile: { Args: { p_uid: string }; Returns: Json }
       claim_outbox: {
         Args: { p_limit?: number }
         Returns: {
@@ -680,10 +743,30 @@ export type Database = {
         Args: { p_participant_id: string; p_token_hash: string }
         Returns: string
       }
+      link_badge: {
+        Args: {
+          p_actor: string
+          p_event_id: string
+          p_move: boolean
+          p_participant_id: string
+          p_uid: string
+        }
+        Returns: string
+      }
       pass_lookup: { Args: { p_token_hash: string }; Returns: Json }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean
+      }
+      record_badge_scan: {
+        Args: {
+          p_badge_uid: string
+          p_checkpoint_id: string
+          p_client_scan_id: string
+          p_client_scanned_at: string
+          p_staff_user_id: string
+        }
+        Returns: Json
       }
       record_scan: {
         Args: {
@@ -717,6 +800,10 @@ export type Database = {
           status: Database["public"]["Enums"]["participant_status"]
         }[]
       }
+      set_profile_public: {
+        Args: { p_participant_id: string; p_public: boolean }
+        Returns: undefined
+      }
       void_scan: {
         Args: { p_reason: string; p_scan_id: string; p_staff_user_id: string }
         Returns: Json
@@ -731,7 +818,7 @@ export type Database = {
         | "waitlisted"
         | "rejected"
         | "withdrawn"
-      scan_method: "qr" | "manual"
+      scan_method: "qr" | "manual" | "nfc"
       staff_role: "organizer" | "volunteer"
     }
     CompositeTypes: {
@@ -872,9 +959,8 @@ export const Constants = {
         "rejected",
         "withdrawn",
       ],
-      scan_method: ["qr", "manual"],
+      scan_method: ["qr", "manual", "nfc"],
       staff_role: ["organizer", "volunteer"],
     },
   },
 } as const
-

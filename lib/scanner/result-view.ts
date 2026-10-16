@@ -17,6 +17,8 @@ export interface ViewContext {
   checkpointName: string;
   timezone: string;
   now: Date;
+  /** How the scan was made; only changes the NOT_FOUND wording (§10.2 "NOT_FOUND via NFC"). */
+  method?: 'qr' | 'manual' | 'nfc';
 }
 
 export interface ResultView {
@@ -79,7 +81,9 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
       return problem('red', '✕', `ALREADY SCANNED${when}${by}`, { ...who, detail: 'Check the photo' });
     }
     case 'NOT_FOUND':
-      return problem('red', '✕', 'UNKNOWN CODE', { detail: 'Use manual search', action: 'manual-search' });
+      return ctx.method === 'nfc'
+        ? problem('red', '✕', 'UNKNOWN BADGE', { detail: 'Scan their QR, then Link badge' })
+        : problem('red', '✕', 'UNKNOWN CODE', { detail: 'Use manual search', action: 'manual-search' });
     case 'REVOKED':
       return r.reissued
         ? problem('amber', '!', 'OLD CODE', { ...who, detail: 'Ask for their newest email' })

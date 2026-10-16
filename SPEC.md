@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.1 · **Owner:** Ade · **Last updated:** 2026-09-23
+> **Status:** Draft v0.3 · **Owner:** Ade · **Last updated:** 2026-10-16
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -24,6 +24,7 @@ The club runs tech and networking events. People apply through a Google Form, wh
 | G3 | At most one serving per participant per meal | 0 duplicate live meal scans, enforced by the database |
 | G4 | Workshop/session attendance recorded | Every session scan attributable to a participant and a time |
 | G5 | Organizers see live counts and post-event analytics | Dashboard refresh ≤ 10 s; CSV export |
+| G6 | A linked NFC badge works wherever a QR pass works, and opens an opt-in profile when tapped | Same rules and result codes as QR; the profile shows only opted-in fields (§6.5) |
 
 ### Non-goals (v1)
 
@@ -39,7 +40,7 @@ The following are out of scope for v1:
 ### v2 candidates (do not build yet)
 
 - A Wallet pass (`.pkpass`).
-- "Contact swap", where a participant scans another participant's pass to save their opted-in LinkedIn URL.
+- "Contact swap": saving another participant's opted-in profile to your own list. (The opt-in badge profile itself shipped in v0.3, §6.5.)
 - Co-attendance analytics UI.
 - Offline queue with sync.
 - Unlimited-scan checkpoints (booth visit counters).
@@ -60,6 +61,8 @@ The following are out of scope for v1:
 | **Staff** | An authenticated user with a role on an event: `organizer` or `volunteer`. |
 | **Door check-in** | A live scan at the event's single `door` checkpoint. |
 | **Outbox** | A queue table of emails to send. Emails are never sent inline in a request. |
+| **Badge** | An NFC tag whose UID is linked to one participant for one event. Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
+| **Badge profile** | The public page `/profile/<uid>`. It shows a name and LinkedIn only if the participant opted in. |
 
 ---
 
@@ -78,6 +81,10 @@ The following are out of scope for v1:
 | Invite/remove staff | — | — | — | ✅ |
 | Dashboard, analytics, CSV export | — | — | — | ✅ |
 | Sheet ingest endpoint | HMAC-signed Apps Script only | | | |
+| Link a badge to a participant of their event | — | — | ✅ (only an unlinked badge) | ✅ (can move a linked badge) |
+| View a badge profile (`/profile/<uid>`) | ✅ (opted-in fields only) | ✅ | ✅ | ✅ |
+| Opt in/out of the badge profile | — | ✅ | — | — |
+| Write badge tags (Badges page) | — | — | — | ✅ |
 
 Authorization is always checked **server-side**. Hiding a button is not authorization.
 
@@ -306,9 +313,27 @@ end $$;
 - **Cross-event scans are impossible**, enforced by the composite foreign keys (T-SCAN-22).
 - **Exactly one door checkpoint per event** is enforced by `checkpoints_one_door`.
 - **Never hard-delete scans.** Void them instead.
-- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Scans remain, so aggregate counts stay correct.
+- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct.
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
+
+### 5.2 Badges (v0.3)
+
+```sql
+alter type scan_method add value 'nfc';   -- its own migration: a new enum value can't be used in the same transaction
+
+create table badges (
+  uid            text not null check (uid ~ '^([0-9a-f]{2}){4,10}$'),
+  event_id       uuid not null references events on delete cascade,
+  participant_id uuid not null unique,                        -- one badge per participant
+  linked_at      timestamptz not null default now(),
+  primary key (uid, event_id),                                -- links are per event
+  foreign key (participant_id, event_id) references participants (id, event_id) on delete cascade
+);
+
+alter table participants add column profile_public boolean not null default false;  -- badge profile opt-in
+```
+`badges` follows the deny-all rules above. Who linked a badge is recorded in `audit_log` (`badge.link`), not on the row.
 
 ---
 
@@ -323,7 +348,7 @@ end $$;
   - inside the email,
   - inside the QR code,
   - in the pass page's URL **fragment**,
-  - in POST bodies to `/api/scan` and `/api/pass*`.
+  - in POST bodies to `/api/scan` and `/api/pass*`, and the `PATCH /api/pass` body (badge profile opt-in, §6.5).
 
 ### 6.2 QR payload
 
@@ -365,6 +390,15 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 2. If `raw` matches `^${APP_ORIGIN}/p#([A-Za-z0-9_-]{32})$`, return the captured token.
 3. Else if `raw` matches `^[A-Za-z0-9_-]{32}$`, return it (manual paste or printed fallback).
 4. Anything else returns `MALFORMED`. This includes other origins, `http:` in production, extra query or fragment parameters, Wi-Fi QR codes, vCards, and strings over 2 KB. `MALFORMED` MUST NOT trigger a network request, and parsing MUST NOT throw.
+
+### 6.5 NFC badges (v0.3)
+
+- **UID:** the Web NFC `serialNumber` (e.g. `04:A1:B2:C3:D4:E5:F6`), normalized by `normalizeUid()` (`lib/domain/badge.ts`) to lowercase hex without separators, 4–10 bytes: `^([0-9a-f]{2}){4,10}$`. Anything else is `MALFORMED` on the client and `400` on the server.
+- **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
+- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works after a staff member linked it, and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
+- **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
+- **Profile:** `badge_profile(uid)` returns `{ public: false }` or `{ public: true, firstName, lastName, linkedinUrl }` for the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago; otherwise null. It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet and is not editable by the participant.
+- **Browsers:** Web NFC exists only in Chrome on Android. Every NFC control is **hidden** where `NDEFReader` is absent (no fallback text). iPhones still open the profile page by reading the URL record natively.
 
 ---
 
@@ -520,6 +554,8 @@ The **order matters**, and the tests pin it down. On every early return, nothing
 
 Why step 9 comes before step 10: without the lock, two simultaneous scans of the *same* person at a nearly full session could return `CAPACITY_REACHED` to the second scan instead of `ALREADY_SCANNED` (T-SCAN-11, T-CONC-06).
 
+**NFC scans (v0.3)** go through `record_badge_scan(p_checkpoint_id, p_staff_user_id, p_badge_uid, p_client_scan_id, p_client_scanned_at)`. It resolves the badge within the checkpoint's event to a participant id (or null) and calls `record_scan(…, 'nfc', null, <participant id>, …)` in the same transaction. Step 4 then resolves like `manual`; a null id returns `NOT_FOUND` after steps 1–3. Step 5 stays QR-only. A badge linked only in another event resolves to null, so NFC never returns `WRONG_EVENT`. `record_scan()` itself is unchanged.
+
 Reference implementation:
 
 ```sql
@@ -673,8 +709,9 @@ All request bodies are validated with zod, and unknown keys are rejected (`.stri
 
 ```ts
 // Request
-{ checkpointId: string /*uuid*/, method: 'qr' | 'manual',
+{ checkpointId: string /*uuid*/, method: 'qr' | 'manual' | 'nfc',
   token?: string /*^[A-Za-z0-9_-]{32}$, iff qr*/, participantId?: string /*uuid, iff manual*/,
+  badgeUid?: string /*normalized UID §6.5, iff nfc*/,
   clientScanId: string /*uuid v4*/, clientScannedAt: string /*ISO 8601*/ }
 
 // 200 Response
@@ -727,6 +764,9 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
 | `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
+| `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5) |
+| `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
+| `GET /profile/:uid` | none | Badge profile page (§6.5) |
 
 ---
 
@@ -761,6 +801,7 @@ Every state needs an icon, a text label and a color, never color alone. Names ar
 | ALREADY_SCANNED, `scannedByMe` and < 60 s ago | amber ⟳ | "You scanned this 8 s ago" | tap |
 | ALREADY_SCANNED otherwise | red ✕ | "ALREADY SCANNED 12:03 PM by Maya": check the photo | tap |
 | NOT_FOUND | red ✕ | "UNKNOWN CODE": use manual search | tap |
+| NOT_FOUND via NFC | red ✕ | "UNKNOWN BADGE": scan their QR, then Link badge | tap |
 | REVOKED, reissued | amber ! | "OLD CODE": ask for their newest email | tap |
 | REVOKED, not reissued | red ✕ | "PASS CANCELLED": send to organizer | tap |
 | NOT_ACCEPTED | red ✕ | "NOT ACCEPTED (waitlisted)" | tap |
@@ -798,6 +839,14 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - Each row shows: name, photo, status badge, email (**masked for volunteers**: `a***@gmail.com`; full for organizers), and whether they already have a live scan at the selected checkpoint.
 - "Record scan" calls `/api/scan` with `method: 'manual'`.
 
+### 10.5 NFC badges (v0.3, Android Chrome only)
+
+- Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
+- **NFC toggle:** an on/off button; the preference is saved in `localStorage` under `passline:nfc`. The first start must come from a tap (it triggers Chrome's permission prompt); later it auto-starts if the `nfc` permission is already granted.
+- **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
+- **Link badge:** after an `ACCEPTED` or `ALREADY_SCANNED` door scan by QR or manual search, "Link badge to {name}" arms the next tap to call `POST /api/events/:slug/badges`. A badge tapped before arming (UNKNOWN BADGE) keeps the person; Undo or a new QR/manual scan clears it. Scanning stays paused until the link request settles, and the linking tap counts for the 3 s dedupe. The outcome is shown as a short notice (✓ linked / ✕ linked to someone else), never as a green result screen.
+- The reader keeps running while a result is shown (taps are ignored), so Android doesn't open the tag's URL in a new tab.
+
 ---
 
 ## 11. Admin UI (`/admin/[slug]`, organizer only)
@@ -810,6 +859,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
+| Badges | Android only; the tab is hidden elsewhere. Writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
 ---
 
@@ -1132,6 +1182,27 @@ Target: at least 95% of attempts under 3 s.
 | T-PERF-01 | Load test against a preview deployment: 5 virtual scanners, 300 scans in 10 min, seeded 500 participants | `/api/scan` p95 < 700 ms, 0 errors |
 | T-PERF-02 | Dashboard with 1,000 participants and 5,000 scans | first render < 2 s; poll query < 200 ms |
 
+### 14.15 NFC badges — `T-NFC` (e2e fakes `window.NDEFReader` via `addInitScript`)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-NFC-01 | `normalizeUid`: `04:A1:B2:C3:D4:E5:F6`; empty string; 3 or 11 bytes; odd length; non-hex | `04a1b2c3d4e5f6`; the rest invalid, no throw | U |
+| T-NFC-02 | Scan request shape | nfc requires a normalized `badgeUid` and forbids `token`/`participantId`; qr and manual reject `badgeUid` | U |
+| T-NFC-03 | A's badge at D; again; C's badge at D; B's badge at L before the door; A by QR at R, then A's badge at R | `ACCEPTED` (`method = nfc`, `pass_id` null); `ALREADY_SCANNED`; `NOT_ACCEPTED`; `NOT_CHECKED_IN`; `ALREADY_SCANNED` | I |
+| T-NFC-04 | Unknown badge at D; X's E2 badge at D; vol3 with A's badge at D | `NOT_FOUND` and no rows; `NOT_FOUND` with no `otherEvent`; `FORBIDDEN` | I |
+| T-NFC-05 | Link API: vol1 links A; A relinked to a new badge; vol1 links A's badge to B; org1 does the same; an E2 participant via the E1 slug; vol3; no session; uppercase UID | `LINKED` + audit row without UID or PII; old badge → `NOT_FOUND`; `BADGE_TAKEN`; `LINKED` (moved); `NOT_FOUND`; 403; 401; 400 | I |
+| T-NFC-06 | Delete (tombstone) a participant with a badge; revoke a participant's pass | link removed; the badge scans `NOT_FOUND` (both) | I |
+| T-NFC-07 | Raw SQL: bad UID; a second badge for one participant; X linked in E1 | check violation; unique violation; FK violation | I |
+| T-NFC-08 | 10 parallel `link_badge` (volunteer) with one UID and 10 participants, 20 rounds; two badges swapped in parallel, 30 rounds | exactly 1 `LINKED`, 9 `BADGE_TAKEN`, 1 row per round; swaps return only `LINKED`/`BADGE_TAKEN`, never an error (deadlock) | I |
+| T-NFC-09 | Result view: `NOT_FOUND` via NFC; every non-`ACCEPTED` code via NFC | red "UNKNOWN BADGE", tap to dismiss; never green (I-1) | U |
+| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests | E |
+| T-NFC-11 | Manual door scan of B → "Link badge" → tap; that badge at R; stubbed `BADGE_TAKEN`; badge tapped before arming, the same tap reported again after linking, a manual rescan at the door | "Badge linked" notice; RECORDED; "linked to someone else" notice; Link badge still offered, no extra `/api/scan`, Link badge offered after ALREADY_SCANNED | E |
+| T-NFC-12 | `badge_profile`: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago | null; null; `{public:false}`; name + LinkedIn; newest link wins; null; null vs shown; never email, dietary, status or photo | I |
+| T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
+| T-NFC-14 | `/profile/<uid>?tap` in each state; invalid UID | 200, no redirect, correct state, no email or dietary notes in the HTML, security headers; 404 | E |
+| T-NFC-15 | `badgeUrl(origin, uid)`; `badgeWritable` for `https://` vs `http://` origins; `BADGE_ORIGIN` env | exact string; only `https://` is writable; optional, bare origin like `NEXT_PUBLIC_APP_ORIGIN` | U |
+| T-NFC-16 | Badges page with the fake: blank tag; tag already holding the link; no `NDEFReader` | `write()` with exactly one URL record; no write; no Badges tab and no write control | E |
+| T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
+
 ---
 
 ## 15. Non-functional requirements
@@ -1146,7 +1217,7 @@ Target: at least 95% of attempts under 3 s.
   | `NOT_FOUND` per staff | 30 / 5 min → 429 + alert |
   | `/api/pass` per IP | 30 / min |
   | Photo uploads per pass | 10 / h |
-- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin.
+- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, Link badge, the Badges page) need Chrome on Android and are hidden elsewhere.
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
   - status never conveyed by color alone,
@@ -1157,6 +1228,7 @@ Target: at least 95% of attempts under 3 s.
   - Follow the college's student-organization data policies.
   - Retention: photos and dietary notes are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
+  - The badge profile is opt-in and off by default; participants switch it on or off on their pass page.
 - **Logging:**
   - Structured JSON logs.
   - Allowed fields: `participant_id`, `event_id`, `checkpoint_id`, `result_code`, `latency_ms`.
@@ -1175,6 +1247,7 @@ Target: at least 95% of attempts under 3 s.
 - Create checkpoints, all closed.
 - Invite staff; every volunteer signs in once on their own phone and runs a test scan.
 - Export and **print the accepted roster** (name, checkbox per checkpoint) as the offline fallback.
+- If using badges: write the tags on the Badges page (Android), and check one opens `/profile/<uid>` on an iPhone.
 - Check the dashboard: outbox has 0 failed and 0 pending.
 - Charge phones and bring battery packs.
 
@@ -1189,6 +1262,7 @@ Target: at least 95% of attempts under 3 s.
 |-----------|--------|
 | Code won't scan | Manual search → Record scan |
 | `NOT_FOUND` | Manual search by name; check for an email typo in the Sheet; organizer adds a walk-in if they're legit |
+| UNKNOWN BADGE | Scan their QR (or manual search), then "Link badge" |
 | `REVOKED` + reissued | Ask them to open their **newest** email; organizer can resend on the spot |
 | `ALREADY_SCANNED` by someone else | Compare the photo; escalate to an organizer |
 | `WRONG_EVENT` | Organizer decides |
@@ -1216,6 +1290,8 @@ Target: at least 95% of attempts under 3 s.
 | A7 | Scanner library choice: compare html5-qrcode, nimiq `qr-scanner` and `@zxing/browser` on iOS reliability, bundle size and maintenance activity | Swap behind the `QrScanner` interface |
 | A8 | `Utilities.computeHmacSha256Signature(value, key, Utilities.Charset.UTF_8)` output matches Node's HMAC for non-ASCII bodies | T-ING-05 catches it; fix encoding on one side |
 | A9 | Supabase region near Toronto | Choose the nearest and co-locate the Vercel functions |
+| A10 | Chrome on Android gives a `serialNumber` for our tags (NTAG21x) and doesn't open the tag's URL while the page is scanning | Ask volunteers to keep the scanner tab in front; consider tags without a URL record for staff-only use |
+| A11 | Web NFC needs no Permissions-Policy token (only the `nfc` permission) | Add `nfc=(self)` to `Permissions-Policy` and update T-SEC-06 |
 
 ---
 
@@ -1233,6 +1309,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S5** Scanner | staff auth + invites, `/scan`, result UI, manual search, undo | T-SCUI-*, T-SRCH-*, T-SEC-04 |
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
+| **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC + Link badge · N3 badge profile + opt-in · N4 tag writer | T-NFC-01..16 (+ T-NFC-17 manual) |
 
 ---
 
@@ -1250,11 +1327,13 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `BADGE_ORIGIN` | server | Optional. Origin written onto badge tags (§6.5); defaults to `NEXT_PUBLIC_APP_ORIGIN`. Must be `https://` for the writer to write. |
 
 ---
 
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
+- **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
 ---
