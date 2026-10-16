@@ -662,7 +662,10 @@ export type Database = {
           status: Database["public"]["Enums"]["participant_status"]
         }[]
       }
-      badge_profile: { Args: { p_uid: string }; Returns: Json }
+      badge_profile: {
+        Args: { p_uid: string; p_viewer_email: string; p_viewer_id: string }
+        Returns: Json
+      }
       claim_outbox: {
         Args: { p_limit?: number }
         Returns: {

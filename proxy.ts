@@ -28,5 +28,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/scan/:path*', '/admin/:path*'],
+  // /profile: badge profiles are for signed-in attendees and staff only (SPEC §6.5).
+  matcher: ['/scan/:path*', '/admin/:path*', '/profile/:path*'],
 };

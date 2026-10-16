@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { E2E_ORIGIN, signInViaMagicLink } from '../fixtures/e2e';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
 // SPEC §6.5 / §14.15: the public badge profile and the pass-page opt-in.
@@ -11,37 +12,55 @@ test.afterAll(async () => {
   await f.close();
 });
 
-test('T-NFC-14: /profile/<uid>?tap shows each state with no redirect and no private details', async ({ page, request }) => {
-  const loose = randomUid();
-  const res = await request.get(`/profile/${loose}?tap`, { maxRedirects: 0 });
-  expect(res.status()).toBe(200);
-  await page.goto(`/profile/${loose}?tap`);
-  await expect(page.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
+const LINKEDIN = 'https://www.linkedin.com/in/ada-fixture';
+const emailOf = async (participantId: string) =>
+  (await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId])).rows[0]?.email ?? '';
 
+test('T-NFC-14: a signed-out tap goes to sign-in and back; attendees of the event see the profile, others do not', async ({ browser, request }) => {
   const { uid } = await f.linkBadge(f.p.A);
-  await page.goto(`/profile/${uid}?tap`);
-  await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
-  expect(new URL(page.url()).search).toBe('?tap');
+  const tapPath = `/profile/${uid}?tap`;
 
-  await f.pool.query('update participants set profile_public = true, linkedin_url = $2 where id = $1', [
-    f.p.A,
-    'https://www.linkedin.com/in/ada-fixture',
-  ]);
-  await page.goto(`/profile/${uid}?tap`);
+  // Signed out: no profile data, just a redirect that remembers the way back.
+  const out = await request.get(tapPath, { maxRedirects: 0 });
+  expect(out.status()).toBe(307);
+  const to = new URL(out.headers()['location'] ?? '', E2E_ORIGIN);
+  expect(to.pathname).toBe('/login');
+  // Next normalizes the bare `?tap` to `?tap=` when rebuilding the path; the page ignores it either way.
+  expect(to.searchParams.get('next')).toMatch(new RegExp(`^/profile/${uid}\\?tap=?$`));
+
+  // B attends the same event: sign in by magic link, land back on the badge.
+  const b = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const page = await b.newPage();
+  await page.goto(tapPath);
+  await expect(page.getByRole('heading', { name: 'Sign in to see this badge' })).toBeVisible();
+  await signInViaMagicLink(page, await emailOf(f.p.B), tapPath);
+  await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
+
+  await f.pool.query('update participants set profile_public = true, linkedin_url = $2 where id = $1', [f.p.A, LINKEDIN]);
+  await page.reload();
   await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', 'https://www.linkedin.com/in/ada-fixture');
-  const html = await (await request.get(`/profile/${uid}`)).text();
-  const { rows } = await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.A]);
-  expect(rows[0]?.email).toBeTruthy();
-  expect(html).not.toContain(rows[0]?.email ?? '');
+  await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', LINKEDIN);
+  const html = await (await page.request.get(`/profile/${uid}`)).text();
+  expect(html).not.toContain(await emailOf(f.p.A));
   expect(html).not.toContain('Vegetarian');
 
   // Opting out takes effect on the very next view (the page is never cached).
   await f.pool.query('update participants set profile_public = false where id = $1', [f.p.A]);
-  await page.goto(`/profile/${uid}`);
+  await page.reload();
   await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
 
-  expect((await request.get('/profile/not-a-uid')).status()).toBe(404);
+  await page.goto(`/profile/${randomUid()}?tap`);
+  await expect(page.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
+  expect((await page.goto('/profile/not-a-uid'))?.status()).toBe(404);
+  await b.close();
+
+  // X is accepted at the other event: signed in, but not allowed to see this badge.
+  const x = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const xPage = await x.newPage();
+  await signInViaMagicLink(xPage, await emailOf(f.p.X), tapPath);
+  await expect(xPage.getByRole('heading', { name: /Only people at this event/ })).toBeVisible();
+  await expect(xPage.getByText('Ada')).toHaveCount(0);
+  await x.close();
 });
 
 test('T-NFC-14: the pass-page opt-in sends the token only in a PATCH body', async ({ page }) => {
