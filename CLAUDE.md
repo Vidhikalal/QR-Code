@@ -9,7 +9,7 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 - Supabase (Postgres, Auth, Storage) with the local stack via Docker
 - zod · sharp · qrcode
 - Vitest (unit + integration) · Playwright (e2e)
-- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in dev and test.
+- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in test (always) and by default in dev; dev may opt in to `resend` in `.env.local`.
 
 ## Commands
 | Task | Command |
@@ -157,7 +157,7 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
 ## Things you must not do
 - Do not run anything against a remote or production Supabase project (`supabase db push`, `supabase link`, remote SQL). Local only.
 - Do not `git push`, deploy, or change CI secrets.
-- Do not call a real email provider from dev or tests.
+- Do not call a real email provider from tests. In dev, only when `.env.local` sets `EMAIL_PROVIDER=resend` on purpose, and only to addresses you control (never the seed's `@example.test` people: bounces hurt the sending domain).
 - Do not scrape LinkedIn or fetch LinkedIn URLs. `linkedin_url` is stored text only.
 - Do not add offline scanning, Wallet passes, or anything in SPEC §1 non-goals.
 - Do not "simplify" `record_scan()` step order, remove the capacity lock, or drop the replay checks. Each exists because of a specific race (see SPEC §8 and T-CONC-02/06).
