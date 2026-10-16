@@ -30,7 +30,7 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     expect(res.body).toEqual({ error: 'NOT_CONFIGURED' });
   });
 
-  it('T-ING-25 (route): link a Sheet by URL, dry-run shows the diff without writing, apply writes and schedules the drain', async () => {
+  it('T-ING-25 (route): link a Sheet by URL, dry-run shows the diff without writing, apply writes and sends no email', async () => {
     const link = await c.call('updateEvent', org, { slug: f.slug }, {
       method: 'PATCH',
       body: { sheet: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit#gid=0' },
@@ -43,13 +43,14 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from participants where event_id = $1', [f.e1.id]);
     const dry = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true } });
     expect(requestedSheet).toBe('1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789');
-    expect(dry.body).toMatchObject({ dryRun: true, total: 1, counts: { PASS_QUEUED: 1 } });
+    expect(dry.body).toMatchObject({ dryRun: true, total: 1, counts: { CREATED: 1 } });
     const mid = await f.pool.query<{ n: number }>('select count(*)::int as n from participants where event_id = $1', [f.e1.id]);
     expect(mid.rows[0]?.n).toBe(before.rows[0]?.n);
 
     const applied = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: false } });
-    expect(applied.body).toMatchObject({ dryRun: false, counts: { PASS_QUEUED: 1 } });
-    expect(c.scheduled.length).toBe(1);
+    expect(applied.body).toMatchObject({ dryRun: false, counts: { CREATED: 1 } });
+    // v0.4: importing never emails anyone; organizers send RSVPs (F13).
+    expect(c.scheduled.length).toBe(0);
     const { rows } = await f.pool.query<{ actor_kind: string }>(`select actor_kind from audit_log where action = 'sheet.sync' and event_id = $1`, [f.e1.id]);
     expect(rows).toEqual([{ actor_kind: 'staff' }]);
   });

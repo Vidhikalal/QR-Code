@@ -27,7 +27,7 @@ export async function syncSheet(
     dryRun: opts.dryRun,
     total: results.length,
     counts,
-    changes: results.filter((r) => r.result !== 'UNCHANGED' && r.result !== 'IGNORED_CLEAR'),
+    changes: results.filter((r) => r.result !== 'UNCHANGED'),
   };
   if (!opts.dryRun) {
     // Counts only (I-11).

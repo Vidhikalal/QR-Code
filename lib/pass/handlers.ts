@@ -41,16 +41,16 @@ async function lookupToken(db: Db, token: string): Promise<PassLookup | null> {
   return data === null ? null : lookupSchema.parse(data);
 }
 
-async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
+export async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
   const { data, error } = await db.rpc('rate_limit_hit', { p_key: key, p_window_seconds: windowSeconds, p_limit: limit });
   if (error) throw new Error(`rate_limit_hit failed (${error.code})`);
   return data;
 }
 
 // The IP is only used hashed, so no raw address is stored (I-11).
-function ipKey(request: Request): string {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-  return `pass:ip:${sha256hex(ip).slice(0, 32)}`;
+export function ipKey(headers: Headers, scope = 'pass'): string {
+  const ip = headers.get('x-forwarded-for')?.split(',')[0]?.trim() || headers.get('x-real-ip') || 'unknown';
+  return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
 }
 
 const passBody = z.object({ token: z.string().max(512) }).strict();
@@ -58,7 +58,7 @@ const passBody = z.object({ token: z.string().max(512) }).strict();
 // POST /api/pass (SPEC F5, §9.3): token in the body only, never in a URL (I-3).
 export function createPassHandler(deps: { db: Db }) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
 
     let raw: unknown;
     try {
@@ -95,7 +95,7 @@ const profileBody = z.object({ token: z.string().max(512), profilePublic: z.bool
 // Same token-in-body auth and per-IP limit as POST; only an active pass may change it.
 export function createPassProfileHandler(deps: { db: Db }) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
 
     let raw: unknown;
     try {

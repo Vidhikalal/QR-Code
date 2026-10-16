@@ -80,7 +80,8 @@ export interface LinkBadgeOpts {
 
 export const randomUid = () => randomBytes(7).toString('hex');
 
-async function createStaffUser(email: string): Promise<string> {
+// A confirmed account with a password (staff, or an attendee who answered an RSVP).
+export async function createAccount(email: string): Promise<string> {
   const admin = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -187,10 +188,10 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     vol3: `vol3@${slug}.test`,
   };
   const staff = {
-    org1: await createStaffUser(staffEmail.org1),
-    vol1: await createStaffUser(staffEmail.vol1),
-    vol2: await createStaffUser(staffEmail.vol2),
-    vol3: await createStaffUser(staffEmail.vol3),
+    org1: await createAccount(staffEmail.org1),
+    vol1: await createAccount(staffEmail.vol1),
+    vol2: await createAccount(staffEmail.vol2),
+    vol3: await createAccount(staffEmail.vol3),
   };
   const staffRows: Array<[string, string, string, string]> = [
     [e1.id, staff.org1, 'organizer', 'Org One'],

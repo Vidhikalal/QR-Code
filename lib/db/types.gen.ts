@@ -292,6 +292,8 @@ export type Database = {
           photo_path: string | null
           photo_updated_at: string | null
           profile_public: boolean
+          rsvp_sent_at: string | null
+          rsvp_token_hash: string | null
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
@@ -313,6 +315,8 @@ export type Database = {
           photo_path?: string | null
           photo_updated_at?: string | null
           profile_public?: boolean
+          rsvp_sent_at?: string | null
+          rsvp_token_hash?: string | null
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
@@ -333,6 +337,8 @@ export type Database = {
           photo_path?: string | null
           photo_updated_at?: string | null
           profile_public?: boolean
+          rsvp_sent_at?: string | null
+          rsvp_token_hash?: string | null
           search_text?: string
           source?: string
           status?: Database["public"]["Enums"]["participant_status"]
@@ -658,6 +664,7 @@ export type Database = {
           pass_state: string
           photo_path: string
           photo_updated_at: string
+          rsvp_sent_at: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
         }[]
@@ -729,7 +736,6 @@ export type Database = {
           p_last_name: string
           p_linkedin_url?: string
           p_search_text: string
-          p_status: Database["public"]["Enums"]["participant_status"]
         }
         Returns: string
       }
@@ -743,7 +749,11 @@ export type Database = {
         Returns: string
       }
       issue_pass: {
-        Args: { p_participant_id: string; p_token_hash: string }
+        Args: {
+          p_participant_id: string
+          p_pass_id?: string
+          p_token_hash: string
+        }
         Returns: string
       }
       link_badge: {
@@ -757,6 +767,15 @@ export type Database = {
         Returns: string
       }
       pass_lookup: { Args: { p_token_hash: string }; Returns: Json }
+      password_link_kind: { Args: { p_email: string }; Returns: string }
+      queue_rsvps: {
+        Args: {
+          p_actor: string
+          p_event_id: string
+          p_participant_ids: string[]
+        }
+        Returns: number
+      }
       rate_limit_hit: {
         Args: { p_key: string; p_limit: number; p_window_seconds: number }
         Returns: boolean
@@ -791,6 +810,11 @@ export type Database = {
         Args: { p_actor: string; p_event_id: string; p_participant_id: string }
         Returns: string
       }
+      rsvp_lookup: { Args: { p_token_hash: string }; Returns: Json }
+      rsvp_respond: {
+        Args: { p_going: boolean; p_token_hash: string }
+        Returns: string
+      }
       search_participants: {
         Args: { p_checkpoint_id?: string; p_event_id: string; p_query: string }
         Returns: {
@@ -806,6 +830,10 @@ export type Database = {
       set_profile_public: {
         Args: { p_participant_id: string; p_public: boolean }
         Returns: undefined
+      }
+      set_rsvp_token: {
+        Args: { p_outbox_id: string; p_token_hash: string }
+        Returns: boolean
       }
       void_scan: {
         Args: { p_reason: string; p_scan_id: string; p_staff_user_id: string }

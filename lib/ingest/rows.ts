@@ -9,8 +9,6 @@ export const DB_RESULTS = [
   'UPDATED',
   'UNCHANGED',
   'PASS_QUEUED',
-  'REVOKED',
-  'IGNORED_CLEAR',
   'CONFLICT_DUPLICATE_EMAIL',
 ] as const;
 export type IngestResult = (typeof DB_RESULTS)[number] | `INVALID:${string}`;
@@ -52,7 +50,6 @@ async function ingestOne(db: Db, eventId: string, input: SheetRowInput, dryRun: 
     p_first_name: v.row.firstName,
     p_last_name: v.row.lastName,
     p_search_text: v.row.searchText,
-    p_status: v.row.status,
     p_dietary_notes: v.row.dietaryNotes ?? undefined,
     p_linkedin_url: v.row.linkedinUrl ?? undefined,
     p_dry_run: dryRun,

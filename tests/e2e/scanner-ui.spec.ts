@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
-import { authStatePath, chooseCheckpoint, fakeCameraArgs, saveSignedInState, signInViaMagicLink, warmDevServer } from '../fixtures/e2e';
+import { authStatePath, chooseCheckpoint, fakeCameraArgs, saveSignedInState, signIn, warmDevServer } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // UI states driven by stubbed /api/scan responses (CLAUDE.md: route interception for UI-state tests).
@@ -175,7 +175,7 @@ test('T-SCUI-10: an expired session mid-shift goes to login, then back to the sa
   await recordAda(page);
   await page.waitForURL(`**/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
   await page.unroute('**/api/scan');
-  await signInViaMagicLink(page, f.staffEmail.vol1, `/scan/${f.slug}`);
+  await signIn(page, f.staffEmail.vol1, `/scan/${f.slug}`);
   await expect(page.getByTestId('checkpoint-banner')).toContainText('Lunch');
 });
 

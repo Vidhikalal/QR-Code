@@ -19,6 +19,7 @@ export interface Row {
   passState: 'active' | 'revoked' | 'none';
   liveScans: number;
   checkedIn: boolean;
+  rsvpSentAt: string | null;
 }
 
 type Pending = { kind: 'resend' | 'revoke' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
@@ -43,6 +44,10 @@ export function Participants({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // F13: who gets an RSVP. Accepted people can't be picked (they're already in).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
+  const picked = invitable.filter((r) => selected.has(r.id));
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -65,6 +70,22 @@ export function Participants({ slug }: { slug: string }) {
     const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' ? 'DELETE' : 'POST' });
     setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : `✕ ${errorText(r)}`);
     if (kind === 'delete' && openId === row.id) setOpenId(null);
+    await load();
+  }
+
+  function pick(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function sendRsvps() {
+    const r = await api<{ queued: number }>(adminUrl(slug, '/participants/rsvp'), { method: 'POST', body: { ids: picked.map((p) => p.id) } });
+    setMessage(r.ok ? `✓ RSVP emails queued for ${r.data.queued} ${r.data.queued === 1 ? 'person' : 'people'}.` : `✕ ${errorText(r)}`);
+    if (r.ok) setSelected(new Set());
     await load();
   }
 
@@ -99,6 +120,9 @@ export function Participants({ slug }: { slug: string }) {
         <button type="button" onClick={() => setPending({ kind: 'walk-in' })}>
           Add walk-in
         </button>
+        <button type="button" disabled={picked.length === 0} onClick={() => void sendRsvps()}>
+          Send RSVP ({picked.length})
+        </button>
       </div>
       {message && (
         <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
@@ -117,6 +141,16 @@ export function Participants({ slug }: { slug: string }) {
           <table className={styles.table}>
             <thead>
               <tr>
+                <th>
+                  <label className={styles.pick}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select everyone shown who isn't accepted yet"
+                      checked={invitable.length > 0 && picked.length === invitable.length}
+                      onChange={(e) => setSelected(new Set(e.target.checked ? invitable.map((r) => r.id) : []))}
+                    />
+                  </label>
+                </th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Status</th>
@@ -130,6 +164,13 @@ export function Participants({ slug }: { slug: string }) {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>
+                    {r.status !== 'accepted' && (
+                      <label className={styles.pick}>
+                        <input type="checkbox" aria-label={`Select ${fullName(r)}`} checked={selected.has(r.id)} onChange={(e) => pick(r.id, e.target.checked)} />
+                      </label>
+                    )}
+                  </td>
+                  <td>
                     {fullName(r)}
                     {r.isTest && <span className={styles.badge}> TEST</span>}
                     {r.hasPhoto && <span className={styles.muted}> · 📷</span>}
@@ -137,6 +178,7 @@ export function Participants({ slug }: { slug: string }) {
                   <td>{r.email}</td>
                   <td>
                     <span className={`${styles.badge} ${r.status === 'accepted' ? styles.badgeOk : r.status === 'withdrawn' || r.status === 'rejected' ? styles.badgeBad : ''}`}>{r.status}</span>
+                    {r.status === 'pending' && r.rsvpSentAt && <span className={styles.muted}> · RSVP sent</span>}
                   </td>
                   <td>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</td>
                   <td>{r.checkedIn ? '✓ Checked in' : '—'}</td>

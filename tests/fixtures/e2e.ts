@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, type Browser, type Page } from '@playwright/test';
 import { formatUid } from '@/lib/domain/badge';
-import { latestMagicLink } from './mailpit';
+import { STAFF_PASSWORD } from './standard';
 
 export const E2E_ORIGIN = 'http://localhost:3100';
 
@@ -12,14 +12,12 @@ export function authStatePath(name: string): string {
   return join(dir, `${name}.json`);
 }
 
-// The real staff sign-in: login page → magic link from Mailpit → callback → `next`.
-export async function signInViaMagicLink(page: Page, email: string, next: string): Promise<void> {
+// The real sign-in: login page → email + password → `next` (SPEC F9, v0.4).
+export async function signIn(page: Page, email: string, next: string, password = STAFF_PASSWORD): Promise<void> {
   await page.goto(`/login?next=${encodeURIComponent(next)}`);
-  const started = Date.now();
   await page.getByLabel('Email').fill(email);
-  await page.getByRole('button', { name: 'Email me a sign-in link' }).click();
-  await expect(page.getByText('Check your email for a sign-in link')).toBeVisible();
-  await page.goto(await latestMagicLink(email, started));
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL((url) => url.pathname + url.search === next);
 }
 
@@ -28,7 +26,7 @@ export async function saveSignedInState(browser: Browser, email: string, file: s
   // Explicit empty state: the runner would otherwise apply the file's (not yet written) storageState.
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
-  await signInViaMagicLink(page, email, '/');
+  await signIn(page, email, '/');
   await context.storageState({ path: file });
   await context.close();
 }
@@ -91,4 +89,23 @@ export async function warmDevServer(slug: string): Promise<void> {
     fetch(`${E2E_ORIGIN}/api/events/${slug}/participants/search?q=ab`),
     fetch(`${E2E_ORIGIN}/scan/${slug}`, { redirect: 'manual' }),
   ]);
+}
+
+// The e2e server sends with EMAIL_PROVIDER=console, which writes .eml files to ./.mail (SPEC §12).
+// Returns the plain-text body of the newest message to `to` that contains `needle`.
+export async function consoleMailText(to: string, needle: string, timeoutMs = 15_000): Promise<string> {
+  const dir = join(process.cwd(), '.mail');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const files = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.eml')).sort().reverse() : [];
+    for (const name of files) {
+      const raw = readFileSync(join(dir, name), 'utf8');
+      if (!raw.includes(`\r\nTo: ${to}\r\n`)) continue;
+      const part = /Content-Type: text\/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+?)\r\n--/.exec(raw)?.[1];
+      const text = Buffer.from((part ?? '').replace(/\r\n/g, ''), 'base64').toString('utf8');
+      if (text.includes(needle)) return text;
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error(`no console email to ${to} containing ${needle}`);
 }

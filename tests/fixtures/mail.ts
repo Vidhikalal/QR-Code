@@ -40,3 +40,9 @@ export function onlyEmailTo(sent: EmailMessage[], address: string): EmailMessage
   if (mine.length !== 1) throw new Error(`expected exactly one email to the participant, got ${mine.length}`);
   return mine[0] as EmailMessage;
 }
+
+export function rsvpTokenFromEmail(m: EmailMessage): string {
+  const match = /\/rsvp#([A-Za-z0-9_-]{32})/.exec(m.text);
+  if (!match?.[1]) throw new Error('no RSVP link in email');
+  return match[1];
+}

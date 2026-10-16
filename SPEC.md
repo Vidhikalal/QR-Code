@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.3 · **Owner:** Ade · **Last updated:** 2026-10-16
+> **Status:** Draft v0.4 · **Owner:** Ade · **Last updated:** 2026-10-16
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -19,7 +19,7 @@ The club runs tech and networking events. People apply through a Google Form, wh
 
 | ID | Goal | Measure |
 |----|------|---------|
-| G1 | An accepted applicant gets a personal QR pass by email automatically | ≤ 5 min from `Status = Accepted` in the Sheet to the email being sent (p95) |
+| G1 | An applicant who answers Yes to their RSVP gets a personal QR pass by email automatically | ≤ 5 min from the RSVP Yes to the email being sent (p95) |
 | G2 | Fast, duplicate-proof door check-in | ≤ 3 s per person, from the code entering the frame to the result on screen |
 | G3 | At most one serving per participant per meal | 0 duplicate live meal scans, enforced by the database |
 | G4 | Workshop/session attendance recorded | Every session scan attributable to a participant and a time |
@@ -53,6 +53,8 @@ The following are out of scope for v1:
 |------|---------|
 | **Event** | One dated occurrence (e.g. `hackday-2026`). All data is scoped to an event. |
 | **Participant** | An applicant row imported from the Sheet (or a walk-in), with a `status`. |
+| **RSVP** | An invitation an organizer emails to chosen applicants. Yes accepts them, No withdraws them (F13). |
+| **Account** | A Supabase Auth user, signed in with email + password. Staff get one from an invite email, attendees from their RSVP Yes (F9, F13). |
 | **Pass** | A credential issued to an accepted participant. At most one is **active** at a time. |
 | **Token** | The secret random string inside a pass's QR code. It is never stored raw; only `sha256(token)` is stored. |
 | **Checkpoint** | A place where scans happen: `door`, `meal`, `session`, or `custom` (swag, raffle, booth). |
@@ -81,6 +83,9 @@ The following are out of scope for v1:
 | Invite/remove staff | — | — | — | ✅ |
 | Dashboard, analytics, CSV export | — | — | — | ✅ |
 | Sheet ingest endpoint | HMAC-signed Apps Script only | | | |
+| Answer an RSVP (`/rsvp#token`), and set a first password | RSVP link holder only | | | |
+| Send RSVPs to chosen applicants | — | — | — | ✅ |
+| See own passes (`/me`) | — | ✅ signed in with their registered email | — | — |
 | Link a badge to a participant of their event | — | — | ✅ (only an unlinked badge) | ✅ (can move a linked badge) |
 | View a badge profile (`/profile/<uid>`, opted-in fields only) | — (sign in first) | ✅ signed in with their registered email (same event) | ✅ (own event) | ✅ (own event) |
 | Opt in/out of the badge profile | — | ✅ | — | — |
@@ -335,20 +340,31 @@ alter table participants add column profile_public boolean not null default fals
 ```
 `badges` follows the deny-all rules above. Who linked a badge is recorded in `audit_log` (`badge.link`), not on the row.
 
+### 5.3 RSVP (v0.4)
+
+```sql
+alter table participants
+  add column rsvp_token_hash text unique check (rsvp_token_hash ~ '^[0-9a-f]{64}$'),  -- sha256 hex, rotated per RSVP email
+  add column rsvp_sent_at timestamptz;
+-- email_outbox.kind gains 'rsvp'.
+```
+
 ---
 
 ## 6. Tokens, passes & QR codes
 
 ### 6.1 Token
 
-- Generate with `crypto.randomBytes(24).toString('base64url')`. This gives 32 characters, charset `[A-Za-z0-9_-]`, 192 bits of entropy.
+- **DECISION (v0.4): derived, not random.** `token = base64url(HMAC-SHA256(PASS_TOKEN_SECRET, pass_id)[0:24])`: 32 characters, charset `[A-Za-z0-9_-]`, 192 bits. The pass id is a random uuid chosen when the pass is issued (§6.3). The server can recompute the token to show a signed-in owner their pass on `/me`, without ever storing it. Someone holding both the database and `PASS_TOKEN_SECRET` could compute live tokens; the service-role key already lets its holder issue passes, so this adds little. Passes issued before v0.4 have random tokens (`crypto.randomBytes(24)`) and aren't shown on `/me`. Changing the secret has the same effect on older passes; scanning is unaffected.
+- RSVP tokens (F13) are random (`crypto.randomBytes(24)`), stored only as `sha256` in `participants.rsvp_token_hash`, and carried only in `/rsvp#token` and the `POST /api/rsvp` body.
 - Store `sha256(token)` as lowercase hex in `passes.token_hash`. The raw token MUST NOT be written to the DB, logs, analytics, error trackers, URLs' path or query string, or `audit_log`.
 - The token exists in plaintext only in these places:
   - in memory during email rendering,
   - inside the email,
   - inside the QR code,
   - in the pass page's URL **fragment**,
-  - in POST bodies to `/api/scan` and `/api/pass*`, and the `PATCH /api/pass` body (badge profile opt-in, §6.5).
+  - in POST bodies to `/api/scan` and `/api/pass*`, and the `PATCH /api/pass` body (badge profile opt-in, §6.5),
+  - in the `/p#token` link on the signed-in owner's `/me` page (v0.4).
 
 ### 6.2 QR payload
 
@@ -381,6 +397,8 @@ revoke all on function public.issue_pass(uuid, text) from public, anon, authenti
 grant execute on function public.issue_pass(uuid, text) to service_role;
 ```
 
+**v0.4:** `issue_pass(p_participant_id, p_token_hash, p_pass_id uuid default gen_random_uuid())`. The drainer chooses the id so it can derive the token from it (§6.1); everything else is unchanged.
+
 **DECISION: rotate on every send.** Because only hashes are stored, a pass cannot be "resent". Every send, including an organizer's Resend, issues a new token and revokes the old one. Scanning an old token returns `REVOKED` with `reissued = true`, and the UI tells the volunteer to ask for the latest email.
 
 ### 6.4 Parsing scanned text (client and server)
@@ -397,7 +415,7 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 - **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
 - **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works after a staff member linked it, and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
 - **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
-- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account by signing in with the email they registered with; no invite is needed. It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet and is not editable by the participant.
+- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet and is not editable by the participant.
 - **Browsers:** Web NFC exists only in Chrome on Android. Every NFC control is **hidden** where `NDEFReader` is absent (no fallback text). iPhones still open the profile page by reading the URL record natively.
 
 ---
@@ -407,43 +425,42 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 ### F1 — Application intake (no code)
 
 1. Participants apply through the Google Form, which writes to the Sheet.
-2. The Sheet has three extra columns added by organizers: `Applicant ID`, `Status` and `Sync Status`.
-3. `Status` MUST use data validation limited to these values: *(blank)*, `Accepted`, `Waitlisted`, `Rejected`, `Withdrawn`.
+2. The Sheet has two extra columns: `Applicant ID` and `Sync Status`. A `Status` column may stay for the organizers' own notes; since v0.4 Passline ignores it.
 
 ### F2 — Applicant ID assignment
 
 The installable `onFormSubmit` trigger writes `Utilities.getUuid()` into `Applicant ID` for the new row (Appendix A). **Row identity is Applicant ID, never the row number or email.** People sort sheets, and people change emails.
 
-### F3 — Acceptance sync
+### F3 — Applicant import (v0.4)
 
-1. An organizer edits `Status` (one cell or a multi-row paste).
-2. The installable `onEdit` trigger fires. If the edited range intersects the `Status` column, the script reads **every row in the edited range** and POSTs them in one signed request (§9.2).
-3. The server upserts each row using the transition table below and returns per-row results **in request order**.
-4. Apps Script writes each result into `Sync Status` (e.g. `PASS_QUEUED 2026-10-03T14:02:11Z`, or `ERROR HTTP 500`).
-5. If the trigger was missed or failed, an organizer uses **Sync now** (F10) to reconcile.
+**DECISION (v0.4): the Sheet only imports applicants.** Acceptance happens in Passline: organizers send RSVPs (F13) and a Yes accepts. Editing `Status` in the Sheet never accepts, emails or revokes anyone.
 
-**Status normalization:** trim and lowercase. Blank maps to `pending`. The accepted values are `accepted`, `waitlisted`, `rejected` and `withdrawn`. Anything else returns `INVALID:status` for that row.
+1. A form submission, or an edit to any data cell except `Sync Status`, fires the installable trigger. The script reads **every row in the edited range** and POSTs them in one signed request (§9.2).
+2. The server upserts each row using the table below and returns per-row results **in request order**.
+3. Apps Script writes each result into `Sync Status` (e.g. `CREATED 2026-10-03T14:02:11Z`, or `ERROR HTTP 500`).
+4. If the trigger was missed or failed, an organizer uses **Sync now** (F10) to reconcile.
 
 **Transition table** (per row, keyed by `(event_id, external_id)`):
 
-| Existing | Incoming | Action | Row result |
-|----------|----------|--------|-----------|
-| none | pending / waitlisted / rejected / withdrawn | insert participant | `CREATED` |
-| none | accepted | insert, enqueue `pass_issued` | `PASS_QUEUED` |
-| not accepted | accepted | update status, enqueue `pass_issued` | `PASS_QUEUED` |
-| accepted | accepted, same email | update name/dietary if changed | `UNCHANGED` or `UPDATED` |
-| accepted | accepted, **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
-| accepted | waitlisted / rejected / withdrawn | update status, revoke active pass (`status_change`), cancel in-flight outbox | `REVOKED` |
-| accepted | pending (cell cleared) | **no change** (DECISION: accidental deletes must not kill passes) | `IGNORED_CLEAR` |
+| Existing | Row | Action | Row result |
+|----------|-----|--------|-----------|
+| none | valid | insert participant as `pending` | `CREATED` |
+| any (not deleted) | nothing changed | nothing | `UNCHANGED` |
+| not accepted | name, dietary notes, LinkedIn or email changed | update | `UPDATED` |
+| accepted | name, dietary notes or LinkedIn changed | update | `UPDATED` |
+| accepted | **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
+
+Any email change also clears the RSVP token (F13): that link was sent to the old address.
+| deleted (tombstone) | anything | nothing | `UNCHANGED` |
 | any | invalid row | nothing | `INVALID:<field,field>` |
-| none, but email already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
+| none, or an email change, where the email is already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
 
 Rows are processed independently, so one bad row never fails the batch. The whole request MUST be idempotent: replaying an identical request produces no new participants, passes or emails.
 
 ### F4 — Pass email (outbox drain)
 
 Draining is triggered by three things:
-- (a) Next.js `after()` following an ingest or resend,
+- (a) Next.js `after()` following an RSVP send, an RSVP Yes, an ingest or a resend,
 - (b) the admin **Send pending** button,
 - (c) a scheduled job every minute (Supabase `pg_cron` + `pg_net` POSTing to `/api/email/drain` with `DRAIN_SECRET`; §17 A5).
 
@@ -462,8 +479,8 @@ returning o.*;
 ```
 
 **Per claimed row, in this order:**
-1. Reload the participant. If it is not `accepted` or is deleted, set the row to `cancelled` and stop.
-2. Generate the token. Call `issue_pass(participant_id, sha256hex(token))`. **This commits before sending** (I-10). The emailed token must already be valid when it lands.
+1. Reload the participant. If it is deleted, or (for `pass_*` rows) not `accepted`, or (for `rsvp` rows, F13) already `accepted`, set the row to `cancelled` and stop.
+2. For a pass: choose the pass id, derive the token (§6.1), and call `issue_pass(participant_id, sha256hex(token), pass_id)`. For an RSVP: generate a random token and store its hash in `rsvp_token_hash` (with `rsvp_sent_at`). **This commits before sending** (I-10). The emailed link must already work when it lands.
 3. Render the email (§12) and send it through the provider. Use the provider's idempotency key (`outbox.id:attempts`) if supported (§17 A1).
 4. On success: set `status = 'sent'`, `sent_at`, and `provider_message_id`.
 5. On failure: set `status = 'pending'`, `next_attempt_at = now() + backoff[attempts]` (1 min, 5 min, 25 min, 2 h), and `last_error` (truncated, no PII). After 5 attempts, set `status = 'failed'`, which surfaces on the dashboard. On a 429, honor `Retry-After`.
@@ -505,12 +522,16 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 - **Sessions:** `kind = session`, with optional `capacity`. This feeds attendance analytics.
 - **Custom:** swag pickup, raffle entry, sponsor booth. These are once per participant in v1. `requires_checkin` is configurable (e.g. a raffle desk outside the venue sets it to false).
 
-### F9 — Staff onboarding
+### F9 — Staff onboarding and sign-in (v0.4)
 
-1. An organizer enters an email and role on `/admin/<slug>/staff`, which creates a `staff_invites` row.
-2. The staff member signs in with a Supabase Auth magic link (or Google OAuth). The first time, they set `display_name`. Only staff get this step; an attendee who signs in to view badge profiles (§6.5) goes straight back to the badge.
-3. The auth callback consumes every invite matching their verified, lowercased email: it inserts `event_staff` rows and deletes the invites.
-4. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
+1. An organizer enters an email and role on `/admin/<slug>/staff`. An existing account becomes staff at once (and any pending invite for that address is dropped, so an older role can't come back). Otherwise a `staff_invites` row is created and Supabase Auth emails an **invite** link to set a password.
+2. Everyone signs in at `/login` with **email + password**. The first time, staff set `display_name`. Only staff get this step; attendees go straight on (to `/me` by default, or back to the badge, §6.5).
+3. On every sign-in, and after setting a password, every invite matching their verified, lowercased email is consumed: it becomes an `event_staff` row and the invite is deleted.
+4. **"Forgot or never set your password?"** emails a **reset** link for an existing account, an **invite** link (first password) to an accepted participant or invited staff member without an account, and nothing to anyone else. The page shows the same message every time, so it can't be used to find out who has an account.
+5. Invite and reset links open `/auth/confirm` with the token in the **fragment** (never sent to a server, like I-3). It is used only when the person presses **Continue** (a POST), so mail scanners that open links can't spend it. Then `/set-password` (8–72 characters).
+6. An account's email can't be changed without confirming the new address (Supabase "secure email change" stays on), because `/me`, badge profiles and invites trust the account's email.
+7. **DECISION (v0.4): no public sign-up.** Accounts are created only by an RSVP Yes (F13), a staff invite, or step 4.
+8. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
 
 ### F10 — Sync now (reconcile)
 
@@ -528,7 +549,16 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 
 ### F12 — Walk-ins
 
-An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional.
+An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional. A walk-in who wants an account uses "Forgot or never set your password?" (F9).
+
+### F13 — RSVP (v0.4)
+
+1. On the Participants page an organizer ticks applicants who aren't accepted yet and presses **Send RSVP**. `queue_rsvps()` queues one `rsvp` outbox row each; accepted, deleted and other events' people are skipped. Audit `rsvp.send` records the count only.
+2. The drainer emails the invitation (§12) with a link `${APP_ORIGIN}/rsvp#<token>`. Each send rotates the token, so only the newest link works; the token is stored only while the drainer still holds the job (`set_rsvp_token`). An email change in the Sheet (F3) clears it: the link went to the old address.
+3. `/rsvp` reads the fragment and POSTs `{ token }` to `/api/rsvp`. It shows the event and **Yes** / **No**.
+4. **Yes:** `rsvp_respond()` sets `accepted` and, when that accepts them, queues `pass_issued`, unless a pass is already active or an organizer revoked their last pass (only an organizer's Resend issues a new one). An RSVP still waiting in the outbox is cancelled first. Without an account they choose a password first: the server creates a confirmed account (the emailed link proved the address), signs them in and sends them to `/me`. An RSVP never changes an existing account's password.
+5. **No:** `withdrawn`; any active pass is revoked (`status_change`), in-flight email cancelled and the badge link removed.
+6. Answers can change until the event ends; after that the link returns not found. Audit `rsvp.yes` / `rsvp.no`, with no personal data.
 
 ---
 
@@ -750,8 +780,9 @@ Verification:
   last_name?: string, dietary_notes?: string, linkedin_url?: string, status: string }> } // ≤ 500 rows
 // 200 Response — same length and order as rows
 { results: Array<{ external_id: string, result: 'CREATED'|'UPDATED'|'UNCHANGED'|'PASS_QUEUED'
-  |'REVOKED'|'IGNORED_CLEAR'|'CONFLICT_DUPLICATE_EMAIL'|`INVALID:${string}` }> }
+  |'CONFLICT_DUPLICATE_EMAIL'|`INVALID:${string}` }> }
 ```
+`status` is still accepted (older scripts send it) and ignored (F3, v0.4).
 Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to null) with the row still processed, and `INVALID` is **not** raised for it (DECISION: optional field).
 
 ### 9.3 Other endpoints
@@ -767,6 +798,10 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5) |
 | `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
 | `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5) |
+| `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
+| `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation; `{ token, going, password? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn }` (F13) |
+| `GET /me` | signed in | The signed-in person's passes (§6.1) |
+| `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
 ---
 
@@ -854,10 +889,10 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
-| Participants | Search/filter by status, pass state, photo, scans. Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
+| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
-| Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
+| Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
 | Badges | Android only; the tab is hidden elsewhere. Writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
@@ -882,6 +917,8 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
 - **Disable open and click tracking.** Tracking rewrites links, which leaks fragments into redirect logs, and adds pixels.
+- **RSVP email (F13):** subject `You're invited: {Event name} — will you be there?`; greeting, event, local date and time, venue, one "Reply to the invitation" button to `/rsvp#token`, a line saying Yes leads to setting a password and the pass email, organizer contact, privacy line. Same escaping and tracking rules.
+- **Auth emails** (staff invite, password reset) are sent by Supabase Auth through the same SMTP domain, from the templates in `public/auth-email/` (fetched by URL by the hosted auth server).
 - **Dev/test:** `EMAIL_PROVIDER=console` writes `.eml`-style output to `./.mail/` and never calls the network. It also saves each QR image to `./.mail/qr/<Event>-<First>.png` (never overwriting: `-2`, `-3`… on repeats) so passes can be shown to a scanner without opening the email. The label travels as `EmailMessage.fileLabel`, which real providers never send.
 
 ---
@@ -968,9 +1005,10 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-TOK-04 | Parse another origin, `http:` in prod, `/p?t=`, `/pass#`, a 31/33-char token, `+` or `/` characters, an extra `&x=1` | `MALFORMED`, no throw | U |
 | T-TOK-05 | Parse `WIFI:S:x;;`, a vCard, an empty string, a 5 KB string, emoji | `MALFORMED`, no throw | U |
 | T-TOK-06 | `sha256hex` known vector (`"abc"` → `ba7816bf…15ad`) | matches | U |
-| T-TOK-07 | After a full ingest → email → scan flow, search every text column in every table for the raw token | not found anywhere | I |
+| T-TOK-07 | After a full ingest → RSVP → Yes → pass email → scan flow, search every text column in every table for the raw pass and RSVP tokens | not found anywhere | I |
 | T-TOK-08 | Render a QR PNG and decode it (zxing/jsQR in Node) | decodes to the exact URL; corner pixel opaque white; quiet zone ≥ 4 modules | U |
 | T-TOK-09 | Downscale the QR to 25%, re-encode as JPEG q40, decode | still decodes | U |
+| T-TOK-10 | `passToken(secret, passId)` | deterministic; 32 chars `^[A-Za-z0-9_-]{32}$`; changes with the pass id or the secret | U |
 
 ### 14.2 Sheet ingest — `T-ING`
 | ID | Scenario | Expected | L |
@@ -980,39 +1018,39 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ING-03 | Timestamp 301 s old; 301 s in the future | 401 | I |
 | T-ING-04 | Same signed request sent twice | Second response: every row `UNCHANGED`; no duplicate participants, passes or outbox rows | I |
 | T-ING-05 | Body with non-ASCII (`Zoë`, `李雷`, `محمد`), signed over the raw UTF-8 bytes | Verifies; names stored byte-exact | I |
-| T-ING-06 | New row, `Accepted` | participant accepted + exactly 1 pending outbox row | I |
-| T-ING-07 | New rows `Waitlisted` / `Rejected` / blank | participant with that status; no outbox | I |
-| T-ING-08 | Waitlisted → Accepted | `PASS_QUEUED` | I |
-| T-ING-09 | Accepted → Accepted, nothing changed | `UNCHANGED`; no outbox, no new pass | I |
-| T-ING-10 | Accepted → Withdrawn | `REVOKED`; active pass revoked (`status_change`); pending outbox → `cancelled`; existing scans untouched | I |
-| T-ING-11 | Withdrawn → Accepted again | new pass queued; old pass stays revoked | I |
+| T-ING-06 | New row, `Status = Accepted` (v0.4) | participant `pending`; no outbox row; no drain scheduled | I |
+| T-ING-07 | New rows `Waitlisted` / `Rejected` / blank (v0.4) | all `pending`; no outbox | I |
+| T-ING-08 | Status Waitlisted → Accepted in the Sheet (v0.4) | `UNCHANGED`; still `pending`; no outbox | I |
+| T-ING-09 | Accepted participant (via RSVP), row unchanged | `UNCHANGED`; no outbox, no new pass | I |
+| T-ING-10 | Accepted participant, Sheet says Withdrawn (v0.4) | `UNCHANGED`; still accepted; pass active; scans untouched | I |
+| T-ING-11 | Answered No (withdrawn), Sheet says Accepted (v0.4) | `UNCHANGED`; still withdrawn; no outbox | I |
 | T-ING-12 | Email `" Ade@Gmail.COM "` | stored `ade@gmail.com` | I |
-| T-ING-13 | Same `external_id`, new email | email updated, `pass_reissued` queued, `audit_log` row with no PII | I |
+| T-ING-13 | Same `external_id`, new email: accepted; not accepted | email updated, `pass_reissued` queued, `audit_log` row with no PII; `UPDATED`, no outbox, old RSVP link no longer found | I |
 | T-ING-14 | New `external_id` with an email already used in the event | `CONFLICT_DUPLICATE_EMAIL`; other rows in the batch still processed | I |
 | T-ING-15 | Same email in E1 and E2 | two participants (allowed) | I |
 | T-ING-16 | Missing email / first_name / external_id | `INVALID:email` etc.; batch continues | I |
-| T-ING-17 | Status `"ACCEPTED "`, `"accepted"`, `"Accepted"` | all normalize; `"Maybe"` → `INVALID:status` | U+I |
-| T-ING-18 | Accepted → blank | `IGNORED_CLEAR`; pass still active | I |
+| T-ING-17 | Status `"ACCEPTED "`, `"accepted"`, `"Maybe"`, blank, missing (v0.4) | all the same valid row; `CREATED` as `pending` | U+I |
+| T-ING-18 | Accepted participant, Status cleared (v0.4) | `UNCHANGED`; pass still active | I |
 | T-ING-19 | Unknown `event_slug` | 404 | I |
-| T-ING-20 | 500 rows, all accepted | < 10 s; 500 outbox rows; **zero provider calls during the request** | I |
+| T-ING-20 | 500 rows (v0.4) | < 10 s; 500 `pending` participants; 0 outbox rows; **zero provider calls**; no drain scheduled | I |
 | T-ING-21 | 501 rows; body > 1 MB | 400; 413 | I |
 | T-ING-22 | Names `O'Brien`, `<script>alert(1)</script>`, 100-char name, 101-char name | stored / stored (escaped on render) / stored / `INVALID:first_name` | I |
 | T-ING-23 | Invalid `linkedin_url` (`linkedin.com/company/x`, `javascript:`) | row processed, `linkedin_url` null | I |
-| T-ING-24 | Same row posted 5× concurrently | 1 participant, 1 in-flight outbox row | I |
+| T-ING-24 | Same row posted 5× concurrently | 1 participant (1 `CREATED`), no outbox row | I |
 | T-ING-25 | Sync-now dry run | returns diff; zero writes (row counts identical before/after) | I |
 
 ### 14.3 Apps Script — `T-GAS` (manual, on a copy of the real Sheet)
 | ID | Scenario | Expected |
 |----|----------|----------|
 | T-GAS-01 | Submit the form | `Applicant ID` filled with a UUID within seconds |
-| T-GAS-02 | Set one Status to Accepted | `Sync Status` shows `PASS_QUEUED <time>`; email arrives within 5 min |
-| T-GAS-03 | Paste Accepted into 30 rows at once | one POST; 30 Sync Status cells filled |
-| T-GAS-04 | Edit a non-Status column | no POST (Sync Status unchanged) |
+| T-GAS-02 | Submit the form (v0.4) | `Sync Status` shows `CREATED <time>`; the applicant is on the Participants page as pending |
+| T-GAS-03 | Paste into a column across 30 rows at once | one POST; 30 Sync Status cells filled |
+| T-GAS-04 | Edit only the Sync Status column | no POST |
 | T-GAS-05 | Edit the header row | no POST |
-| T-GAS-06 | Sort the sheet by name, then change a Status | the correct participant changes (keyed by Applicant ID) |
-| T-GAS-07 | Insert a column left of Status; add a new form question | still works (header lookup) |
-| T-GAS-08 | Point `ENDPOINT` at a dead URL, edit a Status | `ERROR ...` in Sync Status; restore; Sync now reconciles |
-| T-GAS-09 | Clear an accepted Status | `IGNORED_CLEAR` |
+| T-GAS-06 | Sort the sheet by name, then change a first name | the correct participant changes (keyed by Applicant ID) |
+| T-GAS-07 | Insert a column left of Sync Status; add a new form question; delete the Status column | still works (header lookup) |
+| T-GAS-08 | Point `ENDPOINT` at a dead URL, edit a row | `ERROR ...` in Sync Status; restore; Sync now reconciles |
+| T-GAS-09 | Change the Status of someone accepted through their RSVP | `UNCHANGED`; still accepted |
 
 ### 14.4 Email & outbox — `T-MAIL`
 | ID | Scenario | Expected | L |
@@ -1145,7 +1183,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC-01 | For **every** table in `public` (enumerated from `pg_tables`): select/insert/update/delete with the anon key and with an authenticated user JWT | denied or 0 rows | I |
 | T-SEC-02 | `pg_tables.rowsecurity` for every public table | all true | I |
 | T-SEC-03 | After `next build`, grep `.next/static` for `SERVICE_ROLE` and the key's value | not found | CI |
-| T-SEC-04 | Enumerate every route handler file; call each unauthenticated | 401 (except `/api/pass*`, `/api/ingest/sheet`, `/api/email/drain` with their own auth) | I |
+| T-SEC-04 | Enumerate every route handler file; call each unauthenticated | 401 (except `/api/pass*`, `/api/rsvp`, `/api/ingest/sheet`, `/api/email/drain` with their own auth) | I |
 | T-SEC-05 | Capture server logs during the full e2e flow | contain no token, no email, no participant name | E |
 | T-SEC-06 | Response headers | CSP present; `frame-ancestors 'none'`; `Permissions-Policy: camera=(self)`; HSTS in prod | E |
 | T-SEC-07 | Every view | `security_invoker = true`; no grant to anon/authenticated | I |
@@ -1198,11 +1236,32 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-11 | Manual door scan of B → "Link badge" → tap; that badge at R; stubbed `BADGE_TAKEN`; badge tapped before arming, the same tap reported again after linking, a manual rescan at the door | "Badge linked" notice; RECORDED; "linked to someone else" notice; Link badge still offered, no extra `/api/scan`, Link badge offered after ALREADY_SCANNED | E |
 | T-NFC-12 | `badge_profile` as an attendee of the event: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago. Viewers: other event's attendee, withdrawn or waitlisted attendee, other event's staff, a random account; this event's staff; email in another case | null; null; `{allowed,public:false}`; name + LinkedIn; newest link wins (and only its event's people may view); null; null vs shown. `{allowed:false}` only, for each non-eligible viewer; allowed for staff and case-insensitive email; never email, dietary, status or photo | I |
 | T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
-| T-NFC-14 | Signed out `/profile/<uid>?tap`; sign in by magic link as an attendee of the event; each state; invalid UID; sign in as another event's attendee | 307 to `/login?next=…` with "Sign in to see this badge"; back on the badge after sign-in; correct state, no email or dietary notes in the HTML; 404; "Only people at this event…" | E |
+| T-NFC-14 | Signed out `/profile/<uid>?tap`; sign in (email + password) as an attendee of the event; each state; invalid UID; sign in as another event's attendee | 307 to `/login?next=…` with "Sign in to see this badge"; back on the badge after sign-in; correct state, no email or dietary notes in the HTML; 404; "Only people at this event…" | E |
 | T-NFC-15 | `badgeUrl(origin, uid)`; `badgeWritable` for `https://` vs `http://` origins; `BADGE_ORIGIN` env | exact string; only `https://` is writable; optional, bare origin like `NEXT_PUBLIC_APP_ORIGIN` | U |
 | T-NFC-16 | Badges page with the fake: blank tag; tag already holding the link; no `NDEFReader` | `write()` with exactly one URL record; no write; no Badges tab and no write control | E |
 | T-NFC-18 | Auth callback: staff with a display name; staff without one; an account with no staff role (attendee) | no onboarding; onboarding; no onboarding | I |
 | T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
+
+### 14.16 RSVP — `T-RSVP` (v0.4)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-RSVP-01 | Organizer queues RSVPs for C, a new pending applicant, accepted A, a deleted participant and E2's X; a volunteer tries; extra keys | `{ queued: 2 }` (C and the new one), drain scheduled; 403; 400. Audit `rsvp.send` detail is only the count | I |
+| T-RSVP-02 | Drain an `rsvp` row; one for a person accepted meanwhile; a claimed job cancelled by a No | the hash of the emailed `/rsvp#token` is already stored when the provider is called; the other row `cancelled`, no email; `set_rsvp_token` refuses, old token kept | I |
+| T-RSVP-03 | Also: Yes after an organizer's revoke, and No then Yes after it; No for someone with a badge; 20 RSVP sends racing 20 answers | no pass queued; badge link removed; no errors (no deadlock) | I |
+| T-RSVP-03 | `{token}`; Yes twice; No; unknown token; ended event; bad `going`; extra keys; 31 requests/min from one IP | invitation without email; `GOING` ×2 with exactly 1 `pass_issued` and a drain; `NOT_GOING`: withdrawn, outbox cancelled; 404 `{state:'not_found'}` (same as `/api/pass`); 404; 400; 400; 429. Audit `rsvp.yes`, `rsvp.no` | I |
+| T-RSVP-04 | Yes with a 5-char password; Yes + password without an account; Yes + password when an account exists | 400 `weak_password`, nothing changed; confirmed account, `signedIn: true`; `signedIn: false` and the old password still works | I |
+| T-RSVP-05 | Organizer ticks a row → Send RSVP → link from the email → Yes + password | "RSVP sent" on the row; lands on `/me`; "Open my pass" links the same token as the pass email, which scans `ACCEPTED`; no token in any request URL; signed out `/me` → login → back | E |
+
+### 14.17 Accounts — `T-AUTH`, `T-ME` (v0.4)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-AUTH-01 | Wrong password; right password; 10 wrong then the right one for another email; sign-in and set-password with JavaScript off | "Wrong email or password", no session; lands on `next`; refused with the same message; both work (forms posted before hydration carry a real Origin, so `Referrer-Policy` is `same-origin`) | E |
+| T-AUTH-02 | "Forgot or never set your password?" for an account; an accepted participant without one (4 times); a staff invite; waitlisted, withdrawn and unknown emails | reset email → set password → new password works, old fails; 3 emails, not 4; invite; nothing sent, same message (`password_link_kind`: reset / invite / invite / none) | I+E |
+| T-AUTH-03 | Organizer invites a new address; an existing account | `{ code: 'INVITED', emailed: true }`, invite email → Continue → set password → display name → `/admin/<slug>`, invite consumed; `ADDED`, no email | I+E |
+| T-AUTH-04 | `/auth/confirm` with a bad token; the same invite link twice; the emailed link | `/login?error=link` with the error text; the token is only in the fragment and never in a request URL | E |
+| T-AUTH-05 | A signed-in user changes their account email to an accepted participant's address | not applied (needs the new address confirmed) | I |
+| T-AUTH-03 | Also: invite as organizer, then re-invite the same (no password yet) address as volunteer | `ADDED`, pending invite gone, role stays volunteer after sign-in | I |
+| T-ME-01 | `/me` for A with an old random pass; with a derived pass; accepted with no pass yet; waitlisted, withdrawn, past event; signed out | "in your email"; `/p#<token>` whose hash matches; "on its way"; nothing; redirect to `/login?next=/me` | I+E |
 
 ---
 
@@ -1217,6 +1276,9 @@ Target: at least 95% of attempts under 3 s.
   | Scans per staff | 120 / min |
   | `NOT_FOUND` per staff | 30 / 5 min → 429 + alert |
   | `/api/pass` per IP | 30 / min |
+  | `/api/rsvp` per IP | 30 / min |
+  | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
+  | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
   | Photo uploads per pass | 10 / h |
 - **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, Link badge, the Badges page) need Chrome on Android and are hidden elsewhere.
 - **Accessibility:**
@@ -1246,7 +1308,8 @@ Target: at least 95% of attempts under 3 s.
 
 **T − 1 day**
 - Create checkpoints, all closed.
-- Invite staff; every volunteer signs in once on their own phone and runs a test scan.
+- Send RSVPs to the chosen applicants well before this (Participants page); check the outbox for failures.
+- Invite staff; every volunteer sets their password from the invite email on their own phone and runs a test scan.
 - Export and **print the accepted roster** (name, checkbox per checkpoint) as the offline fallback.
 - If using badges: write the tags on the Badges page (Android), and check one opens `/profile/<uid>` on an iPhone.
 - Check the dashboard: outbox has 0 failed and 0 pending.
@@ -1310,6 +1373,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S5** Scanner | staff auth + invites, `/scan`, result UI, manual search, undo | T-SCUI-*, T-SRCH-*, T-SEC-04 |
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
+| **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet | T-AUTH-01..04, T-RSVP-01..05, T-ME-01, T-TOK-10, rewritten T-ING |
 | **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC + Link badge · N3 badge profile + opt-in · N4 tag writer | T-NFC-01..16, T-NFC-18 (+ T-NFC-17 manual) |
 
 ---
@@ -1328,6 +1392,7 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `PASS_TOKEN_SECRET` | server only | ≥ 32 random bytes. Pass tokens are derived from it (§6.1). Changing it hides older passes on `/me`; scanning is unaffected. |
 | `BADGE_ORIGIN` | server | Optional. Origin written onto badge tags (§6.5); defaults to `NEXT_PUBLIC_APP_ORIGIN`. Must be `https://` for the writer to write. |
 
 ---
@@ -1335,6 +1400,7 @@ Each slice ends with its tests green in CI and a short demo.
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
+- **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
 ---
@@ -1345,9 +1411,9 @@ Each slice ends with its tests green in CI and a short demo.
 1. In the Sheet, open **Extensions → Apps Script** and paste this file.
 2. Under **Project Settings → Script properties**, set `ENDPOINT`, `EVENT_SLUG` and `INGEST_SECRET`.
 3. Under **Triggers**, add:
-   - `onFormSubmitInstalled`: *From spreadsheet → On form submit*,
-   - `onEditInstalled`: *From spreadsheet → On edit*.
-4. Add the headers `Applicant ID`, `Status` and `Sync Status`. Put data validation on `Status`.
+   - `onFormSubmitInstalled`: *From spreadsheet → On form submit* (assigns the Applicant ID and imports the row),
+   - `onEditInstalled`: *From spreadsheet → On edit* (re-syncs edited rows).
+4. Add the headers `Applicant ID` and `Sync Status`. A `Status` column is optional and ignored (v0.4).
 
 ```javascript
 const SHEET_NAME = 'Form Responses 1';
@@ -1355,7 +1421,8 @@ const HEADERS = {
   id: 'Applicant ID', email: 'Email Address', first: 'First Name', last: 'Last Name',
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
 };
-const REQUIRED = ['id', 'email', 'first', 'status', 'sync'];
+// v0.4: Status is optional and ignored by Passline (acceptance comes from the RSVP, SPEC F13).
+const REQUIRED = ['id', 'email', 'first', 'sync'];
 
 function prop_(k) {
   const v = PropertiesService.getScriptProperties().getProperty(k);
@@ -1378,6 +1445,7 @@ function onFormSubmitInstalled(e) {
   const cols = headerMap_(sheet);
   const cell = sheet.getRange(e.range.getRow(), cols.id);
   if (!cell.getValue()) cell.setValue(Utilities.getUuid());
+  syncRows_(sheet, cols, e.range.getRow(), e.range.getRow()); // v0.4: import new applicants right away
 }
 
 function onEditInstalled(e) {
@@ -1385,7 +1453,7 @@ function onEditInstalled(e) {
   if (sheet.getName() !== SHEET_NAME) return;
   const cols = headerMap_(sheet);
   const r = e.range;
-  if (cols.status < r.getColumn() || cols.status > r.getLastColumn()) return;
+  if (r.getColumn() === cols.sync && r.getLastColumn() === cols.sync) return; // only Sync Status edited
   const first = Math.max(r.getRow(), 2);          // skip header row
   const last = r.getLastRow();
   if (last < first) return;

@@ -6,7 +6,8 @@ const HEADERS = {
   id: 'Applicant ID', email: 'Email Address', first: 'First Name', last: 'Last Name',
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
 };
-const REQUIRED = ['id', 'email', 'first', 'status', 'sync'];
+// v0.4: Status is optional and ignored by Passline (acceptance comes from the RSVP, SPEC F13).
+const REQUIRED = ['id', 'email', 'first', 'sync'];
 
 function prop_(k) {
   const v = PropertiesService.getScriptProperties().getProperty(k);
@@ -29,6 +30,7 @@ function onFormSubmitInstalled(e) {
   const cols = headerMap_(sheet);
   const cell = sheet.getRange(e.range.getRow(), cols.id);
   if (!cell.getValue()) cell.setValue(Utilities.getUuid());
+  syncRows_(sheet, cols, e.range.getRow(), e.range.getRow()); // v0.4: import new applicants right away
 }
 
 function onEditInstalled(e) {
@@ -36,7 +38,7 @@ function onEditInstalled(e) {
   if (sheet.getName() !== SHEET_NAME) return;
   const cols = headerMap_(sheet);
   const r = e.range;
-  if (cols.status < r.getColumn() || cols.status > r.getLastColumn()) return;
+  if (r.getColumn() === cols.sync && r.getLastColumn() === cols.sync) return; // only Sync Status edited
   const first = Math.max(r.getRow(), 2);          // skip header row
   const last = r.getLastRow();
   if (last < first) return;

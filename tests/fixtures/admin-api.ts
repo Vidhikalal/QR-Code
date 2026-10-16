@@ -1,5 +1,6 @@
 import { createAdminApi, type AdminDeps } from '@/lib/admin/handlers';
 import { drainUntilIdle } from '@/lib/email/drain';
+import { requireEnv } from './db';
 import { mockProvider, serviceClient } from './mail';
 import { asBearer, bearerAuth } from './staff';
 
@@ -11,12 +12,13 @@ export function adminClient(over: Partial<AdminDeps> = {}) {
   const scheduled: Array<() => Promise<unknown>> = [];
   // Until idle: other files' leftover due rows must not crowd this test's row out of a batch.
   const drain = () =>
-    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>' });
+    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
   const api = createAdminApi({
     db,
     authenticate: bearerAuth,
     scheduleDrain: (t) => scheduled.push(t),
     drain,
+    appOrigin: 'http://localhost:3100',
     ...over,
   });
 

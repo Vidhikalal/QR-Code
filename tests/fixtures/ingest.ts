@@ -15,7 +15,7 @@ export function ingestClient() {
   const scheduled: Array<() => Promise<unknown>> = [];
   // Until idle: rows other files left due would otherwise crowd this test's row out of a 20-row batch.
   const drain = () =>
-    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>' });
+    drainUntilIdle({ db, provider: mail.provider, appOrigin: 'http://localhost:3100', from: 'Passline <p@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') });
   const handler = createIngestHandler({ db, secret: INGEST_SECRET(), scheduleDrain: (t) => scheduled.push(t), drain });
 
   async function post(

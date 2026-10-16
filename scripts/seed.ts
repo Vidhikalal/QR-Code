@@ -56,7 +56,7 @@ async function main() {
   ], { defaultToNull: false });
   if (cps.error) throw cps.error;
 
-  // Dev staff: sign in at /login with these addresses; the links land in Mailpit (http://127.0.0.1:54324).
+  // Dev staff: at /login use "Forgot or never set your password?" with these addresses; the link lands in Mailpit (http://127.0.0.1:54324).
   const invites = await db.from('staff_invites').insert([
     { event_id: eventId, email: normalizeEmail('organizer@example.test'), role: 'organizer' },
     { event_id: eventId, email: normalizeEmail('volunteer@example.test'), role: 'volunteer' },
@@ -93,7 +93,7 @@ async function main() {
     await writeUniqueFile(dir, toFileLabel(EVENT_NAME, first), '.png', await renderQrPng(`${origin}/p#${token}`));
   }
   console.log(`Seeded event "${SLUG}" with 4 checkpoints and 50 participants. QR codes: .seed/${toFileLabel(EVENT_NAME)}-<First>.png`);
-  console.log('Staff invites: organizer@example.test, volunteer@example.test (sign-in links arrive in Mailpit at http://127.0.0.1:54324).');
+  console.log('Staff invites: organizer@example.test, volunteer@example.test (set a password with "Forgot or never set your password?" at /login; the link arrives in Mailpit at http://127.0.0.1:54324).');
 }
 
 main().catch((err: unknown) => {

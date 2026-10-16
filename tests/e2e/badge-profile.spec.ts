@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { E2E_ORIGIN, signInViaMagicLink } from '../fixtures/e2e';
-import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
+import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { createAccount, createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
 // SPEC §6.5 / §14.15: the public badge profile and the pass-page opt-in.
 let f: StandardFixture;
@@ -28,12 +28,13 @@ test('T-NFC-14: a signed-out tap goes to sign-in and back; attendees of the even
   // Next normalizes the bare `?tap` to `?tap=` when rebuilding the path; the page ignores it either way.
   expect(to.searchParams.get('next')).toMatch(new RegExp(`^/profile/${uid}\\?tap=?$`));
 
-  // B attends the same event: sign in by magic link, land back on the badge.
+  // B attends the same event (with an account from their RSVP): sign in, land back on the badge.
   const b = await browser.newContext({ baseURL: E2E_ORIGIN });
   const page = await b.newPage();
   await page.goto(tapPath);
   await expect(page.getByRole('heading', { name: 'Sign in to see this badge' })).toBeVisible();
-  await signInViaMagicLink(page, await emailOf(f.p.B), tapPath);
+  await createAccount(await emailOf(f.p.B));
+  await signIn(page, await emailOf(f.p.B), tapPath);
   await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
 
   await f.pool.query('update participants set profile_public = true, linkedin_url = $2 where id = $1', [f.p.A, LINKEDIN]);
@@ -57,7 +58,8 @@ test('T-NFC-14: a signed-out tap goes to sign-in and back; attendees of the even
   // X is accepted at the other event: signed in, but not allowed to see this badge.
   const x = await browser.newContext({ baseURL: E2E_ORIGIN });
   const xPage = await x.newPage();
-  await signInViaMagicLink(xPage, await emailOf(f.p.X), tapPath);
+  await createAccount(await emailOf(f.p.X));
+  await signIn(xPage, await emailOf(f.p.X), tapPath);
   await expect(xPage.getByRole('heading', { name: /Only people at this event/ })).toBeVisible();
   await expect(xPage.getByText('Ada')).toHaveCount(0);
   await x.close();

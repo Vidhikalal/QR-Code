@@ -14,6 +14,8 @@ export const serverEnvSchema = z
     SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
     SHEET_INGEST_SECRET: z.string().min(32, 'must be at least 32 characters'),
     DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    /** §6.1: pass tokens are derived from it. Changing it hides older passes on /me (scanning still works). */
+    PASS_TOKEN_SECRET: z.string().min(32, 'must be at least 32 characters'),
     GOOGLE_SERVICE_ACCOUNT_JSON: z.string().min(1).optional(),
     EMAIL_PROVIDER: z.enum(['console', 'resend']),
     RESEND_API_KEY: z.string().min(1).optional(),

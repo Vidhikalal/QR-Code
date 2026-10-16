@@ -3,3 +3,4 @@
 .input { min-height: 44px; padding: 0 12px; font: inherit; border: 1px solid var(--line); border-radius: 10px; }
 .error { color: var(--bad); }
 .ok { color: var(--ok); }
+.linkButton { min-height: 44px; background: none; border: 0; color: inherit; text-decoration: underline; font: inherit; cursor: pointer; }

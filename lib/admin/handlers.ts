@@ -20,6 +20,8 @@ export interface AdminDeps {
   /** Runs a task after the response (Next.js `after()` in production). */
   scheduleDrain: (task: () => Promise<unknown>) => void;
   drain: () => Promise<unknown>;
+  /** NEXT_PUBLIC_APP_ORIGIN: where invite emails send people to set their password. */
+  appOrigin: string;
   now?: () => Date;
   /** Builds a reader for a linked Sheet, or null when Sync now isn't configured. */
   sheetReader?: (sheetId: string) => (() => Promise<string[][]>) | null;
@@ -86,6 +88,7 @@ const walkInBody = z
   })
   .strict();
 
+const rsvpBody = z.object({ ids: z.array(z.uuid()).min(1).max(1000) }).strict();
 const inviteBody = z.object({ email: z.string().transform(normalizeEmail).pipe(z.email()), role: z.enum(['organizer', 'volunteer']) }).strict();
 
 type CheckpointRow = Database['public']['Tables']['checkpoints']['Row'];
@@ -295,6 +298,7 @@ export function createAdminApi(deps: AdminDeps) {
           hasPhoto: p.photo_path !== null,
           photoUpdatedAt: p.photo_updated_at,
           passState: p.pass_state,
+          rsvpSentAt: p.rsvp_sent_at,
           liveScans: p.live_scans,
           checkedIn: p.checked_in,
         })),
@@ -368,6 +372,18 @@ export function createAdminApi(deps: AdminDeps) {
       if (result.code !== 'CREATED') return json(result, 409);
       if (b.sendPass) deps.scheduleDrain(deps.drain);
       return json(result, 201);
+    },
+
+    // POST /api/admin/[slug]/participants/rsvp  { ids }  (F13: selecting = inviting; Yes = accepted)
+    async sendRsvps(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = rsvpBody.safeParse(await readJson(request));
+      if (!body.success) return badRequest();
+      const { data, error } = await db.rpc('queue_rsvps', { p_event_id: g.eventId, p_participant_ids: body.data.ids, p_actor: g.userId });
+      if (error) throw new Error(`queue_rsvps failed (${error.code})`);
+      if (data > 0) deps.scheduleDrain(deps.drain);
+      return json({ queued: data });
     },
 
     // POST /api/admin/[slug]/participants/[id]/resend
@@ -458,7 +474,14 @@ export function createAdminApi(deps: AdminDeps) {
       if (!body.success) return badRequest();
       const { data, error } = await db.rpc('invite_staff', { p_event_id: g.eventId, p_email: body.data.email, p_role: body.data.role, p_actor: g.userId });
       if (error) throw new Error(`invite_staff failed (${error.code})`);
-      return json({ code: data });
+      if (data !== 'INVITED') return json({ code: data });
+      // F9 (v0.4): no account yet, so the auth server emails a link to set a password, then onboarding.
+      const home = body.data.role === 'organizer' ? `/admin/${params.slug}` : `/scan/${params.slug}`;
+      const sent = await db.auth.admin.inviteUserByEmail(body.data.email, {
+        redirectTo: `${deps.appOrigin}/auth/confirm?type=invite&next=${encodeURIComponent(home)}`,
+      });
+      // Already invited earlier (the account exists but has no password yet): "Forgot password" covers it.
+      return json({ code: data, emailed: !sent.error });
     },
 
     // DELETE /api/admin/[slug]/staff/invites/[email]

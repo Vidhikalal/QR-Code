@@ -2,8 +2,6 @@ import { normalizeEmail, toSearchText } from './normalize';
 
 // SPEC F3 / §9.2 / Appendix A. Pure row handling for the Sheet bridge.
 
-export type IngestStatus = 'pending' | 'accepted' | 'waitlisted' | 'rejected' | 'withdrawn';
-
 export interface SheetRowInput {
   external_id?: string;
   email?: string;
@@ -11,6 +9,7 @@ export interface SheetRowInput {
   last_name?: string;
   dietary_notes?: string;
   linkedin_url?: string;
+  /** Ignored since v0.4: the Sheet only imports applicants; acceptance comes from an RSVP Yes (F13). */
   status?: string;
 }
 
@@ -22,24 +21,16 @@ export interface CleanRow {
   searchText: string;
   dietaryNotes: string | null;
   linkedinUrl: string | null;
-  status: IngestStatus;
 }
 
 export type RowValidation = { ok: true; row: CleanRow } | { ok: false; result: `INVALID:${string}` };
 
-const SHEET_STATUSES = ['accepted', 'waitlisted', 'rejected', 'withdrawn'] as const;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Same pattern as the participants.linkedin_url check constraint (§5).
 const LINKEDIN = /^https:\/\/(www\.)?linkedin\.com\/in\/[A-Za-z0-9_%-]+\/?$/;
 
 // Postgres length() counts characters (code points), not UTF-16 units.
 const chars = (s: string) => [...s].length;
-
-export function normalizeStatus(raw: string | undefined): IngestStatus | null {
-  const s = (raw ?? '').trim().toLowerCase();
-  if (s === '') return 'pending';
-  return (SHEET_STATUSES as readonly string[]).includes(s) ? (s as IngestStatus) : null;
-}
 
 export function validateRow(input: SheetRowInput): RowValidation {
   const externalId = (input.external_id ?? '').trim();
@@ -48,7 +39,6 @@ export function validateRow(input: SheetRowInput): RowValidation {
   const lastName = (input.last_name ?? '').trim();
   const dietary = (input.dietary_notes ?? '').trim();
   const linkedin = (input.linkedin_url ?? '').trim();
-  const status = normalizeStatus(input.status);
 
   const bad: string[] = [];
   if (externalId === '' || chars(externalId) > 200) bad.push('external_id');
@@ -56,8 +46,7 @@ export function validateRow(input: SheetRowInput): RowValidation {
   if (chars(firstName) < 1 || chars(firstName) > 100) bad.push('first_name');
   if (chars(lastName) > 100) bad.push('last_name');
   if (chars(dietary) > 500) bad.push('dietary_notes');
-  if (status === null) bad.push('status');
-  if (bad.length > 0 || status === null) return { ok: false, result: `INVALID:${bad.join(',')}` };
+  if (bad.length > 0) return { ok: false, result: `INVALID:${bad.join(',')}` };
 
   return {
     ok: true,
@@ -70,7 +59,6 @@ export function validateRow(input: SheetRowInput): RowValidation {
       dietaryNotes: dietary === '' ? null : dietary,
       // DECISION §9.2: an invalid LinkedIn URL is dropped, not an INVALID row.
       linkedinUrl: LINKEDIN.test(linkedin) ? linkedin : null,
-      status,
     },
   };
 }
@@ -89,7 +77,7 @@ export const SHEET_HEADERS = {
   status: 'Status',
 } as const satisfies Record<keyof SheetRowInput, string>;
 
-const REQUIRED: Array<keyof SheetRowInput> = ['external_id', 'email', 'first_name', 'status'];
+const REQUIRED: Array<keyof SheetRowInput> = ['external_id', 'email', 'first_name'];
 
 export function mapSheetValues(values: string[][]): Array<Required<SheetRowInput>> {
   const [header = [], ...data] = values;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ingestClient, sheetRow } from '../fixtures/ingest';
+import { sha256hex } from '@/lib/domain/token';
 import { onlyEmailTo, tokenFromEmail } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
@@ -40,6 +41,16 @@ async function passes(participantId: string) {
   return rows[0];
 }
 
+// v0.4: acceptance comes from an RSVP Yes (F13), never from the Sheet. Accept the way the RSVP page does.
+async function acceptViaRsvp(externalId: string) {
+  const p = await participant(externalId);
+  const hash = sha256hex(`rsvp-${externalId}`);
+  await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [p?.id, hash]);
+  await f.pool.query('select rsvp_respond($1, true)', [hash]);
+  await c.drain();
+  return p?.id ?? '';
+}
+
 async function eventCounts(eventId: string) {
   const { rows } = await f.pool.query<{ participants: number; passes: number; outbox: number }>(
     `select (select count(*) from participants where event_id = $1)::int as participants,
@@ -58,7 +69,7 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect(await res.json()).toEqual({
       results: [
         { external_id: rows[0]?.external_id, result: 'CREATED' },
-        { external_id: rows[1]?.external_id, result: 'PASS_QUEUED' },
+        { external_id: rows[1]?.external_id, result: 'CREATED' },
         { external_id: rows[2]?.external_id, result: 'CREATED' },
       ],
     });
@@ -106,19 +117,20 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
   it('T-ING-05: non-ASCII names signed over raw UTF-8 bytes verify and are stored byte-exact', async () => {
     const names = ['Zoë', '李雷', 'محمد'];
     const rows = names.map((n) => sheetRow(f.slug, { first_name: n }));
-    expect(await c.ingest(f.slug, rows)).toEqual(['PASS_QUEUED', 'PASS_QUEUED', 'PASS_QUEUED']);
+    expect(await c.ingest(f.slug, rows)).toEqual(['CREATED', 'CREATED', 'CREATED']);
     for (const [i, r] of rows.entries()) expect((await participant(r.external_id))?.first_name).toBe(names[i]);
   });
 
-  it('T-ING-06: a new Accepted row → accepted participant with exactly one pending outbox row', async () => {
+  it('T-ING-06 (v0.4): a new row marked Accepted in the Sheet → a pending applicant and no outbox row', async () => {
     const r = sheetRow(f.slug);
-    await c.ingest(f.slug, [r]);
+    expect(await c.ingest(f.slug, [r])).toEqual(['CREATED']);
     const p = await participant(r.external_id);
-    expect(p?.status).toBe('accepted');
-    expect(await outbox(p?.id ?? '')).toEqual([{ kind: 'pass_issued', status: 'pending' }]);
+    expect(p?.status).toBe('pending');
+    expect(await outbox(p?.id ?? '')).toEqual([]);
+    expect(c.scheduled).toHaveLength(0);
   });
 
-  it('T-ING-07: new Waitlisted / Rejected / blank rows → that status and no outbox', async () => {
+  it('T-ING-07 (v0.4): new Waitlisted / Rejected / blank rows → pending applicants and no outbox', async () => {
     const rows = [sheetRow(f.slug, { status: 'Waitlisted' }), sheetRow(f.slug, { status: 'Rejected' }), sheetRow(f.slug, { status: '' })];
     expect(await c.ingest(f.slug, rows)).toEqual(['CREATED', 'CREATED', 'CREATED']);
     const statuses = [];
@@ -127,53 +139,52 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
       statuses.push(p?.status);
       expect(await outbox(p?.id ?? '')).toEqual([]);
     }
-    expect(statuses).toEqual(['waitlisted', 'rejected', 'pending']);
+    expect(statuses).toEqual(['pending', 'pending', 'pending']);
   });
 
-  it('T-ING-08: Waitlisted → Accepted is PASS_QUEUED', async () => {
+  it('T-ING-08 (v0.4): changing Status in the Sheet (Waitlisted → Accepted) changes nothing', async () => {
     const r = sheetRow(f.slug, { status: 'Waitlisted' });
     await c.ingest(f.slug, [r]);
-    expect(await c.ingest(f.slug, [{ ...r, status: 'Accepted' }])).toEqual(['PASS_QUEUED']);
+    expect(await c.ingest(f.slug, [{ ...r, status: 'Accepted' }])).toEqual(['UNCHANGED']);
+    const p = await participant(r.external_id);
+    expect(p?.status).toBe('pending');
+    expect(await outbox(p?.id ?? '')).toEqual([]);
   });
 
-  it('T-ING-09: Accepted → Accepted with nothing changed is UNCHANGED; no new outbox row or pass', async () => {
+  it('T-ING-09: an accepted participant\'s unchanged row is UNCHANGED; no new outbox row or pass', async () => {
     const r = sheetRow(f.slug);
     await c.ingest(f.slug, [r]);
-    await c.drain();
-    const p = await participant(r.external_id);
-    const before = { outbox: await outbox(p?.id ?? ''), passes: await passes(p?.id ?? '') };
+    const id = await acceptViaRsvp(r.external_id);
+    const before = { outbox: await outbox(id), passes: await passes(id) };
+    expect(before.passes?.active).toBe(1);
     expect(await c.ingest(f.slug, [r])).toEqual(['UNCHANGED']);
-    expect({ outbox: await outbox(p?.id ?? ''), passes: await passes(p?.id ?? '') }).toEqual(before);
+    expect({ outbox: await outbox(id), passes: await passes(id) }).toEqual(before);
   });
 
-  it('T-ING-10: Accepted → Withdrawn revokes the pass, cancels in-flight outbox, leaves scans alone', async () => {
+  it('T-ING-10 (v0.4): Withdrawn in the Sheet does not revoke: the pass and scans stay', async () => {
     const r = sheetRow(f.slug);
     await c.ingest(f.slug, [r]);
-    await c.drain();
-    const p = await participant(r.external_id);
+    const id = await acceptViaRsvp(r.external_id);
     const token = tokenFromEmail(onlyEmailTo(c.mail.sent, r.email));
     expect((await f.scan({ cp: f.cp.D, staff: f.staff.vol1, token })).code).toBe('ACCEPTED');
-    await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'pass_reissued')`, [p?.id]);
 
-    expect(await c.ingest(f.slug, [{ ...r, status: 'Withdrawn' }])).toEqual(['REVOKED']);
-    expect((await participant(r.external_id))?.status).toBe('withdrawn');
-    expect(await passes(p?.id ?? '')).toMatchObject({ active: 0, revoked_status_change: 1 });
-    expect((await outbox(p?.id ?? '')).map((o) => o.status)).toEqual(['sent', 'cancelled']);
-    const { rows } = await f.pool.query('select 1 from scans where participant_id = $1 and voided_at is null', [p?.id]);
+    expect(await c.ingest(f.slug, [{ ...r, status: 'Withdrawn' }])).toEqual(['UNCHANGED']);
+    expect((await participant(r.external_id))?.status).toBe('accepted');
+    expect(await passes(id)).toMatchObject({ active: 1, revoked_status_change: 0 });
+    const { rows } = await f.pool.query('select 1 from scans where participant_id = $1 and voided_at is null', [id]);
     expect(rows).toHaveLength(1);
   });
 
-  it('T-ING-11: Withdrawn → Accepted again queues a new pass; the old one stays revoked', async () => {
+  it('T-ING-11 (v0.4): someone who answered No stays withdrawn when the Sheet says Accepted', async () => {
     const r = sheetRow(f.slug);
     await c.ingest(f.slug, [r]);
-    await c.drain();
-    const oldToken = tokenFromEmail(onlyEmailTo(c.mail.sent, r.email));
-    await c.ingest(f.slug, [{ ...r, status: 'Withdrawn' }]);
-    expect(await c.ingest(f.slug, [{ ...r, status: 'Accepted' }])).toEqual(['PASS_QUEUED']);
-    await c.drain();
     const p = await participant(r.external_id);
-    expect(await passes(p?.id ?? '')).toMatchObject({ active: 1, revoked_status_change: 1, total: 2 });
-    expect((await f.scan({ cp: f.cp.D, staff: f.staff.vol1, token: oldToken })).code).toBe('REVOKED');
+    const hash = sha256hex(`no-${r.external_id}`);
+    await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [p?.id, hash]);
+    await f.pool.query('select rsvp_respond($1, false)', [hash]);
+    expect(await c.ingest(f.slug, [{ ...r, status: 'Accepted' }])).toEqual(['UNCHANGED']);
+    expect((await participant(r.external_id))?.status).toBe('withdrawn');
+    expect(await outbox(p?.id ?? '')).toEqual([]);
   });
 
   it('T-ING-12: email " Ade@Gmail.COM " is stored as ade@gmail.com', async () => {
@@ -185,7 +196,7 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
   it('T-ING-13: same external_id, new email → email updated, pass_reissued queued, audit row without PII', async () => {
     const r = sheetRow(f.slug);
     await c.ingest(f.slug, [r]);
-    await c.drain();
+    await acceptViaRsvp(r.external_id);
     const newEmail = `new-${r.email}`;
     expect(await c.ingest(f.slug, [{ ...r, email: newEmail }])).toEqual(['PASS_QUEUED']);
     const p = await participant(r.external_id);
@@ -198,6 +209,16 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.actor_kind).toBe('sheet_sync');
     expect(JSON.stringify(rows[0]?.detail)).not.toMatch(/@|Row|Person/);
+
+    // Not accepted yet: the email just changes (their RSVP is answered from the old link or re-sent).
+    const pending = sheetRow(f.slug);
+    await c.ingest(f.slug, [pending]);
+    const oldLink = sha256hex(`old-link-${pending.external_id}`);
+    await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [(await participant(pending.external_id))?.id, oldLink]);
+    expect(await c.ingest(f.slug, [{ ...pending, email: `new-${pending.email}` }])).toEqual(['UPDATED']);
+    expect(await outbox((await participant(pending.external_id))?.id ?? '')).toEqual([]);
+    // The RSVP link went to the old address, so it must not answer (or make an account) for the new one.
+    expect((await f.pool.query('select rsvp_lookup($1) as r', [oldLink])).rows[0]?.r).toBeNull();
   });
 
   it('T-ING-14: a new external_id reusing an email in the event → CONFLICT_DUPLICATE_EMAIL; batch continues', async () => {
@@ -227,40 +248,36 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect(await c.ingest(f.slug, rows)).toEqual(['INVALID:email', 'INVALID:first_name', 'INVALID:external_id', 'CREATED']);
   });
 
-  it('T-ING-17: "ACCEPTED ", "accepted", "Accepted" all normalize; "Maybe" → INVALID:status', async () => {
-    const rows = ['ACCEPTED ', 'accepted', 'Accepted', 'Maybe'].map((status) => sheetRow(f.slug, { status }));
-    expect(await c.ingest(f.slug, rows)).toEqual(['PASS_QUEUED', 'PASS_QUEUED', 'PASS_QUEUED', 'INVALID:status']);
+  it('T-ING-17 (v0.4): any Status value, even "Maybe", imports the row as a pending applicant', async () => {
+    const rows = ['ACCEPTED ', 'accepted', 'Maybe', ''].map((status) => sheetRow(f.slug, { status }));
+    expect(await c.ingest(f.slug, rows)).toEqual(['CREATED', 'CREATED', 'CREATED', 'CREATED']);
+    for (const r of rows) expect((await participant(r.external_id))?.status).toBe('pending');
   });
 
-  it('T-ING-18: Accepted → blank is IGNORED_CLEAR and the pass stays active', async () => {
+  it('T-ING-18 (v0.4): clearing Status for an accepted participant is UNCHANGED and the pass stays active', async () => {
     const r = sheetRow(f.slug);
     await c.ingest(f.slug, [r]);
-    await c.drain();
-    expect(await c.ingest(f.slug, [{ ...r, status: '' }])).toEqual(['IGNORED_CLEAR']);
-    const p = await participant(r.external_id);
-    expect(p?.status).toBe('accepted');
-    expect((await passes(p?.id ?? ''))?.active).toBe(1);
+    const id = await acceptViaRsvp(r.external_id);
+    expect(await c.ingest(f.slug, [{ ...r, status: '' }])).toEqual(['UNCHANGED']);
+    expect((await participant(r.external_id))?.status).toBe('accepted');
+    expect((await passes(id))?.active).toBe(1);
   });
 
   it('T-ING-19: unknown event_slug → 404', async () => {
     expect((await c.post({ event_slug: 'no-such-event-xyz', rows: [] })).status).toBe(404);
   });
 
-  it('T-ING-20: 500 accepted rows → < 10 s, 500 outbox rows, zero provider calls during the request', async () => {
+  it('T-ING-20 (v0.4): 500 rows → < 10 s, 500 pending applicants, no outbox rows and zero provider calls', async () => {
     const rows = Array.from({ length: 500 }, () => sheetRow(f.slug));
     const started = performance.now();
     const results = await c.ingest(f.slug, rows);
     expect(performance.now() - started).toBeLessThan(10_000);
-    expect(results.filter((r) => r === 'PASS_QUEUED')).toHaveLength(500);
-    expect((await eventCounts(f.e1.id))?.outbox).toBe(500);
+    expect(results.filter((r) => r === 'CREATED')).toHaveLength(500);
+    expect(await eventCounts(f.e1.id)).toMatchObject({ outbox: 0 });
+    const { rows: pending } = await f.pool.query(`select 1 from participants where event_id = $1 and status = 'pending' and source = 'sheet'`, [f.e1.id]);
+    expect(pending).toHaveLength(500);
     expect(c.mail.sent).toHaveLength(0);
-    expect(c.scheduled).toHaveLength(1);
-    // Hygiene: don't leave 500 due rows for the next test file's drains.
-    await f.pool.query(
-      `update email_outbox set status = 'cancelled' where status = 'pending'
-          and participant_id in (select id from participants where event_id = $1)`,
-      [f.e1.id],
-    );
+    expect(c.scheduled).toHaveLength(0);
   });
 
   it('T-ING-21: 501 rows → 400; body over 1 MB → 413', async () => {
@@ -285,7 +302,7 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
       sheetRow(f.slug, { first_name: 'n'.repeat(100) }),
       sheetRow(f.slug, { first_name: 'n'.repeat(101) }),
     ];
-    expect(await c.ingest(f.slug, rows)).toEqual(['PASS_QUEUED', 'PASS_QUEUED', 'PASS_QUEUED', 'INVALID:first_name']);
+    expect(await c.ingest(f.slug, rows)).toEqual(['CREATED', 'CREATED', 'CREATED', 'INVALID:first_name']);
     expect((await participant(rows[1]?.external_id ?? ''))?.first_name).toBe('<script>alert(1)</script>');
   });
 
@@ -295,18 +312,18 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
       sheetRow(f.slug, { linkedin_url: 'javascript:alert(1)' }),
       sheetRow(f.slug, { linkedin_url: 'https://www.linkedin.com/in/ada-l' }),
     ];
-    expect(await c.ingest(f.slug, rows)).toEqual(['PASS_QUEUED', 'PASS_QUEUED', 'PASS_QUEUED']);
+    expect(await c.ingest(f.slug, rows)).toEqual(['CREATED', 'CREATED', 'CREATED']);
     const urls = [];
     for (const r of rows) urls.push((await participant(r.external_id))?.linkedin_url);
     expect(urls).toEqual([null, null, 'https://www.linkedin.com/in/ada-l']);
   });
 
-  it('T-ING-24: the same row posted 5× concurrently → 1 participant, 1 in-flight outbox row', async () => {
+  it('T-ING-24: the same row posted 5× concurrently → 1 participant, no outbox row', async () => {
     const r = sheetRow(f.slug);
     const responses = await Promise.all(Array.from({ length: 5 }, () => c.post({ event_slug: f.slug, rows: [r] })));
     expect(responses.map((x) => x.status)).toEqual([200, 200, 200, 200, 200]);
     const results = await Promise.all(responses.map(async (x) => ((await x.json()) as { results: Array<{ result: string }> }).results[0]?.result));
-    expect(results.filter((x) => x === 'PASS_QUEUED')).toHaveLength(1);
+    expect(results.filter((x) => x === 'CREATED')).toHaveLength(1);
     const { rows } = await f.pool.query<{ n: number; inflight: number }>(
       `select count(distinct p.id)::int as n,
               count(o.id) filter (where o.status in ('pending', 'sending'))::int as inflight
@@ -314,7 +331,7 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
         where p.event_id = $1 and p.external_id = $2`,
       [f.e1.id, r.external_id],
     );
-    expect(rows[0]).toEqual({ n: 1, inflight: 1 });
+    expect(rows[0]).toEqual({ n: 1, inflight: 0 });
   });
 
   it('F3: a row for a deleted (tombstoned) participant is ignored: UNCHANGED, no writes', async () => {

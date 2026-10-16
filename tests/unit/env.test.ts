@@ -8,6 +8,7 @@ const valid = {
   SUPABASE_SERVICE_ROLE_KEY: 'service',
   SHEET_INGEST_SECRET: 'x'.repeat(32),
   DRAIN_SECRET: 'y'.repeat(32),
+  PASS_TOKEN_SECRET: 'z'.repeat(32),
   EMAIL_PROVIDER: 'console',
 };
 
