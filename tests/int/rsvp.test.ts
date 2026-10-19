@@ -56,6 +56,8 @@ async function rsvpToken(participantId: string): Promise<string> {
   await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [participantId, sha256hex(token)]);
   return token;
 }
+// v0.6: Yes always carries the emergency contact (F13 step 4).
+const YES = { emergencyName: 'Sam Lee', emergencyPhone: '416 555 0100' };
 const outbox = async (id: string) =>
   (await f.pool.query<{ kind: string; status: string }>('select kind, status from email_outbox where participant_id = $1 order by created_at', [id])).rows;
 const statusOf = async (id: string) => (await f.pool.query<{ status: string }>('select status from participants where id = $1', [id])).rows[0]?.status;
@@ -115,8 +117,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(look.body).toMatchObject({ firstName: 'Rae', status: 'pending', hasAccount: false, event: { name: f.e1.name } });
     expect(JSON.stringify(look.body)).not.toContain('@');
 
-    expect((await call({ token, going: true })).body).toEqual({ code: 'GOING', signedIn: false });
-    expect((await call({ token, going: true })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: false });
     expect(await statusOf(p.id)).toBe('accepted');
     expect(await outbox(p.id)).toEqual([{ kind: 'pass_issued', status: 'pending' }]);
     expect(drains).toEqual(['scheduled', 'scheduled']);
@@ -131,7 +133,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(await call({ token: generateToken() })).toEqual({ status: 404, body: { state: 'not_found' } });
     const ended = await rsvpToken(f.p.X);
     await f.pool.query(`update events set starts_at = now() - interval '2 days', ends_at = now() - interval '1 day' where id = $1`, [f.e2.id]);
-    expect((await call({ token: ended, going: true })).status).toBe(404);
+    expect((await call({ token: ended, going: true, ...YES })).status).toBe(404);
     expect((await call({ token, going: 'yes' })).status).toBe(400);
     expect((await call({ token, extra: 1 })).status).toBe(400);
 
@@ -143,14 +145,14 @@ describe('RSVP (SPEC F13, v0.4)', () => {
   it('T-RSVP-03 (review): Yes again after an organizer revoked the pass, or No then Yes, queues no new pass', async () => {
     const p = await newApplicant('revoked');
     const token = await rsvpToken(p.id);
-    await call({ token, going: true });
+    await call({ token, going: true, ...YES });
     await f.pool.query(`update email_outbox set status = 'sent' where participant_id = $1`, [p.id]);
     await f.pool.query(`select issue_pass($1, $2)`, [p.id, sha256hex(generateToken())]);
     expect((await f.pool.query<{ r: string }>('select revoke_pass($1, $2, $3) as r', [f.e1.id, p.id, f.staff.org1])).rows[0]?.r).toBe('REVOKED');
 
-    expect((await call({ token, going: true })).body).toMatchObject({ code: 'GOING' });
+    expect((await call({ token, going: true, ...YES })).body).toMatchObject({ code: 'GOING' });
     expect((await call({ token, going: false })).body).toMatchObject({ code: 'NOT_GOING' });
-    expect((await call({ token, going: true })).body).toMatchObject({ code: 'GOING' });
+    expect((await call({ token, going: true, ...YES })).body).toMatchObject({ code: 'GOING' });
     const pending = (await outbox(p.id)).filter((o) => o.status === 'pending');
     expect(pending).toEqual([]);
   });
@@ -172,7 +174,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
   it('T-RSVP-03 (review): No also unlinks their badge, like every other pass revocation (§6.5)', async () => {
     const p = await newApplicant('badge');
     const token = await rsvpToken(p.id);
-    await call({ token, going: true });
+    await call({ token, going: true, ...YES });
     await f.linkBadge(p.id);
     await call({ token, going: false });
     expect((await f.pool.query('select 1 from badges where participant_id = $1', [p.id])).rows).toEqual([]);
@@ -204,13 +206,13 @@ describe('RSVP (SPEC F13, v0.4)', () => {
   it('T-RSVP-04: Yes without an account creates one with the password and signs in; an existing password never changes', async () => {
     const weak = await newApplicant('weak');
     const weakToken = await rsvpToken(weak.id);
-    expect(await call({ token: weakToken, going: true, password: 'short' })).toEqual({ status: 400, body: { error: 'weak_password' } });
+    expect(await call({ token: weakToken, going: true, ...YES, password: 'short' })).toEqual({ status: 400, body: { error: 'weak_password' } });
     expect(await statusOf(weak.id)).toBe('pending');
     expect((await f.pool.query('select 1 from auth.users where email = $1', [weak.email])).rows).toHaveLength(0);
 
     const p = await newApplicant('new');
     const token = await rsvpToken(p.id);
-    expect((await call({ token, going: true, password: 'my-event-password' })).body).toEqual({ code: 'GOING', signedIn: true });
+    expect((await call({ token, going: true, ...YES, password: 'my-event-password' })).body).toEqual({ code: 'GOING', signedIn: true });
     expect(signIns.at(-1)).toEqual({ email: p.email, password: 'my-event-password' });
     const { rows } = await f.pool.query<{ confirmed: boolean }>('select email_confirmed_at is not null as confirmed from auth.users where email = $1', [p.email]);
     expect(rows).toEqual([{ confirmed: true }]);
@@ -220,8 +222,61 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     const existing = await newApplicant('existing');
     await createAccount(existing.email);
     const t2 = await rsvpToken(existing.id);
-    expect((await call({ token: t2, going: true, password: 'attacker-password' })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token: t2, going: true, ...YES, password: 'attacker-password' })).body).toEqual({ code: 'GOING', signedIn: false });
     expect(await canSignIn(existing.email, STAFF_PASSWORD)).toBe(true);
     expect(await canSignIn(existing.email, 'attacker-password')).toBe(false);
+  });
+
+  it('T-RSVP-06: Yes needs an emergency contact; an invalid form is refused before anything changes (no account is made)', async () => {
+    const p = await newApplicant('form');
+    const token = await rsvpToken(p.id);
+    const bad: Array<[Record<string, unknown>, string]> = [
+      [{}, 'emergencyName'],
+      [{ emergencyName: 'Sam Lee' }, 'emergencyPhone'],
+      [{ ...YES, emergencyPhone: 'call me' }, 'emergencyPhone'],
+      [{ ...YES, linkedin: 'linkedin.com/company/x' }, 'linkedin'],
+      [{ ...YES, dietaryNotes: 'd'.repeat(501) }, 'dietaryNotes'],
+    ];
+    for (const [form, field] of bad) {
+      expect(await call({ token, going: true, password: 'my-event-password', ...form })).toEqual({ status: 400, body: { error: 'invalid_profile', field } });
+    }
+    expect((await call({ token, going: true, emergencyName: 1 })).status).toBe(400);
+    expect(await statusOf(p.id)).toBe('pending');
+    expect((await f.pool.query('select 1 from auth.users where email = $1', [p.email])).rows).toHaveLength(0);
+    expect((await call({ token, going: false })).body).toMatchObject({ code: 'NOT_GOING' }); // No needs no form
+  });
+
+  it('T-RSVP-07: Yes stores the emergency contact and networking profile with the answer; the lookup prefills only dietary notes and LinkedIn', async () => {
+    const p = await newApplicant('full');
+    await f.pool.query(`update participants set dietary_notes = 'Vegetarian', linkedin_url = 'https://www.linkedin.com/in/from-sheet' where id = $1`, [p.id]);
+    const token = await rsvpToken(p.id);
+    const look = await call({ token });
+    expect(look.body).toMatchObject({ profile: { dietaryNotes: 'Vegetarian', linkedinUrl: 'https://www.linkedin.com/in/from-sheet', profilePublic: false } });
+    expect(JSON.stringify(look.body)).not.toMatch(/@|emergency/i);
+
+    const yes = { ...YES, emergencyRelation: 'Sister', dietaryNotes: 'Vegetarian', linkedin: 'linkedin.com/in/rae-r', profilePublic: true };
+    expect((await call({ token, going: true, ...yes })).body).toEqual({ code: 'GOING', signedIn: false });
+    const row = async () =>
+      (
+        await f.pool.query(
+          `select status, emergency_name, emergency_phone, emergency_relation, dietary_notes, dietary_set_at is not null as own_dietary,
+                  linkedin_url, linkedin_set_at is not null as own_linkedin, profile_public
+             from participants where id = $1`,
+          [p.id],
+        )
+      ).rows[0];
+    const saved = {
+      status: 'accepted', emergency_name: 'Sam Lee', emergency_phone: '416 555 0100', emergency_relation: 'Sister',
+      dietary_notes: 'Vegetarian', own_dietary: false, // unchanged from the Sheet: the Sheet keeps it
+      linkedin_url: 'https://www.linkedin.com/in/rae-r', own_linkedin: true, profile_public: true,
+    };
+    expect(await row()).toEqual(saved);
+    expect(JSON.stringify((await call({ token })).body)).not.toMatch(/Sam|555|Sister/); // never the contact
+
+    // An answer without the form (SQL) leaves the profile as it is; so does No.
+    await f.pool.query('select rsvp_respond($1, true)', [sha256hex(token)]);
+    expect(await row()).toEqual(saved);
+    await call({ token, going: false, ...YES, emergencyName: 'Someone Else' });
+    expect(await row()).toEqual({ ...saved, status: 'withdrawn' });
   });
 });

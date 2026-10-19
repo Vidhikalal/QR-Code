@@ -44,18 +44,21 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
   });
 
   it('T-ADM-05: delete → tombstone per §5.1; counts unchanged; old token → REVOKED (deleted); no PII in audit', async () => {
+    await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent' where id = $1`, [f.p.B]);
     await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.B });
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     const res = await c.call('deleteParticipant', org, { slug: f.slug, id: f.p.B }, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const { rows } = await f.pool.query(
-      `select first_name, last_name, email, search_text, dietary_notes, linkedin_url, photo_path, deleted_at is not null as deleted
+      `select first_name, last_name, email, search_text, dietary_notes, linkedin_url, photo_path,
+              emergency_name, emergency_phone, emergency_relation, deleted_at is not null as deleted
          from participants where id = $1`,
       [f.p.B],
     );
     expect(rows[0]).toEqual({
       first_name: 'Deleted', last_name: '', email: `deleted+${f.p.B}@invalid`, search_text: '',
-      dietary_notes: null, linkedin_url: null, photo_path: null, deleted: true,
+      dietary_notes: null, linkedin_url: null, photo_path: null,
+      emergency_name: null, emergency_phone: null, emergency_relation: null, deleted: true,
     });
     const after = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
@@ -98,6 +101,14 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     const ids = (obj(noShows.body).participants as Array<{ id: string }>).map((p) => p.id);
     expect(ids).toContain(f.p.A);
     expect(ids).not.toContain(f.p.C);
+  });
+
+  it('T-ADM-08: the detail shows an organizer the emergency contact (v0.6), or null when there is none', async () => {
+    expect(obj((await c.call('getParticipant', org, { slug: f.slug, id: f.p.A })).body).participant).toMatchObject({ emergency: null });
+    await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100' where id = $1`, [f.p.A]);
+    expect(obj((await c.call('getParticipant', org, { slug: f.slug, id: f.p.A })).body).participant).toMatchObject({
+      emergency: { name: 'Sam Lee', phone: '555 0100', relation: null },
+    });
   });
 
   it('I-5: a participant of another event is invisible and untouchable through this event (404)', async () => {

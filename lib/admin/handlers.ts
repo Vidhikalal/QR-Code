@@ -65,6 +65,12 @@ const metricsSchema = z.object({
   scanProblems: z.array(z.object({ checkpointId: z.string().nullable(), code: z.string(), count: z.number() })),
 });
 
+// §11: the Sheet link (Sync page) and, since v0.6, the hackers' schedule and emergency info (Info page).
+const eventUpdate = z
+  .object({ sheet: z.string().max(500).nullable().optional(), schedule: z.string().max(5000).optional(), emergencyInfo: z.string().max(2000).optional() })
+  .strict()
+  .refine((b) => Object.keys(b).length > 0);
+
 const checkpointCreate = z
   .object({
     name: z.string().trim().min(1).max(80),
@@ -136,7 +142,7 @@ export function createAdminApi(deps: AdminDeps) {
   }
 
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -333,6 +339,8 @@ export function createAdminApi(deps: AdminDeps) {
           applicantId: p.external_id,
           dietaryNotes: p.dietary_notes,
           linkedinUrl: p.linkedin_url,
+          // v0.6: organizers only (every admin route is), never logged or exported.
+          emergency: p.emergency_name ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
           photoUrl: p.photo_path ? await signedPhotoUrl(db, p.photo_path) : null,
           photoUpdatedAt: p.photo_updated_at,
         },
@@ -523,22 +531,29 @@ export function createAdminApi(deps: AdminDeps) {
         endsAt: e.ends_at,
         timezone: e.timezone,
         sheetId: e.sheet_id,
+        schedule: e.schedule,
+        emergencyInfo: e.emergency_info,
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
 
-    // PATCH /api/admin/[slug]/event  { sheet: id | URL | null }
+    // PATCH /api/admin/[slug]/event  { sheet?: id | URL | null, schedule?, emergencyInfo? }  (F10, §11 Info)
     async updateEvent(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
-      const body = z.object({ sheet: z.string().max(500).nullable() }).strict().safeParse(await readJson(request));
+      const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const sheetId = body.data.sheet === null ? null : parseSheetId(body.data.sheet);
-      if (body.data.sheet !== null && sheetId === null) return badRequest();
-      const { error } = await db.from('events').update({ sheet_id: sheetId }).eq('id', g.eventId);
+      const { sheet, schedule, emergencyInfo } = body.data;
+      const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
+      if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
+      const { error } = await db
+        .from('events')
+        .update({ ...(sheet !== undefined && { sheet_id: sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergency_info: emergencyInfo }) })
+        .eq('id', g.eventId);
       if (error) throw new Error(`event update failed (${error.code})`);
-      await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
-      return json({ sheetId });
+      if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
+      if (schedule !== undefined || emergencyInfo !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
+      return json({ ...(sheet !== undefined && { sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergencyInfo }) });
     },
 
     // POST /api/admin/[slug]/sync  { dryRun }  (F10)

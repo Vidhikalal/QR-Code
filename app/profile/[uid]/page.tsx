@@ -43,7 +43,8 @@ async function claim(formData: FormData) {
   const user = await currentUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(`/profile/${uid}`)}`);
   const code = await claimBadge(db(), user, uid, String(formData.get('eventId') ?? ''));
-  redirect(code === 'LINKED' ? '/me?badge=linked#badge-profile' : `/profile/${uid}?claim=${code === 'BADGE_TAKEN' ? 'taken' : 'refused'}`);
+  const slug = encodeURIComponent(String(formData.get('slug') ?? ''));
+  redirect(code === 'LINKED' ? `/me/${slug}/profile?badge=linked` : `/profile/${uid}?claim=${code === 'BADGE_TAKEN' ? 'taken' : 'refused'}`);
 }
 
 export default async function BadgeProfilePage(props: {
@@ -64,6 +65,9 @@ export default async function BadgeProfilePage(props: {
     p_viewer_email: normalizeEmail(viewer.email ?? ''),
   });
   if (error) throw new Error(`badge_profile failed (${error.code})`);
+  // v0.6 (F14): the holder tapping their own badge opens their hacker menu.
+  const self = z.object({ self: z.literal(true), slug: z.string() }).safeParse(data);
+  if (self.success) redirect(`/me/${encodeURIComponent(self.data.slug)}`);
   const profile = profileSchema.parse(data);
   // Events this person may claim the badge in (accepted, up to 30 days after the event).
   const claimable = profile === null ? await myBadgeProfiles(db(), viewer.email ?? '', new Date()) : [];
@@ -92,6 +96,7 @@ export default async function BadgeProfilePage(props: {
                   <form key={c.eventId} action={claim} className={formStyles.form}>
                     <input type="hidden" name="uid" value={uid} />
                     <input type="hidden" name="eventId" value={c.eventId} />
+                    <input type="hidden" name="slug" value={c.slug} />
                     <button type="submit">{claimable.length > 1 ? `This is my badge for ${c.eventName}` : 'This is my badge'}</button>
                   </form>
                 ))}

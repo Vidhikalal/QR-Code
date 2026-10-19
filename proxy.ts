@@ -28,6 +28,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // /profile: badge profiles are for signed-in attendees and staff only (SPEC §6.5). /me: own passes (v0.4).
-  matcher: ['/scan/:path*', '/admin/:path*', '/profile/:path*', '/me'],
+  // /profile: badge profiles are for signed-in attendees and staff only (SPEC §6.5). /me: own passes (v0.4)
+  // and, under /me/<slug>, the hacker menu (v0.6). `/me/:path*` also matches /me itself.
+  matcher: ['/scan/:path*', '/admin/:path*', '/profile/:path*', '/me/:path*'],
 };

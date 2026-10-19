@@ -92,7 +92,7 @@ test('T-NFC-21: an attendee taps an unlinked badge, signs in, claims it and sets
   await signIn(page, await emailOf(f.p.A), tapPath);
   await expect(page.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
   await page.getByRole('button', { name: 'This is my badge' }).click();
-  await page.waitForURL(/\/me\?badge=linked/);
+  await page.waitForURL(`**/me/${f.slug}/profile?badge=linked`);
   await expect(page.getByText('✓ Badge linked. Add your LinkedIn')).toBeVisible();
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
 

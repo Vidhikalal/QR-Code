@@ -42,6 +42,9 @@ async function main() {
       venue: 'Demo Hall',
       starts_at: startsAt.toISOString(),
       ends_at: new Date(startsAt.getTime() + 10 * 3600 * 1000).toISOString(),
+      // Placeholders for the hacker menu (F14); organizers replace them on the admin Info page.
+      schedule: '9:00  Check-in and breakfast\n10:00  Opening ceremony\n12:00  Lunch\n13:00  Workshops\n18:00  Dinner\n19:00  Demos and judging',
+      emergency_info: 'Find any organizer at the front desk.\nIn a life-threatening emergency, call 911.',
     })
     .select('id')
     .single();

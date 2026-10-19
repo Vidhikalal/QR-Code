@@ -333,6 +333,21 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect(await participant(r.external_id)).toMatchObject({ first_name: 'Renamed', linkedin_url: own });
   });
 
+  it('T-ING-27: dietary notes the attendee set themselves survive later Sheet edits; other fields still update', async () => {
+    const r = sheetRow(f.slug, { dietary_notes: 'Vegetarian' });
+    await c.ingest(f.slug, [r]);
+    await acceptViaRsvp(r.external_id);
+    const id = (await participant(r.external_id))?.id;
+    const saved = await f.pool.query('select save_hacker_profile($1, $2, $3, p_dietary_notes => $4) as ok', [id, r.email, f.staff.vol1, 'Vegan, no nuts']);
+    expect(saved.rows[0]?.ok).toBe(true);
+
+    expect(await c.ingest(f.slug, [r])).toEqual(['UNCHANGED']);
+    expect(await c.ingest(f.slug, [{ ...r, dietary_notes: 'Halal' }])).toEqual(['UNCHANGED']);
+    expect(await c.ingest(f.slug, [{ ...r, first_name: 'Renamed', dietary_notes: '' }])).toEqual(['UPDATED']);
+    const { rows } = await f.pool.query('select first_name, dietary_notes from participants where id = $1', [id]);
+    expect(rows[0]).toEqual({ first_name: 'Renamed', dietary_notes: 'Vegan, no nuts' });
+  });
+
   it('T-ING-24: the same row posted 5× concurrently → 1 participant, no outbox row', async () => {
     const r = sheetRow(f.slug);
     const responses = await Promise.all(Array.from({ length: 5 }, () => c.post({ event_slug: f.slug, rows: [r] })));

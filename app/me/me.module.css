@@ -1,0 +1,39 @@
+.menu {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.item::after { content: '›'; color: var(--muted); font-size: 24px; }
+.item small { color: var(--muted); font-size: 14px; font-weight: 400; }
+a.item:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.back { display: inline-flex; align-items: center; min-height: 44px; color: inherit; }
+
+/* Organizers' free text: keep their line breaks. */
+.text { white-space: pre-line; overflow-wrap: anywhere; }
+
+.textarea {
+  min-height: 96px;
+  padding: 10px 12px;
+  font: inherit;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  resize: vertical;
+}

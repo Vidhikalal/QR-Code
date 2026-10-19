@@ -1,8 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
-import { LINK_CODES, normalizeLinkedIn, type LinkCode } from '@/lib/domain/badge';
+import { LINK_CODES, type LinkCode } from '@/lib/domain/badge';
 import { normalizeEmail } from '@/lib/domain/normalize';
+import { parseProfileInput, type ProfileFields, type ProfileInput } from '@/lib/domain/profile';
 
 type Account = { id: string; email?: string | null };
 
@@ -10,6 +11,7 @@ export interface MyBadgeProfile {
   participantId: string;
   eventId: string;
   eventName: string;
+  slug: string;
   linkedinUrl: string | null;
   profilePublic: boolean;
   badge: boolean;
@@ -23,7 +25,7 @@ const PROFILE_WINDOW_MS = 30 * 24 * 3600 * 1000;
 export async function myBadgeProfiles(db: SupabaseClient<Database>, email: string, now: Date): Promise<MyBadgeProfile[]> {
   const { data, error } = await db
     .from('participants')
-    .select('id, linkedin_url, profile_public, events!inner(id, name, starts_at, ends_at), badges(uid)')
+    .select('id, linkedin_url, profile_public, events!inner(id, slug, name, starts_at, ends_at), badges(uid)')
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
     .is('deleted_at', null)
@@ -35,33 +37,91 @@ export async function myBadgeProfiles(db: SupabaseClient<Database>, email: strin
       participantId: p.id,
       eventId: p.events.id,
       eventName: p.events.name,
+      slug: p.events.slug,
       linkedinUrl: p.linkedin_url,
       profilePublic: p.profile_public,
       badge: p.badges.length > 0,
     }));
 }
 
-export type SaveProfileResult = 'SAVED' | 'INVALID_LINKEDIN' | 'NOT_FOUND';
+export interface MyEvent {
+  participantId: string;
+  firstName: string;
+  lastName: string;
+  slug: string;
+  badge: boolean;
+  linkedinUrl: string | null;
+  profilePublic: boolean;
+  dietaryNotes: string | null;
+  emergency: { name: string; phone: string; relation: string | null } | null;
+  event: { name: string; venue: string; startsAt: string; timezone: string; schedule: string; emergencyInfo: string };
+}
 
-// /me: an attendee sets their own LinkedIn (blank clears it) and whether their badge shows it.
-// save_badge_profile() only touches the row whose email is the account's (a forged id changes nothing).
+// SPEC F14 (v0.6): one event's hacker menu, for the signed-in accepted attendee (verified email) up to 30 days
+// after it ends; null for anyone else. Their own emergency contact is in here: never pass it to someone else.
+export async function myEvent(db: SupabaseClient<Database>, email: string, slug: string, now: Date): Promise<MyEvent | null> {
+  const { data: p, error } = await db
+    .from('participants')
+    .select(
+      'id, first_name, last_name, linkedin_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, events!inner(slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info), badges(uid)',
+    )
+    .eq('email', normalizeEmail(email))
+    .eq('status', 'accepted')
+    .is('deleted_at', null)
+    .eq('events.slug', slug)
+    .gt('events.ends_at', new Date(now.getTime() - PROFILE_WINDOW_MS).toISOString())
+    .maybeSingle();
+  if (error) throw new Error(`my event lookup failed (${error.code})`);
+  if (!p) return null;
+  const e = p.events;
+  return {
+    participantId: p.id,
+    firstName: p.first_name,
+    lastName: p.last_name,
+    slug: e.slug,
+    badge: p.badges.length > 0,
+    linkedinUrl: p.linkedin_url,
+    profilePublic: p.profile_public,
+    dietaryNotes: p.dietary_notes,
+    emergency: p.emergency_name && p.emergency_phone ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
+    event: { name: e.name, venue: e.venue, startsAt: e.starts_at, timezone: e.timezone, schedule: e.schedule, emergencyInfo: e.emergency_info },
+  };
+}
+
+// Arguments for save_hacker_profile() and rsvp_respond(); a missing key leaves that column unchanged.
+export function profileArgs(v: ProfileFields) {
+  return {
+    p_linkedin_url: v.linkedinUrl,
+    p_public: v.profilePublic,
+    p_dietary_notes: v.dietaryNotes,
+    p_emergency_name: v.emergency?.name,
+    p_emergency_phone: v.emergency?.phone,
+    p_emergency_relation: v.emergency?.relation,
+  };
+}
+
+export type SaveProfileResult = 'SAVED' | 'INVALID_LINKEDIN' | 'INVALID_DIETARY' | 'INVALID_CONTACT' | 'NOT_FOUND';
+
+// /me/<slug>/profile and /emergency: the attendee's own LinkedIn, sharing, dietary notes and emergency contact.
+// save_hacker_profile() only touches the row whose email is the account's (a forged id changes nothing).
 export async function saveBadgeProfile(
   db: SupabaseClient<Database>,
   user: Account,
   participantId: string,
-  input: { linkedin: string; profilePublic: boolean },
+  input: ProfileInput,
 ): Promise<SaveProfileResult> {
-  const linkedin = input.linkedin.trim() === '' ? '' : normalizeLinkedIn(input.linkedin);
-  if (linkedin === null) return 'INVALID_LINKEDIN';
+  const parsed = parseProfileInput(input, { requireEmergency: false });
+  if (!parsed.ok) {
+    return parsed.field === 'linkedin' ? 'INVALID_LINKEDIN' : parsed.field === 'dietaryNotes' ? 'INVALID_DIETARY' : 'INVALID_CONTACT';
+  }
   if (!user.email || !z.uuid().safeParse(participantId).success) return 'NOT_FOUND';
-  const { data, error } = await db.rpc('save_badge_profile', {
+  const { data, error } = await db.rpc('save_hacker_profile', {
     p_participant_id: participantId,
     p_email: normalizeEmail(user.email),
-    p_linkedin_url: linkedin,
-    p_public: input.profilePublic,
     p_user_id: user.id,
+    ...profileArgs(parsed.value),
   });
-  if (error) throw new Error(`save_badge_profile failed (${error.code})`);
+  if (error) throw new Error(`save_hacker_profile failed (${error.code})`);
   return data ? 'SAVED' : 'NOT_FOUND';
 }
 

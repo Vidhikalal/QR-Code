@@ -12,6 +12,7 @@ const TABS = [
   ['/checkpoints', 'Checkpoints'],
   ['/staff', 'Staff'],
   ['/sync', 'Sync'],
+  ['/info', 'Info'],
   ['/export', 'Export'],
 ] as const;
 

@@ -109,6 +109,22 @@ describe('badge_profile() visibility limits (SPEC §6.5)', () => {
   });
 });
 
+describe('badge_profile() for the badge holder (SPEC F14, v0.6)', () => {
+  it('T-NFC-22: the holder tapping their own badge also gets self + the event slug (for their menu); nobody else does', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const { uid } = await f.linkBadge(id);
+    const self = await attendee(id);
+    expect(await profileOf(uid, { ...self, email: self.email.toUpperCase() })).toEqual({ allowed: true, public: false, self: true, slug: f.slug });
+    await setPublic(id, null);
+    expect(await profileOf(uid, self)).toMatchObject({ allowed: true, public: true, self: true, slug: f.slug });
+    for (const viewer of [await attendee(f.p.B), staffViewer('org1'), await attendee(f.p.X)]) {
+      const p = (await profileOf(uid, viewer)) as Record<string, unknown>;
+      expect(p).not.toHaveProperty('self');
+      expect(p).not.toHaveProperty('slug');
+    }
+  });
+});
+
 describe('PATCH /api/pass (SPEC §9.3)', () => {
   it('T-NFC-13: an active token sets the opt-in, audits it without PII, and the pass page reflects it', async () => {
     const c = passClient();

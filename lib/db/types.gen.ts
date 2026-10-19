@@ -242,9 +242,11 @@ export type Database = {
       events: {
         Row: {
           created_at: string
+          emergency_info: string
           ends_at: string
           id: string
           name: string
+          schedule: string
           sheet_id: string | null
           slug: string
           starts_at: string
@@ -254,9 +256,11 @@ export type Database = {
         ComputedFields: never
         Insert: {
           created_at?: string
+          emergency_info?: string
           ends_at: string
           id?: string
           name: string
+          schedule?: string
           sheet_id?: string | null
           slug: string
           starts_at: string
@@ -265,9 +269,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          emergency_info?: string
           ends_at?: string
           id?: string
           name?: string
+          schedule?: string
           sheet_id?: string | null
           slug?: string
           starts_at?: string
@@ -281,7 +287,11 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           dietary_notes: string | null
+          dietary_set_at: string | null
           email: string
+          emergency_name: string | null
+          emergency_phone: string | null
+          emergency_relation: string | null
           event_id: string
           external_id: string | null
           first_name: string
@@ -305,7 +315,11 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           dietary_notes?: string | null
+          dietary_set_at?: string | null
           email: string
+          emergency_name?: string | null
+          emergency_phone?: string | null
+          emergency_relation?: string | null
           event_id: string
           external_id?: string | null
           first_name: string
@@ -328,7 +342,11 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           dietary_notes?: string | null
+          dietary_set_at?: string | null
           email?: string
+          emergency_name?: string | null
+          emergency_phone?: string | null
+          emergency_relation?: string | null
           event_id?: string
           external_id?: string | null
           first_name?: string
@@ -623,6 +641,18 @@ export type Database = {
         }
         Returns: Json
       }
+      _set_hacker_profile: {
+        Args: {
+          p_dietary_notes: string
+          p_emergency_name: string
+          p_emergency_phone: string
+          p_emergency_relation: string
+          p_linkedin_url: string
+          p_participant_id: string
+          p_public: boolean
+        }
+        Returns: undefined
+      }
       _who: {
         Args: {
           k: Database["public"]["Enums"]["checkpoint_kind"]
@@ -825,7 +855,16 @@ export type Database = {
       }
       rsvp_lookup: { Args: { p_token_hash: string }; Returns: Json }
       rsvp_respond: {
-        Args: { p_going: boolean; p_token_hash: string }
+        Args: {
+          p_dietary_notes?: string
+          p_emergency_name?: string
+          p_emergency_phone?: string
+          p_emergency_relation?: string
+          p_going: boolean
+          p_linkedin_url?: string
+          p_public?: boolean
+          p_token_hash: string
+        }
         Returns: string
       }
       save_badge_profile: {
@@ -834,6 +873,20 @@ export type Database = {
           p_linkedin_url: string
           p_participant_id: string
           p_public: boolean
+          p_user_id: string
+        }
+        Returns: boolean
+      }
+      save_hacker_profile: {
+        Args: {
+          p_dietary_notes?: string
+          p_email: string
+          p_emergency_name?: string
+          p_emergency_phone?: string
+          p_emergency_relation?: string
+          p_linkedin_url?: string
+          p_participant_id: string
+          p_public?: boolean
           p_user_id: string
         }
         Returns: boolean

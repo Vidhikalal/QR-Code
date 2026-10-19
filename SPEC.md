@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.5 · **Owner:** Ade · **Last updated:** 2026-10-19
+> **Status:** Draft v0.6 · **Owner:** Ade · **Last updated:** 2026-10-19
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -65,6 +65,7 @@ The following are out of scope for v1:
 | **Outbox** | A queue table of emails to send. Emails are never sent inline in a request. |
 | **Badge** | An NFC tag whose UID is linked to one participant for one event, normally by its holder ("This is my badge", v0.5). Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
 | **Badge profile** | The page `/profile/<uid>`, for signed-in attendees and staff of the badge's event. It shows a name and LinkedIn only if the participant opted in. |
+| **Hacker menu** | `/me/<slug>` (v0.6): an attendee's own page for one event, with **Hacker profile**, **Schedule**, **Emergency contact** and **My pass**. Tapping your own badge opens it (F14). |
 
 ---
 
@@ -90,7 +91,10 @@ The following are out of scope for v1:
 | Link a badge (v0.5) | — | ✅ to themselves, signed in with their registered email (only an unlinked badge) | ✅ only an unlinked badge, through the link API (no UI since v0.5) | ✅ to anyone in their event, on the Tools page (can move a linked badge) |
 | View a badge profile (`/profile/<uid>`, opted-in fields only) | — (sign in first) | ✅ signed in with their registered email (same event) | ✅ (own event) | ✅ (own event) |
 | Opt in/out of the badge profile | — | ✅ | — | — |
-| Set own LinkedIn (`/me`, v0.5) | — | ✅ signed in with their registered email | — | — |
+| Set own LinkedIn (`/me/<slug>/profile`, v0.5) | — | ✅ signed in with their registered email | — | — |
+| Open own hacker menu; set own dietary notes and emergency contact (F14, v0.6) | — | ✅ signed in with their registered email | — | — |
+| Write the event's schedule and emergency info (Info page, v0.6) | — | — | — | ✅ |
+| See an attendee's emergency contact (v0.6) | — | — | — | ✅ |
 | Write badge tags (Tools page) | — | — | — | ✅ |
 
 Authorization is always checked **server-side**. Hiding a button is not authorization.
@@ -320,7 +324,7 @@ end $$;
 - **Cross-event scans are impossible**, enforced by the composite foreign keys (T-SCAN-22).
 - **Exactly one door checkpoint per event** is enforced by `checkpoints_one_door`.
 - **Never hard-delete scans.** Void them instead.
-- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct.
+- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, emergency contact (v0.6) and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct.
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
 
@@ -351,6 +355,22 @@ alter table participants
   add column rsvp_sent_at timestamptz;
 -- email_outbox.kind gains 'rsvp'.
 ```
+
+### 5.4 Hacker menu (v0.6)
+
+```sql
+alter table participants
+  add column emergency_name     text check (length(emergency_name) between 1 and 100),
+  add column emergency_phone    text check (emergency_phone ~ '^[0-9+() .-]{3,30}$'),
+  add column emergency_relation text check (length(emergency_relation) <= 60),
+  add column dietary_set_at     timestamptz,  -- the attendee set their own dietary notes (F3)
+  add constraint participants_emergency_pair check ((emergency_name is null) = (emergency_phone is null));
+
+alter table events
+  add column schedule       text not null default '' check (length(schedule) <= 5000),  -- plain text (§11 Info)
+  add column emergency_info text not null default '' check (length(emergency_info) <= 2000);
+```
+The emergency contact is personal data: organizers only (§11), never in logs or `audit_log.detail` (I-11), not in any CSV, deleted by the tombstone (§5.1) and by retention (§15). `save_hacker_profile()` and `rsvp_respond()` write the attendee's fields through one internal helper (`_set_hacker_profile`, no grants); `linkedin_set_at` and `dietary_set_at` move only when the value actually changes.
 
 ---
 
@@ -417,9 +437,9 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 - **UID:** the Web NFC `serialNumber` (e.g. `04:A1:B2:C3:D4:E5:F6`), normalized by `normalizeUid()` (`lib/domain/badge.ts`) to lowercase hex without separators, 4–10 bytes: `^([0-9a-f]{2}){4,10}$`. Anything else is `MALFORMED` on the client and `400` on the server.
 - **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
 - **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works once it is linked (by its holder signed in as an accepted attendee, or by an organizer), and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
-- **DECISION (v0.5): attendees link their own badge** (as in the datathon-badges app, but tied to their account). Tapping an unlinked badge opens `/profile/<uid>`; a signed-in, accepted, undeleted attendee of an event that ended at most 30 days ago (matched by verified email) presses **This is my badge** (one button per such event). `claim_badge(uid, event_id, email, user_id)` returns `LINKED` (claiming another badge frees their old one), `BADGE_TAKEN` (linked to someone else) or `NOT_FOUND`, takes the same lock as `link_badge()`, and audits `badge.claim` with ids only. Then `/me` asks for their LinkedIn and sharing. An unlinked badge's UID is in its URL, so someone could claim a badge they don't hold; the holder sees "belongs to someone else" and an organizer moves it on the Tools page (§11). The scanner no longer links badges (§10.5).
+- **DECISION (v0.5): attendees link their own badge** (as in the datathon-badges app, but tied to their account). Tapping an unlinked badge opens `/profile/<uid>`; a signed-in, accepted, undeleted attendee of an event that ended at most 30 days ago (matched by verified email) presses **This is my badge** (one button per such event). `claim_badge(uid, event_id, email, user_id)` returns `LINKED` (claiming another badge frees their old one), `BADGE_TAKEN` (linked to someone else) or `NOT_FOUND`, takes the same lock as `link_badge()`, and audits `badge.claim` with ids only. Then their Hacker profile page (`/me/<slug>/profile`, F14) asks for their LinkedIn and sharing. An unlinked badge's UID is in its URL, so someone could claim a badge they don't hold; the holder sees "belongs to someone else" and an organizer moves it on the Tools page (§11). The scanner no longer links badges (§10.5).
 - **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` (organizers, Tools page) returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
-- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet until the attendee sets their own on `/me` (v0.5: `normalizeLinkedIn()` turns `linkedin.com/in/x` and similar into `https://www.linkedin.com/in/x`; blank clears it). `save_badge_profile()` changes only the signed-in person's own accepted row, sets `linkedin_set_at`, and audits `profile.update` without PII; from then on the Sheet no longer changes their LinkedIn (F3).
+- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. **v0.6:** when the viewer's email is the linked participant's own, it also returns `self: true` and the event `slug`, and the page sends them to their hacker menu `/me/<slug>` (F14) instead of their own profile. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet until the attendee sets their own (v0.5: `normalizeLinkedIn()` turns `linkedin.com/in/x` and similar into `https://www.linkedin.com/in/x`; blank clears it), on their Hacker profile page or the RSVP Yes form (v0.6). `save_hacker_profile()` (v0.6; `save_badge_profile()` is kept for now but unused by the app) changes only the signed-in person's own accepted row, sets `linkedin_set_at` when the LinkedIn actually changes, and audits `profile.update` without PII; from then on the Sheet no longer changes their LinkedIn (F3).
 - **Browsers:** Web NFC exists only in Chrome on Android. Every NFC control is **hidden** where `NDEFReader` is absent (no fallback text). iPhones still open the profile page by reading the URL record natively.
 
 ---
@@ -454,7 +474,7 @@ The installable `onFormSubmit` trigger writes `Utilities.getUuid()` into `Applic
 | accepted | name, dietary notes or LinkedIn changed | update | `UPDATED` |
 | accepted | **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
 
-Any email change also clears the RSVP token (F13): that link was sent to the old address. A LinkedIn the attendee set themselves (`linkedin_set_at`, v0.5) is never overwritten or compared: only the other fields count.
+Any email change also clears the RSVP token (F13): that link was sent to the old address. A LinkedIn the attendee set themselves (`linkedin_set_at`, v0.5), or dietary notes they set themselves (`dietary_set_at`, v0.6), are never overwritten or compared: only the other fields count.
 | deleted (tombstone) | anything | nothing | `UNCHANGED` |
 | any | invalid row | nothing | `INVALID:<field,field>` |
 | none, or an email change, where the email is already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
@@ -561,9 +581,19 @@ An organizer adds a walk-in with name and email (source `walk_in`, status `accep
 1. On the Participants page an organizer ticks applicants who aren't accepted yet and presses **Send RSVP**. `queue_rsvps()` queues one `rsvp` outbox row each; accepted, deleted and other events' people are skipped. Audit `rsvp.send` records the count only.
 2. The drainer emails the invitation (§12) with a link `${APP_ORIGIN}/rsvp#<token>`. Each send rotates the token, so only the newest link works; the token is stored only while the drainer still holds the job (`set_rsvp_token`). An email change in the Sheet (F3) clears it: the link went to the old address.
 3. `/rsvp` reads the fragment and POSTs `{ token }` to `/api/rsvp`. It shows the event and **Yes** / **No**.
-4. **Yes:** `rsvp_respond()` sets `accepted` and, when that accepts them, queues `pass_issued`, unless a pass is already active or an organizer revoked their last pass (only an organizer's Resend issues a new one). An RSVP still waiting in the outbox is cancelled first. Without an account they choose a password first: the server creates a confirmed account (the emailed link proved the address), signs them in and sends them to `/me`. An RSVP never changes an existing account's password.
+4. **Yes** (v0.6) opens one form: the **emergency contact** (name and phone required, relationship optional), **dietary notes** and the optional **networking profile** (LinkedIn and badge sharing), both prefilled from the Sheet (`rsvp_lookup` returns them, never the emergency contact), and a password if they have no account. The server checks it all with `parseProfileInput()` before anything changes (400 `invalid_profile` with the field; no account is made), and `rsvp_respond()` stores the fields in the same transaction as the answer. It then sets `accepted` and, when that accepts them, queues `pass_issued`, unless a pass is already active or an organizer revoked their last pass (only an organizer's Resend issues a new one). An RSVP still waiting in the outbox is cancelled first. Without an account they choose a password first: the server creates a confirmed account (the emailed link proved the address), signs them in and sends them to `/me`. An RSVP never changes an existing account's password.
 5. **No:** `withdrawn`; any active pass is revoked (`status_change`), in-flight email cancelled and the badge link removed.
 6. Answers can change until the event ends; after that the link returns not found. Audit `rsvp.yes` / `rsvp.no`, with no personal data.
+
+### F14 — Hacker menu (v0.6)
+
+1. **Opening it.** An attendee taps their own badge (§6.5: `badge_profile` returns `self`), or presses **Menu** on an event card on `/me`. Both open `/me/<slug>`.
+2. **Who.** A signed-in, accepted, undeleted attendee of that event, matched by verified email, up to 30 days after it ends (`myEvent()`); anyone else gets a 404. `proxy.ts` sends signed-out visitors to `/login` and back.
+3. **Hacker profile** (`/me/<slug>/profile`): name (read-only: the Sheet owns it), badge status, LinkedIn, badge sharing and dietary notes.
+4. **Schedule** (`/me/<slug>/schedule`): the event's `schedule` text with its line breaks, or "not posted yet".
+5. **Emergency contact** (`/me/<slug>/emergency`): the event's `emergency_info`, read-only, and the attendee's own contact (name and phone required, relationship optional). The phone input carries the same rule as an HTML `pattern`, so a typo is caught before the form is sent.
+6. **My pass:** the pass link or state, as on `/me`.
+7. Saves go through `save_hacker_profile()` (own row only, §6.5) and audit `profile.update` with at most the sharing flag.
 
 ---
 
@@ -804,8 +834,10 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
 | `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5); an unlinked badge offers **This is my badge** (server action, `claim_badge()`, v0.5) |
 | `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
-| `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation; `{ token, going, password? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn }` (F13) |
-| `GET /me` | signed in | The signed-in person's passes (§6.1) and badge profile: LinkedIn + sharing (server action, `save_badge_profile()`, v0.5) |
+| `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation + `profile` prefill; `{ token, going, password?, emergencyName, emergencyPhone, emergencyRelation?, dietaryNotes?, linkedin?, profilePublic? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn }` (F13; the emergency contact is required on Yes) |
+| `GET /me` | signed in | The signed-in person's passes (§6.1), each with a **Menu** link (v0.6), and staff links |
+| `GET /me/:slug`, `/me/:slug/profile`, `/me/:slug/schedule`, `/me/:slug/emergency` | signed-in accepted attendee of the event | Hacker menu (F14); profile and emergency saves are server actions calling `save_hacker_profile()` |
+| `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo? }`, strict, at least one key; `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info) |
 | `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
 ---
@@ -894,10 +926,11 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
-| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
+| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6). |
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
+| Info (v0.6) | **Schedule** and **Emergency info** textareas (plain text, line breaks kept) that every accepted hacker sees in their menu (F14). Saved with `PATCH /api/admin/:slug/event`; audit `event.info` with `{}`. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
 | Tools | Android only; the tab is hidden elsewhere. **Link a badge** (v0.5): search a participant by name, pick them, tap a badge → `POST /api/events/:slug/badges`; an organizer's link moves a badge linked to someone else. The reader runs only while waiting for that tap, and the outcome is a notice showing the UID (✓ linked / ✕), never a green screen. **Write tags:** writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
@@ -917,12 +950,12 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
   7. tips (turn brightness up; a screenshot is fine; this code is personal),
   8. an optional "Add a photo for faster check-in" link (same pass page),
   9. organizer contact,
-  10. privacy line.
+  10. privacy line (v0.6: photos, dietary notes and emergency contacts are deleted 30 days after the event).
 - **Plain-text part** includes the pass link and all the facts above.
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
 - **Disable open and click tracking.** Tracking rewrites links, which leaks fragments into redirect logs, and adds pixels.
-- **RSVP email (F13):** subject `You're invited: {Event name} — will you be there?`; greeting, event, local date and time, venue, one "Reply to the invitation" button to `/rsvp#token`, a line saying Yes leads to setting a password and the pass email, organizer contact, privacy line. Same escaping and tracking rules.
+- **RSVP email (F13):** subject `You're invited: {Event name} — will you be there?`; greeting, event, local date and time, venue, one "Reply to the invitation" button to `/rsvp#token`, a line saying Yes asks for an emergency contact (and, optionally, LinkedIn), a password, then sends the pass email, organizer contact, privacy line (v0.6: mentions emergencies and the 30-day deletion). Same escaping and tracking rules.
 - **Auth emails** (staff invite, password reset) are sent by Supabase Auth through the same SMTP domain, from the templates in `public/auth-email/` (fetched by URL by the hosted auth server).
 - **Dev/test:** `EMAIL_PROVIDER=console` writes `.eml`-style output to `./.mail/` and never calls the network. It also saves each QR image to `./.mail/qr/<Event>-<First>.png` (never overwriting: `-2`, `-3`… on repeats) so passes can be shown to a scanner without opening the email. The label travels as `EmailMessage.fileLabel`, which real providers never send.
 
@@ -1044,6 +1077,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ING-24 | Same row posted 5× concurrently | 1 participant (1 `CREATED`), no outbox row | I |
 | T-ING-25 | Sync-now dry run | returns diff; zero writes (row counts identical before/after) | I |
 | T-ING-26 | Accepted participant set their own LinkedIn on `/me` (v0.5); the Sheet row resent, then with another LinkedIn, then with a new first name and a blank LinkedIn | `UNCHANGED`; `UNCHANGED`; `UPDATED` with the new name and their own LinkedIn kept | I |
+| T-ING-27 | Accepted participant changed their own dietary notes (v0.6); the Sheet row resent, then with other notes, then with a new first name and blank notes | `UNCHANGED`; `UNCHANGED`; `UPDATED` with the new name and their own dietary notes kept | I |
 
 ### 14.3 Apps Script — `T-GAS` (manual, on a copy of the real Sheet)
 | ID | Scenario | Expected |
@@ -1172,6 +1206,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ADM-05 | Delete participant | tombstone per §5.1; counts unchanged; token → `REVOKED` | I |
 | T-ADM-06 | Door closed, now = `starts_at − 20 min` | dashboard warning visible | E |
 | T-ADM-07 | 31 `NOT_FOUND` from vol1 in 5 min | 429 for vol1; alert on dashboard | I |
+| T-ADM-08 | PATCH `{schedule, emergencyInfo}`; one field alone; 5001 / 2001 chars, `{}`, a wrong type or an extra key; `{sheet}`. Info tab in the browser; participant detail with and without a contact (v0.6) | saved, returned by GET, audit `event.info` with `{}`; the other field unchanged; 400; still `{sheetId}`. The text shows on the hacker Schedule page; the organizer sees the contact with a `tel:` link, or `emergency: null` | I+E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1190,13 +1225,13 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC-02 | `pg_tables.rowsecurity` for every public table | all true | I |
 | T-SEC-03 | After `next build`, grep `.next/static` for `SERVICE_ROLE` and the key's value | not found | CI |
 | T-SEC-04 | Enumerate every route handler file; call each unauthenticated | 401 (except `/api/pass*`, `/api/rsvp`, `/api/ingest/sheet`, `/api/email/drain` with their own auth) | I |
-| T-SEC-05 | Capture server logs during the full e2e flow | contain no token, no email, no participant name | E |
+| T-SEC-05 | Capture server logs during the full e2e flow | contain no token, no email, no participant name, no emergency contact (v0.6) | E |
 | T-SEC-06 | Response headers | CSP present; `frame-ancestors 'none'`; `Permissions-Policy: camera=(self)`; HSTS in prod | E |
 | T-SEC-07 | Every view | `security_invoker = true`; no grant to anon/authenticated | I |
 | T-SEC-08 | Every `SECURITY DEFINER` function in `public` | `proconfig` contains `search_path`; no EXECUTE for anon/authenticated/PUBLIC | I |
-| T-PRIV-01 | Retention job at `ends_at + 30 d` | photos deleted from storage, `photo_path` null, `dietary_notes` null | I |
+| T-PRIV-01 | Retention job at `ends_at + 30 d` | photos deleted from storage, `photo_path` null, `dietary_notes` null, emergency contact null (v0.6) | I |
 | T-PRIV-02 | Retention job run twice | idempotent | I |
-| T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name or token | I |
+| T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name, emergency contact or token | I |
 
 ### 14.13 Device & venue matrix — `T-DEV` (manual, before every event)
 
@@ -1248,7 +1283,8 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-18 | Auth callback: staff with a display name; staff without one; an account with no staff role (attendee) | no onboarding; onboarding; no onboarding | I |
 | T-NFC-19 | `normalizeLinkedIn`: `linkedin.com/in/x`, `www.`, `http://`, query/fragment, country host, accented handle; blank, `/company/x`, `/in/`, `/in/a/b`, `javascript:`, other hosts, credentials, a port, `ftp:`, > 200 chars | `https://www.linkedin.com/in/x` (accents percent-encoded); the rest null, no throw | U |
 | T-NFC-20 | `claim_badge`: A claims an unlinked badge, then a second one; B claims A's badge; C (waitlisted), Wd, X (other event), a deleted participant, a staff-only email; an event that ended 31 vs 29 days ago; 10 attendees claim one badge in parallel (20 rounds) | `LINKED` (scans as A, audit `badge.claim` with `{}` detail), the first badge freed; `BADGE_TAKEN`, both badges unchanged; `NOT_FOUND`; `NOT_FOUND` vs `LINKED`; exactly 1 `LINKED` + 9 `BADGE_TAKEN` | I |
-| T-NFC-21 | A taps an unlinked badge signed out → signs in → This is my badge → `/me`; saves `linkedin.com/company/x`, then `linkedin.com/in/ada-claimed` + sharing; B taps the badge; the badge at D; waitlisted C opens an unlinked badge | "Badge linked" on `/me`; "Not saved", then saved as `https://www.linkedin.com/in/ada-claimed`; B sees Ada's name and that link, no claim button; `ACCEPTED`; no claim button, "sign in with the email you registered" | E |
+| T-NFC-21 | A taps an unlinked badge signed out → signs in → This is my badge → Hacker profile (`/me/<slug>/profile`, v0.6); saves `linkedin.com/company/x`, then `linkedin.com/in/ada-claimed` + sharing; B taps the badge; the badge at D; waitlisted C opens an unlinked badge | "Badge linked" on the Hacker profile; "Not saved", then saved as `https://www.linkedin.com/in/ada-claimed`; B sees Ada's name and that link, no claim button; `ACCEPTED`; no claim button, "sign in with the email you registered" | E |
+| T-NFC-22 | `badge_profile` viewed by the badge's holder (email in another case), shared and not; by another attendee, staff, another event's attendee. E: A taps their own badge; B taps it (v0.6) | `self: true` and the event `slug` added to the usual keys; never `self` or `slug` for anyone else. A lands on `/me/<slug>`; B sees the badge profile | I+E |
 | T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
 
 ### 14.16 RSVP — `T-RSVP` (v0.4)
@@ -1259,7 +1295,9 @@ Target: at least 95% of attempts under 3 s.
 | T-RSVP-03 | Also: Yes after an organizer's revoke, and No then Yes after it; No for someone with a badge; 20 RSVP sends racing 20 answers | no pass queued; badge link removed; no errors (no deadlock) | I |
 | T-RSVP-03 | `{token}`; Yes twice; No; unknown token; ended event; bad `going`; extra keys; 31 requests/min from one IP | invitation without email; `GOING` ×2 with exactly 1 `pass_issued` and a drain; `NOT_GOING`: withdrawn, outbox cancelled; 404 `{state:'not_found'}` (same as `/api/pass`); 404; 400; 400; 429. Audit `rsvp.yes`, `rsvp.no` | I |
 | T-RSVP-04 | Yes with a 5-char password; Yes + password without an account; Yes + password when an account exists | 400 `weak_password`, nothing changed; confirmed account, `signedIn: true`; `signedIn: false` and the old password still works | I |
-| T-RSVP-05 | Organizer ticks a row → Send RSVP → link from the email → Yes + password | "RSVP sent" on the row; lands on `/me`; "Open my pass" links the same token as the pass email, which scans `ACCEPTED`; no token in any request URL; signed out `/me` → login → back | E |
+| T-RSVP-05 | Organizer ticks a row → Send RSVP → link from the email → Yes + emergency contact (v0.6) + password | "RSVP sent" on the row; lands on `/me`; the contact is stored; "Open my pass" links the same token as the pass email, which scans `ACCEPTED`; no token in any request URL; signed out `/me` → login → back | E |
+| T-RSVP-06 | Yes without an emergency contact; a name only; a bad phone; an invalid LinkedIn; 501 chars of dietary notes; a wrong type (v0.6) | 400 `invalid_profile` with the field (400 `invalid_body` for the type); still pending; no account created; No needs no form | I |
+| T-RSVP-07 | The lookup; Yes with every field; the lookup again; `rsvp_respond(hash, true)` in SQL; No sent with form fields | prefill of the Sheet's dietary notes and LinkedIn, no email or emergency contact; everything stored with the answer, `linkedin_set_at` set (changed), `dietary_set_at` not (unchanged); still no contact; profile untouched; withdrawn, profile untouched | I |
 
 ### 14.17 Accounts — `T-AUTH`, `T-ME` (v0.4)
 | ID | Scenario | Expected | L |
@@ -1273,6 +1311,10 @@ Target: at least 95% of attempts under 3 s.
 | T-AUTH-06 | `isAdminEmail` with case and spaces, another address, an empty list, null; `ADMIN_EMAILS` parsing; sign-in landing for an admin account (one event as volunteer) and for another account | matches only the normalized address; a normalized list, empty when unset; organizer on every event (volunteer row upgraded), still sent to onboarding without a display name; no roles | U+I |
 | T-ME-01 | `/me` for A with an old random pass; with a derived pass; accepted with no pass yet; waitlisted, withdrawn, past event; signed out | "in your email"; `/p#<token>` whose hash matches; "on its way"; nothing; redirect to `/login?next=/me` | I+E |
 | T-ME-02 | `/me` as an organizer; as a volunteer | Admin and Scanner links to the event; Scanner only | E |
+| T-ME-04 | `parseProfileInput`: trimmed fields; blank vs missing; name 1/100/101; phones `+1 (416) 555-0100`, `416.555.0100` vs `abc`, `12`, `+() --`, 31 chars; name without phone; relation 61; dietary 501; LinkedIn `/in/` vs `/company/`; the RSVP's required contact (v0.6) | normalized values; missing = unchanged, blank = clear; the first invalid field named, no throw | U |
+| T-ME-05 | `saveBadgeProfile` as A (email in another case): blank dietary when there was none; dietary + contact; every field at its limit; relation cleared; a bad phone, a name only, 501 chars of dietary notes; B's id; Wd's own row; an event that ended 31 days ago (v0.6) | `dietary_set_at` unset; saved and set; accepted by the DB checks; null; `INVALID_CONTACT`/`INVALID_DIETARY`, nothing changed; `NOT_FOUND` ×3, nothing changed. Audit `profile.update` without name, phone or dietary text | I |
+| T-ME-06 | `myEvent` as A (email in another case); E2's slug; an unknown slug; C; Wd; a deleted participant; 32 days after the event (v0.6) | the event with its schedule and emergency info and A's own fields; null for each of the rest | I |
+| T-ME-07 | Signed out `/me/<slug>/profile`; A taps their own badge → menu (Hacker profile, Schedule, Emergency contact, My pass); edits dietary notes; reads the schedule; types a bad phone, then saves a contact; C opens the menu (v0.6) | login with `next`; the four items, "In your email"; saved; line breaks kept; the browser refuses the phone and keeps the typed name, then saved; 404 | E |
 | T-ME-03 | `saveBadgeProfile` as A (email in another case): `linkedin.com/in/ada-l` + share; `/company/x`; blank + hide; B's id; a malformed id. `myBadgeProfiles`: A, before and after a badge link; waitlisted C; 32 days after the event | saved normalized; `INVALID_LINKEDIN`, nothing changed; cleared; `NOT_FOUND`, B unchanged; `NOT_FOUND`. Audit `profile.update` rows without PII. One entry with event and `badge: false`, then `true`; none; none | I |
 
 ---
@@ -1301,13 +1343,13 @@ Target: at least 95% of attempts under 3 s.
 - **Privacy:**
   - The Google Form MUST include a collection notice covering what is collected, why (event admission, food, attendance analytics), who sees it (club organizers and volunteers), and retention.
   - Follow the college's student-organization data policies.
-  - Retention: photos and dietary notes are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
+  - Retention: photos, dietary notes and emergency contacts (v0.6) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
   - The badge profile is opt-in and off by default; participants switch it on or off on their pass page or `/me`, where they can also set their LinkedIn (v0.5). It is only shown to signed-in attendees and staff of the same event.
 - **Logging:**
   - Structured JSON logs.
   - Allowed fields: `participant_id`, `event_id`, `checkpoint_id`, `result_code`, `latency_ms`.
-  - Never names, emails, tokens, dietary notes or photos.
+  - Never names, emails, tokens, dietary notes, emergency contacts or photos.
 
 ---
 
@@ -1386,6 +1428,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
 | **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet; admin emails and staff links on `/me` (v0.4.1) | T-AUTH-01..06, T-RSVP-01..05, T-ME-01..02, T-TOK-10, rewritten T-ING |
+| **S10** Hacker menu (v0.6) | `/me/<slug>` menu (own badge tap), Hacker profile with dietary notes, Schedule and Emergency contact pages, admin Info tab, emergency contact on the RSVP Yes form and participant detail; tombstone, retention, Sheet rule | T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08 |
 | **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC · N3 badge profile + opt-in · N4 tag writer · N5 (v0.5) self-claimed badges, LinkedIn on `/me`, Tools linker | T-NFC-01..21, T-ME-03, T-ING-26 (+ T-NFC-17 manual) |
 
 ---
@@ -1415,6 +1458,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
 - **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.
 - **v0.5 (2026-10-19)** — Self-claimed badges, reversing a v0.3 DECISION: a signed-in attendee taps an unlinked badge and presses **This is my badge** (`claim_badge()`), then sets their LinkedIn and sharing on `/me` (`save_badge_profile()`, `normalizeLinkedIn()`); the Sheet stops overwriting a LinkedIn they set (`linkedin_set_at`, F3). The scanner's door "Link badge" is gone; organizers link badges on the admin **Tools** page (formerly Badges, which keeps the tag writer). §2, §3, §5.2, §6.5, F3, §9.3, §10.2, §10.5, §11, §15, §16, S8. New tests T-NFC-19..21, T-ME-03, T-ING-26; T-NFC-11 and T-NFC-16 rewritten for Tools.
+- **v0.6 (2026-10-19)** — Hacker menu (F14, S10). Tapping your own badge opens `/me/<slug>` (`badge_profile` adds `self`, `slug`): Hacker profile (LinkedIn, sharing, and now dietary notes), Schedule and Emergency contact (the event's info and your own contact), and My pass. The RSVP Yes form requires an emergency contact and offers the networking profile and dietary notes, prefilled from the Sheet, all stored with the answer (`rsvp_respond` gains optional fields; `rsvp_lookup` returns the prefill). Organizers write the schedule and emergency info on a new admin **Info** tab and see the emergency contact on the participant detail. The Sheet stops overwriting dietary notes the attendee set (`dietary_set_at`); set-at timestamps move only on a real change. The emergency contact is deleted by the tombstone and by retention, and never logged. §2, §3, §5.1, §5.4, §6.5, F3, F13, F14, §9.3, §11, §12, §15, §18. New tests T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08; T-ADM-05, T-PRIV-01, T-RSVP-05, T-NFC-21 and T-SEC-05/T-PRIV-03 updated.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 

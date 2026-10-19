@@ -67,3 +67,28 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     expect((await c.call('updateEvent', org, { slug: f.slug }, { method: 'PATCH', body: { sheet: 'not a sheet' } })).status).toBe(400);
   });
 });
+
+describe('event info for hackers (SPEC §11 Info, v0.6)', () => {
+  const patch = (body: unknown) => c.call('updateEvent', org, { slug: f.slug }, { method: 'PATCH', body });
+
+  it('T-ADM-08: organizers save the schedule and emergency info; over-long text and an empty body are refused', async () => {
+    const info = { schedule: 'Doors 9:00\nLunch 12:00', emergencyInfo: 'Call Ade: 555-0100' };
+    const res = await patch(info);
+    expect(res).toMatchObject({ status: 200, body: info });
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject(info);
+
+    // One field at a time leaves the other alone.
+    expect((await patch({ schedule: '' })).status).toBe(200);
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ schedule: '', emergencyInfo: info.emergencyInfo });
+
+    for (const body of [{ schedule: 's'.repeat(5001) }, { emergencyInfo: 'e'.repeat(2001) }, {}, { schedule: 1 }, { schedule: '', extra: 1 }]) {
+      expect((await patch(body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
+    }
+    expect((await patch({ schedule: 's'.repeat(5000), emergencyInfo: 'e'.repeat(2000) })).status).toBe(200);
+    // The Sheet link still answers as before.
+    expect((await patch({ sheet: null })).body).toEqual({ sheetId: null });
+
+    const { rows } = await f.pool.query<{ detail: unknown }>(`select detail from audit_log where action = 'event.info' and event_id = $1`, [f.e1.id]);
+    expect(rows).toEqual([{ detail: {} }, { detail: {} }, { detail: {} }]);
+  });
+});

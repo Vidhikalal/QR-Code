@@ -5,6 +5,7 @@ import { passToken, sha256hex } from '@/lib/domain/token';
 
 export interface MyPass {
   participantId: string;
+  slug: string;
   event: { name: string; venue: string; startsAt: string; timezone: string };
   /** The token for `/p#…`; 'in_email' for a pass from before v0.4 (random token); 'on_its_way' while queued. */
   pass: { token: string } | 'in_email' | 'on_its_way';
@@ -15,7 +16,7 @@ export interface MyPass {
 export async function myPasses(db: SupabaseClient<Database>, email: string, secret: string, now: Date): Promise<MyPass[]> {
   const { data, error } = await db
     .from('participants')
-    .select('id, events!inner(name, venue, starts_at, ends_at, timezone), passes(id, token_hash)')
+    .select('id, events!inner(slug, name, venue, starts_at, ends_at, timezone), passes(id, token_hash)')
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
     .is('deleted_at', null)
@@ -28,6 +29,7 @@ export async function myPasses(db: SupabaseClient<Database>, email: string, secr
       const token = active ? passToken(secret, active.id) : null;
       return {
         participantId: p.id,
+        slug: p.events.slug,
         event: { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone },
         pass: !active || !token ? 'on_its_way' : sha256hex(token) === active.token_hash ? { token } : 'in_email',
       };

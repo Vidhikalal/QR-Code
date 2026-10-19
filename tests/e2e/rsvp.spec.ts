@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
-// SPEC F13 + §6.1 (v0.4): organizer sends an RSVP → Yes + password → /me shows the pass.
+// SPEC F13 + §6.1 (v0.4): organizer sends an RSVP → Yes (emergency contact, v0.6) + password → /me shows the pass.
 let f: StandardFixture;
 test.beforeEach(async () => {
   f = await createStandardFixture();
@@ -11,7 +11,7 @@ test.afterEach(async () => {
   await f.close();
 });
 
-test('T-RSVP-05: tick → Send RSVP → Yes with a password → /me → the same pass as the email; tokens never in a URL', async ({ browser, page }) => {
+test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a password → /me → the same pass as the email; tokens never in a URL', async ({ browser, page }) => {
   const email = `rae-${f.slug}@example.test`;
   await f.pool.query(
     `insert into participants (event_id, external_id, email, first_name, last_name, search_text, status, source)
@@ -40,10 +40,14 @@ test('T-RSVP-05: tick → Send RSVP → Yes with a password → /me → the same
   await expect(p.getByRole('heading', { name: f.e1.name })).toBeVisible();
   await expect(p.getByText('Hi Rae, will you be there?')).toBeVisible();
   await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
+  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
   await p.getByLabel('Set a password for your Passline account').fill('rae-event-password');
   await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
   await p.waitForURL('**/me');
   await expect(p.getByRole('heading', { name: 'My passes' })).toBeVisible();
+  const { rows } = await f.pool.query('select emergency_name, emergency_phone from participants where email = $1', [email]);
+  expect(rows).toEqual([{ emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100' }]);
 
   // The pass email is sent after the response; /me shows the pass once it's issued.
   const passToken = /\/p#([A-Za-z0-9_-]{32})/.exec(await consoleMailText(email, '/p#'))?.[1] ?? '';
