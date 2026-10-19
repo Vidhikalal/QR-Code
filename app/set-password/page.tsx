@@ -5,6 +5,7 @@ import { safeNextPath } from '@/lib/auth/next-path';
 import { landingAfterSignIn } from '@/lib/auth/onboarding';
 import { currentUser, supabaseForRequest } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { env } from '@/lib/env';
 import styles from '../login/login.module.css';
 
 export const metadata: Metadata = { title: 'Set your password · Passline', robots: { index: false } };
@@ -28,7 +29,7 @@ async function savePassword(formData: FormData) {
   }
   const user = data.user ?? (await currentUser());
   if (!user) redirect(`/login?next=${encodeURIComponent(next)}`);
-  redirect(await landingAfterSignIn(db(), user, next));
+  redirect(await landingAfterSignIn(db(), user, next, env().ADMIN_EMAILS));
 }
 
 export default async function SetPasswordPage({ searchParams }: { searchParams: Promise<{ next?: string; invalid?: string }> }) {

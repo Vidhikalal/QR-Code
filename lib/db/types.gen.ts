@@ -725,6 +725,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      grant_admin_roles: { Args: { p_user_id: string }; Returns: number }
       ingest_sheet_row: {
         Args: {
           p_dietary_notes?: string

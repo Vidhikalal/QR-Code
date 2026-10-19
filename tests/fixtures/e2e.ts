@@ -26,7 +26,7 @@ export async function saveSignedInState(browser: Browser, email: string, file: s
   // Explicit empty state: the runner would otherwise apply the file's (not yet written) storageState.
   const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
-  await signIn(page, email, '/');
+  await signIn(page, email, '/me');
   await context.storageState({ path: file });
   await context.close();
 }

@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
+import { isAdminEmail } from '@/lib/auth/admins';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { landingAfterSignIn } from '@/lib/auth/onboarding';
 import { supabaseForRequest } from '@/lib/auth/session';
@@ -30,19 +31,20 @@ export async function signIn(_prev: LoginState, form: FormData): Promise<LoginSt
   if (!(await withinLimit(db(), emailKey('signin', email.data), 900, 10))) return { error: 'credentials' };
   const { data, error } = await (await supabaseForRequest()).auth.signInWithPassword({ email: email.data, password: password.data });
   if (error || !data.user) return { error: 'credentials' };
-  redirect(await landingAfterSignIn(db(), data.user, nextOf(form)));
+  redirect(await landingAfterSignIn(db(), data.user, nextOf(form), env().ADMIN_EMAILS));
 }
 
 // "Forgot or never set your password?": a reset link for an existing account, an invite (first
-// password) for an accepted participant or invited staff member without one, nothing otherwise.
+// password) for an accepted participant, invited staff member or admin email without one, nothing otherwise.
 // The answer is the same in every case, so this can't be used to find out who has an account.
 export async function sendPasswordLink(_prev: LoginState, form: FormData): Promise<LoginState> {
   const email = emailSchema.safeParse(form.get('email'));
   if (!email.success) return { sent: true };
   // At most 3 emails per address per hour, so nobody can flood someone's inbox; over the limit looks the same.
   if (!(await withinLimit(db(), emailKey('pwlink', email.data), 3600, 3))) return { sent: true };
-  const { data: kind, error } = await db().rpc('password_link_kind', { p_email: email.data });
+  const { data: found, error } = await db().rpc('password_link_kind', { p_email: email.data });
   if (error) throw new Error(`password_link_kind failed (${error.code})`);
+  const kind = found === 'none' && isAdminEmail(email.data, env().ADMIN_EMAILS) ? 'invite' : found;
   const confirm = (type: 'invite' | 'recovery') =>
     `${env().NEXT_PUBLIC_APP_ORIGIN}/auth/confirm?type=${type}&next=${encodeURIComponent(nextOf(form))}`;
   // Implicit flow: the emailed link must work in any browser, not only the one holding a PKCE verifier.

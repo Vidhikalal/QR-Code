@@ -34,6 +34,11 @@ describe('lib/env (S0 smoke)', () => {
     expect(() => parseServerEnv({ ...valid, DRAIN_SECRET: '' })).toThrow(/DRAIN_SECRET/);
   });
 
+  it('T-AUTH-06: ADMIN_EMAILS is a normalized comma list, empty when unset', () => {
+    expect(parseServerEnv({ ...valid, ADMIN_EMAILS: ' Yves@X.com, b@y.com ,' }).ADMIN_EMAILS).toEqual(['yves@x.com', 'b@y.com']);
+    expect(parseServerEnv(valid).ADMIN_EMAILS).toEqual([]);
+  });
+
   it('requires RESEND_API_KEY and EMAIL_FROM when EMAIL_PROVIDER=resend', () => {
     expect(() => parseServerEnv({ ...valid, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY[\s\S]*EMAIL_FROM/);
   });

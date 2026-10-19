@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/db/types.gen';
+import { grantAdminRoles, isAdminEmail } from './admins';
 import { consumeInvites } from './invites';
 
 // SPEC F9 (v0.3): the display-name step is only for staff (the name volunteers see next to scans).
@@ -14,13 +15,15 @@ export async function needsOnboarding(db: SupabaseClient<Database>, userId: stri
   return (staff.count ?? 0) > 0 && !profile.data;
 }
 
-// Where a fresh sign-in goes: invites for the verified email become staff roles (F9 step 3), then staff
-// without a display name get the onboarding step first.
+// Where a fresh sign-in goes: an admin email gets organizer on every event, invites for the verified email
+// become staff roles (F9 step 3), then staff without a display name get the onboarding step first.
 export async function landingAfterSignIn(
   db: SupabaseClient<Database>,
   user: { id: string; email?: string | null },
   next: string,
+  adminEmails: readonly string[],
 ): Promise<string> {
+  if (isAdminEmail(user.email, adminEmails)) await grantAdminRoles(db, user.id);
   await consumeInvites(db, { id: user.id, email: user.email ?? null });
   return (await needsOnboarding(db, user.id)) ? `/onboarding?next=${encodeURIComponent(next)}` : next;
 }

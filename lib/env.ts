@@ -1,5 +1,6 @@
 import 'server-only';
 import { z } from 'zod';
+import { normalizeEmail } from '@/lib/domain/normalize';
 
 const bareOrigin = z.url().refine((u) => new URL(u).origin === u, 'must be a bare origin, no trailing slash');
 
@@ -16,6 +17,11 @@ export const serverEnvSchema = z
     DRAIN_SECRET: z.string().min(32, 'must be at least 32 characters'),
     /** §6.1: pass tokens are derived from it. Changing it hides older passes on /me (scanning still works). */
     PASS_TOKEN_SECRET: z.string().min(32, 'must be at least 32 characters'),
+    /** F9 (v0.4.1): comma-separated; these accounts are organizer on every event. */
+    ADMIN_EMAILS: z
+      .string()
+      .optional()
+      .transform((s) => (s ?? '').split(',').map(normalizeEmail).filter(Boolean)),
     GOOGLE_SERVICE_ACCOUNT_JSON: z.string().min(1).optional(),
     EMAIL_PROVIDER: z.enum(['console', 'resend']),
     RESEND_API_KEY: z.string().min(1).optional(),

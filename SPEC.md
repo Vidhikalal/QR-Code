@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.4 · **Owner:** Ade · **Last updated:** 2026-10-16
+> **Status:** Draft v0.4.1 · **Owner:** Ade · **Last updated:** 2026-10-19
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -81,6 +81,7 @@ The following are out of scope for v1:
 | Open/close checkpoints, CRUD checkpoints | — | — | — | ✅ |
 | Resend/revoke pass, add walk-in, delete participant | — | — | — | ✅ |
 | Invite/remove staff | — | — | — | ✅ |
+| Organizer on every event without an invite | — | — | — | ✅ only an account whose email is in `ADMIN_EMAILS` (F9) |
 | Dashboard, analytics, CSV export | — | — | — | ✅ |
 | Sheet ingest endpoint | HMAC-signed Apps Script only | | | |
 | Answer an RSVP (`/rsvp#token`), and set a first password | RSVP link holder only | | | |
@@ -530,8 +531,9 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 4. **"Forgot or never set your password?"** emails a **reset** link for an existing account, an **invite** link (first password) to an accepted participant or invited staff member without an account, and nothing to anyone else. The page shows the same message every time, so it can't be used to find out who has an account.
 5. Invite and reset links open `/auth/confirm` with the token in the **fragment** (never sent to a server, like I-3). It is used only when the person presses **Continue** (a POST), so mail scanners that open links can't spend it. Then `/set-password` (8–72 characters).
 6. An account's email can't be changed without confirming the new address (Supabase "secure email change" stays on), because `/me`, badge profiles and invites trust the account's email.
-7. **DECISION (v0.4): no public sign-up.** Accounts are created only by an RSVP Yes (F13), a staff invite, or step 4.
-8. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
+7. **Admin emails (v0.4.1).** An account whose verified email is in `ADMIN_EMAILS` becomes organizer on every event at each sign-in (`grant_admin_roles()`: real `event_staff` rows, so every check in §3 and §8 applies unchanged). Without an account, step 4 sends such an address an invite. Events created later are granted at the next sign-in; removing an address from `ADMIN_EMAILS` doesn't remove roles already granted (remove them on the Staff page). `/me` lists a signed-in staff member's events with **Admin** (organizers) and **Scanner** links, and `/` redirects to `/me`.
+8. **DECISION (v0.4): no public sign-up.** Accounts are created only by an RSVP Yes (F13), a staff invite, or step 4.
+9. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
 
 ### F10 — Sync now (reconcile)
 
@@ -1261,7 +1263,9 @@ Target: at least 95% of attempts under 3 s.
 | T-AUTH-04 | `/auth/confirm` with a bad token; the same invite link twice; the emailed link | `/login?error=link` with the error text; the token is only in the fragment and never in a request URL | E |
 | T-AUTH-05 | A signed-in user changes their account email to an accepted participant's address | not applied (needs the new address confirmed) | I |
 | T-AUTH-03 | Also: invite as organizer, then re-invite the same (no password yet) address as volunteer | `ADDED`, pending invite gone, role stays volunteer after sign-in | I |
+| T-AUTH-06 | `isAdminEmail` with case and spaces, another address, an empty list, null; `ADMIN_EMAILS` parsing; sign-in landing for an admin account (one event as volunteer) and for another account | matches only the normalized address; a normalized list, empty when unset; organizer on every event (volunteer row upgraded), still sent to onboarding without a display name; no roles | U+I |
 | T-ME-01 | `/me` for A with an old random pass; with a derived pass; accepted with no pass yet; waitlisted, withdrawn, past event; signed out | "in your email"; `/p#<token>` whose hash matches; "on its way"; nothing; redirect to `/login?next=/me` | I+E |
+| T-ME-02 | `/me` as an organizer; as a volunteer | Admin and Scanner links to the event; Scanner only | E |
 
 ---
 
@@ -1373,7 +1377,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S5** Scanner | staff auth + invites, `/scan`, result UI, manual search, undo | T-SCUI-*, T-SRCH-*, T-SEC-04 |
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
-| **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet | T-AUTH-01..04, T-RSVP-01..05, T-ME-01, T-TOK-10, rewritten T-ING |
+| **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet; admin emails and staff links on `/me` (v0.4.1) | T-AUTH-01..06, T-RSVP-01..05, T-ME-01..02, T-TOK-10, rewritten T-ING |
 | **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC + Link badge · N3 badge profile + opt-in · N4 tag writer | T-NFC-01..16, T-NFC-18 (+ T-NFC-17 manual) |
 
 ---
@@ -1392,6 +1396,7 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `ADMIN_EMAILS` | server only | Optional, comma-separated. These accounts are organizer on every event (F9). Keep it short: whoever controls one of these mailboxes is organizer everywhere. |
 | `PASS_TOKEN_SECRET` | server only | ≥ 32 random bytes. Pass tokens are derived from it (§6.1). Changing it hides older passes on `/me`; scanning is unaffected. |
 | `BADGE_ORIGIN` | server | Optional. Origin written onto badge tags (§6.5); defaults to `NEXT_PUBLIC_APP_ORIGIN`. Must be `https://` for the writer to write. |
 
@@ -1401,6 +1406,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
 - **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.
+- **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
 ---

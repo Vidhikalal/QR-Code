@@ -25,6 +25,21 @@ test.afterAll(async () => {
   await f.close();
 });
 
+test('T-ME-02: /me links staff to their events: Admin and Scanner for an organizer, Scanner only for a volunteer', async ({ page, browser }) => {
+  await page.goto('/me');
+  const staff = page.getByRole('region', { name: 'Staff' });
+  await expect(staff.getByRole('link', { name: `Admin: ${f.e1.name}` })).toHaveAttribute('href', `/admin/${f.slug}`);
+  await expect(staff.getByRole('link', { name: `Scanner: ${f.e1.name}` })).toHaveAttribute('href', `/scan/${f.slug}`);
+
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: VOL });
+  const vol = await context.newPage();
+  await vol.goto('/me');
+  const volStaff = vol.getByRole('region', { name: 'Staff' });
+  await expect(volStaff.getByRole('link', { name: `Scanner: ${f.e1.name}` })).toHaveAttribute('href', `/scan/${f.slug}`);
+  await expect(volStaff.getByRole('link', { name: /^Admin/ })).toHaveCount(0);
+  await context.close();
+});
+
 test('T-ADM-01 (pages): a volunteer, and an organizer of another event, get 403 on every /admin page', async ({ browser }) => {
   for (const state of [VOL, OTHER_ORG]) {
     const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: state });

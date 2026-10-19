@@ -22,7 +22,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 - [ ] Import the repo. Set the function region to match Supabase (§15).
 - [ ] Environment variables (SPEC §19):
       `NEXT_PUBLIC_APP_ORIGIN`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-      `SHEET_INGEST_SECRET`, `DRAIN_SECRET` and `PASS_TOKEN_SECRET` (`openssl rand -hex 32` each), `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
+      `SHEET_INGEST_SECRET`, `DRAIN_SECRET` and `PASS_TOKEN_SECRET` (`openssl rand -hex 32` each), `ADMIN_EMAILS` (your own address), `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
       `EMAIL_FROM`, and optionally `GOOGLE_SERVICE_ACCOUNT_JSON` for Sync now.
 - [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
 
