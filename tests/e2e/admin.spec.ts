@@ -40,6 +40,21 @@ test('T-ME-02: /me links staff to their events: Admin and Scanner for an organiz
   await context.close();
 });
 
+test('T-ME-02: /admin opens the newest event you organize; someone who organizes none goes to /me', async ({ page, browser }) => {
+  await page.goto('/admin');
+  await expect(page).toHaveURL(`/admin/${f.slug}`);
+  for (const [state, to] of [
+    [OTHER_ORG, `/admin/${f.slug}-2`],
+    [VOL, '/me'],
+  ] as const) {
+    const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: state });
+    const other = await context.newPage();
+    await other.goto('/admin');
+    await expect(other).toHaveURL(to);
+    await context.close();
+  }
+});
+
 test('T-ADM-01 (pages): a volunteer, and an organizer of another event, get 403 on every /admin page', async ({ browser }) => {
   for (const state of [VOL, OTHER_ORG]) {
     const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: state });
