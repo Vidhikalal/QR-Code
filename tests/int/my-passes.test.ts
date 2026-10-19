@@ -85,7 +85,7 @@ describe('/me badge profile (SPEC §6.5, v0.5)', () => {
     const email = await emailOf(id);
     const mineNow = () => myBadgeProfiles(serviceClient(), email, new Date());
     expect(await mineNow()).toEqual([
-      { participantId: id, eventId: f.e1.id, eventName: f.e1.name, slug: f.slug, linkedinUrl: null, profilePublic: false, badge: false },
+      { participantId: id, eventId: f.e1.id, eventName: f.e1.name, linkedinUrl: null, profilePublic: false, badge: false },
     ]);
     await f.linkBadge(id);
     expect(await mineNow()).toMatchObject([{ participantId: id, badge: true }]);
@@ -151,7 +151,7 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
     await f.pool.query(`update events set schedule = $2, emergency_info = $3 where id = $1`, [f.e1.id, 'Doors 9:00\nLunch 12:00', 'Call Ade: 555-0100']);
     const a = await emailOf(f.p.A);
     const now = new Date();
-    expect(await myEvent(serviceClient(), ` ${a.toUpperCase()} `, f.slug, now)).toMatchObject({
+    expect(await myEvent(serviceClient(), ` ${a.toUpperCase()} `, now)).toMatchObject({
       participantId: f.p.A,
       firstName: 'Ada',
       slug: f.slug,
@@ -159,14 +159,28 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
       emergency: null,
       event: { name: f.e1.name, venue: 'Fixture Hall', schedule: 'Doors 9:00\nLunch 12:00', emergencyInfo: 'Call Ade: 555-0100' },
     });
-    expect(await myEvent(serviceClient(), a, `${f.slug}-2`, now)).toBeNull(); // not in E2
-    expect(await myEvent(serviceClient(), a, 'no-such-event', now)).toBeNull();
-    expect(await myEvent(serviceClient(), await emailOf(f.p.C), f.slug, now)).toBeNull(); // waitlisted
-    expect(await myEvent(serviceClient(), await emailOf(f.p.Wd), f.slug, now)).toBeNull(); // withdrawn
+    expect(await myEvent(serviceClient(), await emailOf(f.p.C), now)).toBeNull(); // waitlisted
+    expect(await myEvent(serviceClient(), await emailOf(f.p.Wd), now)).toBeNull(); // withdrawn
     const { id } = await f.addParticipant(f.e1.id);
     const gone = await emailOf(id);
     await f.pool.query('select delete_participant($1, $2, $3)', [f.e1.id, id, f.staff.org1]);
-    expect(await myEvent(serviceClient(), gone, f.slug, now)).toBeNull();
-    expect(await myEvent(serviceClient(), a, f.slug, new Date(Date.now() + 32 * 24 * 3600 * 1000))).toBeNull();
+    expect(await myEvent(serviceClient(), gone, now)).toBeNull();
+    expect(await myEvent(serviceClient(), a, new Date(Date.now() + 32 * 24 * 3600 * 1000))).toBeNull();
+  });
+
+  it('T-ME-06: with two events, /me shows the next one that hasn’t ended, else the most recent', async () => {
+    const a = await emailOf(f.p.A);
+    await f.pool.query(
+      `insert into participants (event_id, external_id, email, first_name, search_text, status, source) values ($1, 'me-06', $2, 'Ada', 'ada', 'accepted', 'sheet')`,
+      [f.e2.id, a],
+    );
+    await f.pool.query(`update events set starts_at = now() + interval '1 day', ends_at = now() + interval '2 days' where id = $1`, [f.e1.id]);
+    await f.pool.query(`update events set starts_at = now() + interval '3 days', ends_at = now() + interval '4 days' where id = $1`, [f.e2.id]);
+    const slugAt = async (days: number) => (await myEvent(serviceClient(), a, new Date(Date.now() + days * 24 * 3600 * 1000)))?.slug;
+    expect(await slugAt(0)).toBe(f.slug); // both upcoming: the earlier one
+    expect(await slugAt(1.5)).toBe(f.slug); // E1 under way
+    expect(await slugAt(2.5)).toBe(`${f.slug}-2`); // E1 over: E2
+    expect(await slugAt(10)).toBe(`${f.slug}-2`); // both over: the most recent
+    expect(await slugAt(33)).toBe(`${f.slug}-2`); // E1 out of the 30-day window, E2 still in it
   });
 });

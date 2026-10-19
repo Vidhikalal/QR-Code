@@ -11,7 +11,6 @@ export interface MyBadgeProfile {
   participantId: string;
   eventId: string;
   eventName: string;
-  slug: string;
   linkedinUrl: string | null;
   profilePublic: boolean;
   badge: boolean;
@@ -25,7 +24,7 @@ const PROFILE_WINDOW_MS = 30 * 24 * 3600 * 1000;
 export async function myBadgeProfiles(db: SupabaseClient<Database>, email: string, now: Date): Promise<MyBadgeProfile[]> {
   const { data, error } = await db
     .from('participants')
-    .select('id, linkedin_url, profile_public, events!inner(id, slug, name, starts_at, ends_at), badges(uid)')
+    .select('id, linkedin_url, profile_public, events!inner(id, name, starts_at, ends_at), badges(uid)')
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
     .is('deleted_at', null)
@@ -37,7 +36,6 @@ export async function myBadgeProfiles(db: SupabaseClient<Database>, email: strin
       participantId: p.id,
       eventId: p.events.id,
       eventName: p.events.name,
-      slug: p.events.slug,
       linkedinUrl: p.linkedin_url,
       profilePublic: p.profile_public,
       badge: p.badges.length > 0,
@@ -57,10 +55,12 @@ export interface MyEvent {
   event: { name: string; venue: string; startsAt: string; timezone: string; schedule: string; emergencyInfo: string };
 }
 
-// SPEC F14 (v0.6): one event's hacker menu, for the signed-in accepted attendee (verified email) up to 30 days
-// after it ends; null for anyone else. Their own emergency contact is in here: never pass it to someone else.
-export async function myEvent(db: SupabaseClient<Database>, email: string, slug: string, now: Date): Promise<MyEvent | null> {
-  const { data: p, error } = await db
+// SPEC F14 (v0.6.1): the hacker menu's event for the signed-in accepted attendee (verified email): the next one
+// that hasn't ended, else the most recent, up to 30 days after it ends; null for anyone else.
+// shortcut: with two events not yet over, only the earlier one shows; add an event picker if the club runs overlapping events.
+// Their own emergency contact is in here: never pass it to someone else.
+export async function myEvent(db: SupabaseClient<Database>, email: string, now: Date): Promise<MyEvent | null> {
+  const { data, error } = await db
     .from('participants')
     .select(
       'id, first_name, last_name, linkedin_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, events!inner(slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info), badges(uid)',
@@ -68,10 +68,11 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, slug:
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
     .is('deleted_at', null)
-    .eq('events.slug', slug)
-    .gt('events.ends_at', new Date(now.getTime() - PROFILE_WINDOW_MS).toISOString())
-    .maybeSingle();
+    .gt('events.ends_at', new Date(now.getTime() - PROFILE_WINDOW_MS).toISOString());
   if (error) throw new Error(`my event lookup failed (${error.code})`);
+  // Date.parse, not string order: Postgres answers "+00:00" where toISOString() says "Z".
+  const byStart = data.toSorted((a, b) => Date.parse(a.events.starts_at) - Date.parse(b.events.starts_at));
+  const p = byStart.find((x) => Date.parse(x.events.ends_at) > now.getTime()) ?? byStart.at(-1);
   if (!p) return null;
   const e = p.events;
   return {
@@ -102,7 +103,7 @@ export function profileArgs(v: ProfileFields) {
 
 export type SaveProfileResult = 'SAVED' | 'INVALID_LINKEDIN' | 'INVALID_DIETARY' | 'INVALID_CONTACT' | 'NOT_FOUND';
 
-// /me/<slug>/profile and /emergency: the attendee's own LinkedIn, sharing, dietary notes and emergency contact.
+// /me/profile and /me/emergency: the attendee's own LinkedIn, sharing, dietary notes and emergency contact.
 // save_hacker_profile() only touches the row whose email is the account's (a forged id changes nothing).
 export async function saveBadgeProfile(
   db: SupabaseClient<Database>,

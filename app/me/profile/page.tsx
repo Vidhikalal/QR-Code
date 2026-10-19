@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
-import formStyles from '../../../login/login.module.css';
-import styles from '../../../profile/[uid]/profile.module.css';
-import me from '../../me.module.css';
+import formStyles from '../../login/login.module.css';
+import styles from '../../profile/[uid]/profile.module.css';
+import me from '../me.module.css';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Hacker profile');
@@ -20,29 +20,26 @@ const ERRORS: Partial<Record<SaveProfileResult, string>> = {
 // SPEC F14 / §6.5: the attendee's own LinkedIn, badge sharing and dietary notes. Only their own row changes.
 async function save(formData: FormData) {
   'use server';
-  const slug = encodeURIComponent(String(formData.get('slug') ?? ''));
   const user = await currentUser();
-  if (!user) redirect(`/login?next=/me/${slug}/profile`);
+  if (!user) redirect('/login?next=/me/profile');
   const result = await saveBadgeProfile(db(), user, String(formData.get('participantId') ?? ''), {
     linkedin: String(formData.get('linkedin') ?? ''),
     profilePublic: formData.get('public') === 'on',
     dietaryNotes: String(formData.get('dietaryNotes') ?? ''),
   });
-  redirect(`/me/${slug}/profile?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
+  redirect(`/me/profile?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
 }
 
 export default async function HackerProfilePage(props: {
-  params: Promise<{ slug: string }>;
   searchParams: Promise<{ badge?: string; saved?: string; error?: string }>;
 }) {
-  const { slug } = await props.params;
   const notices = await props.searchParams;
-  const { me: m } = await loadMyEvent(slug, `/me/${slug}/profile`);
+  const { me: m } = await loadMyEvent('/me/profile');
   const error = ERRORS[notices.error as SaveProfileResult];
 
   return (
     <main className={styles.page}>
-      <Link className={me.back} href={`/me/${m.slug}`}>
+      <Link className={me.back} href="/me">
         ← Menu
       </Link>
       <p className={styles.eyebrow}>{m.event.name}</p>
@@ -57,7 +54,6 @@ export default async function HackerProfilePage(props: {
         <p className={styles.name}>{`${m.firstName} ${m.lastName}`.trim()}</p>
         <p style={{ marginTop: 8 }}>{m.badge ? '✓ Badge linked.' : 'No badge yet. Tap your badge with your phone to link it to you.'}</p>
         <form action={save} className={formStyles.form}>
-          <input type="hidden" name="slug" value={m.slug} />
           <input type="hidden" name="participantId" value={m.participantId} />
           <label htmlFor="linkedin">LinkedIn</label>
           <input

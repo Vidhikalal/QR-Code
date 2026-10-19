@@ -45,7 +45,7 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByLabel('Set a password for your Passline account').fill('rae-event-password');
   await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
   await p.waitForURL('**/me');
-  await expect(p.getByRole('heading', { name: 'My passes' })).toBeVisible();
+  await expect(p.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
   const { rows } = await f.pool.query('select emergency_name, emergency_phone from participants where email = $1', [email]);
   expect(rows).toEqual([{ emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100' }]);
 
@@ -53,9 +53,9 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   const passToken = /\/p#([A-Za-z0-9_-]{32})/.exec(await consoleMailText(email, '/p#'))?.[1] ?? '';
   await expect(async () => {
     await p.reload();
-    await expect(p.getByRole('link', { name: 'Open my pass' })).toHaveAttribute('href', `/p#${passToken}`, { timeout: 1000 });
+    await expect(p.getByRole('link', { name: 'My pass' })).toHaveAttribute('href', `/p#${passToken}`, { timeout: 1000 });
   }).toPass({ timeout: 15_000 });
-  await p.getByRole('link', { name: 'Open my pass' }).click();
+  await p.getByRole('link', { name: 'My pass' }).click();
   await expect(p.getByRole('img', { name: 'Your check-in QR code' })).toBeVisible();
   expect((await f.scan({ cp: f.cp.D, staff: f.staff.vol1, token: passToken })).code).toBe('ACCEPTED');
 
@@ -67,6 +67,6 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.goto('/me');
   await expect(p).toHaveURL(/\/login\?next=%2Fme/);
   await signIn(p, email, '/me', 'rae-event-password');
-  await expect(p.getByRole('link', { name: 'Open my pass' })).toBeVisible();
+  await expect(p.getByRole('link', { name: 'My pass' })).toBeVisible();
   await attendee.close();
 });

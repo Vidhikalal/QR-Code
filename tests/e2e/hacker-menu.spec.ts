@@ -33,10 +33,10 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   const page = await a.newPage();
   await createAccount(await emailOf(f.p.A));
   // Signed out, the menu sends you to sign in and back (proxy.ts covers /me/*).
-  await page.goto(`/me/${f.slug}/profile`);
-  await expect(page).toHaveURL(new RegExp(`/login\\?next=%2Fme%2F${f.slug}%2Fprofile`));
+  await page.goto('/me/profile');
+  await expect(page).toHaveURL(/\/login\?next=%2Fme%2Fprofile/);
   await signIn(page, await emailOf(f.p.A), `/profile/${uid}?tap`);
-  await page.waitForURL(`**/me/${f.slug}`);
+  await page.waitForURL('**/me'); // no event slug in the URL (v0.6.1)
 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
@@ -86,13 +86,15 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await createAccount(await emailOf(f.p.B));
   await signIn(bPage, await emailOf(f.p.B), `/profile/${uid}?tap`);
   await expect(bPage.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
-  // C is waitlisted: no menu for this event.
+  // C is waitlisted: no menu, and its pages 404.
   await b.close();
   const c = await browser.newContext({ baseURL: E2E_ORIGIN });
   const cPage = await c.newPage();
   await createAccount(await emailOf(f.p.C));
   await signIn(cPage, await emailOf(f.p.C), '/me');
-  expect((await cPage.goto(`/me/${f.slug}`))?.status()).toBe(404);
+  await expect(cPage.getByRole('heading', { name: 'My events' })).toBeVisible();
+  await expect(cPage.getByRole('navigation', { name: 'Hacker menu' })).toHaveCount(0);
+  expect((await cPage.goto('/me/profile'))?.status()).toBe(404);
   await c.close();
 });
 

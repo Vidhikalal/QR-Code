@@ -1,27 +1,20 @@
 import type { Metadata } from 'next';
-import { redirect } from 'next/navigation';
-import { connection } from 'next/server';
-import { currentUser } from '@/lib/auth/session';
+import Link from 'next/link';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
 import { myPasses } from '@/lib/pass/mine';
 import styles from '../profile/[uid]/profile.module.css';
+import { loadMe, menuMetadata } from './load';
+import me from './me.module.css';
 
-// SPEC §6.1/F13 (v0.4): a signed-in attendee's passes. The link carries the token only in the fragment
-// (I-3), and the page never sends a referrer.
-export const metadata: Metadata = {
-  title: 'My passes · Passline',
-  referrer: 'no-referrer',
-  robots: { index: false, follow: false },
-};
+export const metadata: Metadata = menuMetadata('Menu');
 
-export default async function MyPassesPage() {
-  await connection(); // per request: a new or revoked pass shows on the next visit
-  const user = await currentUser();
-  if (!user) redirect('/login?next=/me');
-  const now = new Date();
-  const passes = await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, now);
+// SPEC F14 (v0.6.1): the hacker menu for your event (tapping your own badge opens it), and links for staff
+// (v0.4.1). The pass link carries the token only in the fragment (I-3), and the page never sends a referrer.
+export default async function MePage() {
+  const { user, me: m } = await loadMe('/me');
+  const pass = m ? (await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date())).find((p) => p.participantId === m.participantId)?.pass : undefined;
   // v0.4.1: staff get links to their events (the admin and scanner pages check the role again).
   const { data: roles, error } = await db()
     .from('event_staff')
@@ -32,8 +25,49 @@ export default async function MyPassesPage() {
 
   return (
     <main className={styles.page}>
-      <h1>My passes</h1>
-      <p>Signed in as {user.email}.</p>
+      {m ? (
+        <>
+          <p className={styles.eyebrow}>
+            {formatEventDateTime(m.event.startsAt, m.event.timezone)} · {m.event.venue}
+          </p>
+          <h1>{m.event.name}</h1>
+          <p>Hi {m.firstName}.</p>
+          <nav aria-label="Hacker menu">
+            <ul className={me.menu}>
+              <li>
+                <Link className={me.item} href="/me/profile">
+                  Hacker profile
+                </Link>
+              </li>
+              <li>
+                <Link className={me.item} href="/me/schedule">
+                  Schedule
+                </Link>
+              </li>
+              <li>
+                <Link className={me.item} href="/me/emergency">
+                  Emergency contact
+                </Link>
+              </li>
+              <li>
+                {typeof pass === 'object' ? (
+                  // A plain link: the token is in the fragment (I-3), which client navigation must not touch.
+                  <a className={me.item} href={`/p#${pass.token}`}>
+                    My pass
+                  </a>
+                ) : (
+                  <p className={me.item}>
+                    My pass
+                    <small>{pass === 'in_email' ? 'In your email' : pass === 'on_its_way' ? 'On its way by email' : 'The event is over'}</small>
+                  </p>
+                )}
+              </li>
+            </ul>
+          </nav>
+        </>
+      ) : (
+        <h1>My events</h1>
+      )}
       {roles.length > 0 && (
         <section aria-labelledby="staff-heading" style={{ marginTop: 16 }}>
           <h2 id="staff-heading">Staff</h2>
@@ -55,29 +89,9 @@ export default async function MyPassesPage() {
           ))}
         </section>
       )}
-      {passes.length === 0 && roles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your pass shows up here.</p>}
-      {passes.map((p) => (
-        <section key={p.participantId} className={styles.card} style={{ marginTop: 16 }}>
-          <p className={styles.eyebrow}>
-            {formatEventDateTime(p.event.startsAt, p.event.timezone)} · {p.event.venue}
-          </p>
-          <h2>{p.event.name}</h2>
-          {p.pass === 'in_email' && <p>Your pass is in your email.</p>}
-          {p.pass === 'on_its_way' && <p>Your pass is on its way. We&apos;re also emailing it to you.</p>}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
-            {typeof p.pass === 'object' && (
-              <a className={styles.link} href={`/p#${p.pass.token}`}>
-                Open my pass
-              </a>
-            )}
-            {/* v0.6 (F14): profile, schedule and emergency contact for this event. */}
-            <a className={styles.link} href={`/me/${p.slug}`} aria-label={`Menu: ${p.event.name}`}>
-              Menu
-            </a>
-          </div>
-        </section>
-      ))}
-      <form action="/auth/signout" method="post" style={{ marginTop: 24 }}>
+      {!m && roles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
+      <p style={{ marginTop: 24 }}>Signed in as {user.email}.</p>
+      <form action="/auth/signout" method="post" style={{ marginTop: 12 }}>
         <button type="submit">Sign out</button>
       </form>
     </main>

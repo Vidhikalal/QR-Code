@@ -4,9 +4,9 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { saveBadgeProfile } from '@/lib/me/profile';
-import formStyles from '../../../login/login.module.css';
-import styles from '../../../profile/[uid]/profile.module.css';
-import me from '../../me.module.css';
+import formStyles from '../../login/login.module.css';
+import styles from '../../profile/[uid]/profile.module.css';
+import me from '../me.module.css';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Emergency contact');
@@ -18,25 +18,23 @@ const PHONE_PATTERN = '(?=(?:\\D*\\d){3})[0-9+\\(\\) .\\-]{3,30}';
 // emergency contact, which only organizers see.
 async function save(formData: FormData) {
   'use server';
-  const slug = encodeURIComponent(String(formData.get('slug') ?? ''));
   const user = await currentUser();
-  if (!user) redirect(`/login?next=/me/${slug}/emergency`);
+  if (!user) redirect('/login?next=/me/emergency');
   const result = await saveBadgeProfile(db(), user, String(formData.get('participantId') ?? ''), {
     emergencyName: String(formData.get('emergencyName') ?? ''),
     emergencyPhone: String(formData.get('emergencyPhone') ?? ''),
     emergencyRelation: String(formData.get('emergencyRelation') ?? ''),
   });
-  redirect(`/me/${slug}/emergency?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
+  redirect(`/me/emergency?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
 }
 
-export default async function EmergencyPage(props: { params: Promise<{ slug: string }>; searchParams: Promise<{ saved?: string; error?: string }> }) {
-  const { slug } = await props.params;
+export default async function EmergencyPage(props: { searchParams: Promise<{ saved?: string; error?: string }> }) {
   const notices = await props.searchParams;
-  const { me: m } = await loadMyEvent(slug, `/me/${slug}/emergency`);
+  const { me: m } = await loadMyEvent('/me/emergency');
 
   return (
     <main className={styles.page}>
-      <Link className={me.back} href={`/me/${m.slug}`}>
+      <Link className={me.back} href="/me">
         ← Menu
       </Link>
       <p className={styles.eyebrow}>{m.event.name}</p>
@@ -49,7 +47,6 @@ export default async function EmergencyPage(props: { params: Promise<{ slug: str
         <h2 id="own-contact">Your emergency contact</h2>
         <p>Who we call if something happens to you. Only the organizers see it, and it’s deleted 30 days after the event.</p>
         <form action={save} className={formStyles.form}>
-          <input type="hidden" name="slug" value={m.slug} />
           <input type="hidden" name="participantId" value={m.participantId} />
           <label htmlFor="emergencyName">Name</label>
           <input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className={formStyles.input} />
