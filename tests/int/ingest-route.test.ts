@@ -318,6 +318,21 @@ describe('POST /api/ingest/sheet (SPEC F3, §9.2)', () => {
     expect(urls).toEqual([null, null, 'https://www.linkedin.com/in/ada-l']);
   });
 
+  it('T-ING-26: a LinkedIn the attendee set themselves survives later Sheet edits; other fields still update', async () => {
+    const r = sheetRow(f.slug, { linkedin_url: 'https://www.linkedin.com/in/from-sheet' });
+    await c.ingest(f.slug, [r]);
+    await acceptViaRsvp(r.external_id);
+    const id = (await participant(r.external_id))?.id;
+    const own = 'https://www.linkedin.com/in/my-own';
+    const saved = await f.pool.query('select save_badge_profile($1, $2, $3, $4, $5) as ok', [id, r.email, own, true, f.staff.vol1]);
+    expect(saved.rows[0]?.ok).toBe(true);
+
+    expect(await c.ingest(f.slug, [r])).toEqual(['UNCHANGED']);
+    expect(await c.ingest(f.slug, [{ ...r, linkedin_url: 'https://www.linkedin.com/in/changed-in-sheet' }])).toEqual(['UNCHANGED']);
+    expect(await c.ingest(f.slug, [{ ...r, first_name: 'Renamed', linkedin_url: '' }])).toEqual(['UPDATED']);
+    expect(await participant(r.external_id)).toMatchObject({ first_name: 'Renamed', linkedin_url: own });
+  });
+
   it('T-ING-24: the same row posted 5× concurrently → 1 participant, no outbox row', async () => {
     const r = sheetRow(f.slug);
     const responses = await Promise.all(Array.from({ length: 5 }, () => c.post({ event_slug: f.slug, rows: [r] })));

@@ -82,7 +82,7 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
     }
     case 'NOT_FOUND':
       return ctx.method === 'nfc'
-        ? problem('red', '✕', 'UNKNOWN BADGE', { detail: 'Scan their QR, then Link badge' })
+        ? problem('red', '✕', 'UNKNOWN BADGE', { detail: 'Scan their QR instead' })
         : problem('red', '✕', 'UNKNOWN CODE', { detail: 'Use manual search', action: 'manual-search' });
     case 'REVOKED':
       return r.reissued

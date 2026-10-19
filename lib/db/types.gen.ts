@@ -288,6 +288,7 @@ export type Database = {
           id: string
           is_test: boolean
           last_name: string
+          linkedin_set_at: string | null
           linkedin_url: string | null
           photo_path: string | null
           photo_updated_at: string | null
@@ -311,6 +312,7 @@ export type Database = {
           id?: string
           is_test?: boolean
           last_name?: string
+          linkedin_set_at?: string | null
           linkedin_url?: string | null
           photo_path?: string | null
           photo_updated_at?: string | null
@@ -333,6 +335,7 @@ export type Database = {
           id?: string
           is_test?: boolean
           last_name?: string
+          linkedin_set_at?: string | null
           linkedin_url?: string | null
           photo_path?: string | null
           photo_updated_at?: string | null
@@ -673,6 +676,15 @@ export type Database = {
         Args: { p_uid: string; p_viewer_email: string; p_viewer_id: string }
         Returns: Json
       }
+      claim_badge: {
+        Args: {
+          p_email: string
+          p_event_id: string
+          p_uid: string
+          p_user_id: string
+        }
+        Returns: string
+      }
       claim_outbox: {
         Args: { p_limit?: number }
         Returns: {
@@ -815,6 +827,16 @@ export type Database = {
       rsvp_respond: {
         Args: { p_going: boolean; p_token_hash: string }
         Returns: string
+      }
+      save_badge_profile: {
+        Args: {
+          p_email: string
+          p_linkedin_url: string
+          p_participant_id: string
+          p_public: boolean
+          p_user_id: string
+        }
+        Returns: boolean
       }
       search_participants: {
         Args: { p_checkpoint_id?: string; p_event_id: string; p_query: string }

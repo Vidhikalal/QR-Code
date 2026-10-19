@@ -25,3 +25,20 @@ export function badgeWritable(origin: string): boolean {
 // link_badge() results (§6.5).
 export const LINK_CODES = ['LINKED', 'NOT_FOUND', 'BADGE_TAKEN'] as const;
 export type LinkCode = (typeof LINK_CODES)[number];
+
+// §6.5 (v0.5): the LinkedIn an attendee types on /me. Accepts "linkedin.com/in/x", http, www. and country
+// hosts, and returns https://www.linkedin.com/in/<handle>, the only form the participants check allows.
+export function normalizeLinkedIn(input: string): string | null {
+  const raw = input.trim();
+  if (!raw || raw.length > 200) return null;
+  let url: URL;
+  try {
+    url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  const handle = /^\/in\/([A-Za-z0-9_%-]+)\/?$/.exec(url.pathname)?.[1];
+  if ((host !== 'linkedin.com' && !host.endsWith('.linkedin.com')) || url.username || url.password || url.port || !handle) return null;
+  return `https://www.linkedin.com/in/${handle}`;
+}

@@ -5,7 +5,9 @@ import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
+import { myBadgeProfiles, saveBadgeProfile } from '@/lib/me/profile';
 import { myPasses } from '@/lib/pass/mine';
+import formStyles from '../login/login.module.css';
 import styles from '../profile/[uid]/profile.module.css';
 
 // SPEC §6.1/F13 (v0.4): a signed-in attendee's passes. The link carries the token only in the fragment
@@ -16,11 +18,30 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function MyPassesPage() {
+// v0.5: the attendee's own LinkedIn and badge sharing, per event (§6.5). Only their own row changes.
+async function saveProfile(formData: FormData) {
+  'use server';
+  const user = await currentUser();
+  if (!user) redirect('/login?next=/me');
+  const id = String(formData.get('participantId') ?? '');
+  const result = await saveBadgeProfile(db(), user, id, {
+    linkedin: String(formData.get('linkedin') ?? ''),
+    profilePublic: formData.get('public') === 'on',
+  });
+  const status = result === 'SAVED' ? 'saved' : result === 'INVALID_LINKEDIN' ? 'invalid' : 'refused';
+  redirect(`/me?${status}=${encodeURIComponent(id)}#badge-profile`);
+}
+
+type Notices = { badge?: string; saved?: string; invalid?: string; refused?: string };
+
+export default async function MyPassesPage({ searchParams }: { searchParams: Promise<Notices> }) {
   await connection(); // per request: a new or revoked pass shows on the next visit
   const user = await currentUser();
   if (!user) redirect('/login?next=/me');
-  const passes = await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, new Date());
+  const notices = await searchParams;
+  const now = new Date();
+  const passes = await myPasses(db(), user.email ?? '', env().PASS_TOKEN_SECRET, now);
+  const profiles = await myBadgeProfiles(db(), user.email ?? '', now);
   // v0.4.1: staff get links to their events (the admin and scanner pages check the role again).
   const { data: roles, error } = await db()
     .from('event_staff')
@@ -54,7 +75,7 @@ export default async function MyPassesPage() {
           ))}
         </section>
       )}
-      {passes.length === 0 && roles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your pass shows up here.</p>}
+      {passes.length === 0 && roles.length === 0 && profiles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your pass shows up here.</p>}
       {passes.map((p) => (
         <section key={p.participantId} className={styles.card} style={{ marginTop: 16 }}>
           <p className={styles.eyebrow}>
@@ -72,6 +93,55 @@ export default async function MyPassesPage() {
           )}
         </section>
       ))}
+      {profiles.length > 0 && (
+        <section id="badge-profile" aria-labelledby="badge-heading" style={{ marginTop: 24 }}>
+          <h2 id="badge-heading">Badge profile</h2>
+          {notices.badge === 'linked' && (
+            <p role="status" className={formStyles.ok}>
+              ✓ Badge linked. Add your LinkedIn and choose whether to share it.
+            </p>
+          )}
+          {profiles.map((b) => (
+            <div key={b.participantId} className={styles.card} style={{ marginTop: 12 }}>
+              <p className={styles.eyebrow}>{b.eventName}</p>
+              <p>{b.badge ? '✓ Badge linked.' : 'No badge yet. Tap your badge with your phone to link it to you.'}</p>
+              <form action={saveProfile} className={formStyles.form}>
+                <input type="hidden" name="participantId" value={b.participantId} />
+                <label htmlFor={`linkedin-${b.participantId}`}>LinkedIn</label>
+                <input
+                  id={`linkedin-${b.participantId}`}
+                  name="linkedin"
+                  inputMode="url"
+                  autoComplete="url"
+                  placeholder="linkedin.com/in/yourname"
+                  defaultValue={b.linkedinUrl ?? ''}
+                  className={formStyles.input}
+                />
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+                  <input type="checkbox" name="public" defaultChecked={b.profilePublic} style={{ width: 22, height: 22 }} />
+                  Show my name and LinkedIn when someone at the event taps my badge
+                </label>
+                {notices.invalid === b.participantId && (
+                  <p role="alert" className={formStyles.error}>
+                    ✕ Not saved. Use your LinkedIn profile link, like linkedin.com/in/yourname.
+                  </p>
+                )}
+                {notices.refused === b.participantId && (
+                  <p role="alert" className={formStyles.error}>
+                    ✕ Not saved. Reload the page and try again.
+                  </p>
+                )}
+                {notices.saved === b.participantId && (
+                  <p role="status" className={formStyles.ok}>
+                    ✓ Saved.
+                  </p>
+                )}
+                <button type="submit">Save</button>
+              </form>
+            </div>
+          ))}
+        </section>
+      )}
       <form action="/auth/signout" method="post" style={{ marginTop: 24 }}>
         <button type="submit">Sign out</button>
       </form>

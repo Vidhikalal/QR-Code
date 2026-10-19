@@ -75,7 +75,7 @@ describe('result screen mapping (SPEC §10.2)', () => {
   it('T-NFC-09: NOT_FOUND from a badge is red "UNKNOWN BADGE" and needs a tap; nothing but ACCEPTED is green for NFC either', () => {
     const nfc = { ...ctx(), method: 'nfc' as const };
     expect(viewFor(server({ code: 'NOT_FOUND' }), nfc)).toEqual({
-      tone: 'red', icon: '✕', headline: 'UNKNOWN BADGE', detail: 'Scan their QR, then Link badge', dismiss: 'tap', sound: 'buzz',
+      tone: 'red', icon: '✕', headline: 'UNKNOWN BADGE', detail: 'Scan their QR instead', dismiss: 'tap', sound: 'buzz',
     });
     expect(viewFor(server({ code: 'NOT_FOUND' }), ctx()).headline).toBe('UNKNOWN CODE');
     expect(viewFor(server({ code: 'ACCEPTED', participant }), nfc)).toMatchObject({ tone: 'green', headline: 'ADMIT' });

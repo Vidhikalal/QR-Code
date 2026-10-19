@@ -82,3 +82,47 @@ test('T-NFC-14: the pass-page opt-in sends the token only in a PATCH body', asyn
   expect(patch && new URL(patch.url).pathname).toBe('/api/pass');
   expect(JSON.parse(patch?.body ?? '{}')).toEqual({ token: f.token.B, profilePublic: true });
 });
+
+test('T-NFC-21: an attendee taps an unlinked badge, signs in, claims it and sets their LinkedIn; others then see it', async ({ browser }) => {
+  const uid = randomUid();
+  const tapPath = `/profile/${uid}?tap`;
+  const a = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const page = await a.newPage();
+  await createAccount(await emailOf(f.p.A));
+  await signIn(page, await emailOf(f.p.A), tapPath);
+  await expect(page.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
+  await page.getByRole('button', { name: 'This is my badge' }).click();
+  await page.waitForURL(/\/me\?badge=linked/);
+  await expect(page.getByText('✓ Badge linked. Add your LinkedIn')).toBeVisible();
+  await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
+
+  await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/company/not-a-person');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('✕ Not saved. Use your LinkedIn profile link')).toBeVisible();
+  await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/in/ada-claimed');
+  await page.getByRole('checkbox', { name: /Show my name and LinkedIn/ }).check();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('✓ Saved.')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('https://www.linkedin.com/in/ada-claimed');
+  await a.close();
+
+  // B (same event) taps it: A's name and the LinkedIn A chose. The badge also checks A in.
+  const b = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const bPage = await b.newPage();
+  await signIn(bPage, await emailOf(f.p.B), tapPath);
+  await expect(bPage.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
+  await expect(bPage.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', 'https://www.linkedin.com/in/ada-claimed');
+  await expect(bPage.getByRole('button', { name: /This is my badge/ })).toHaveCount(0);
+  await b.close();
+  expect((await f.badgeScan({ cp: f.cp.D, staff: f.staff.vol1, uid })).code).toBe('ACCEPTED');
+
+  // C is waitlisted: signed in, but not an attendee, so there's nothing to claim with.
+  const c = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const cPage = await c.newPage();
+  await createAccount(await emailOf(f.p.C));
+  await signIn(cPage, await emailOf(f.p.C), `/profile/${randomUid()}`);
+  await expect(cPage.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
+  await expect(cPage.getByRole('button', { name: /This is my badge/ })).toHaveCount(0);
+  await expect(cPage.getByText(/sign in with the email you\s+registered/)).toBeVisible();
+  await c.close();
+});

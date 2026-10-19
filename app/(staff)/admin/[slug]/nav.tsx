@@ -20,9 +20,9 @@ const subscribeNever = () => () => undefined;
 export function AdminNav({ slug }: { slug: string }) {
   const pathname = usePathname();
   const base = `/admin/${slug}`;
-  // §11: the Badges page needs Web NFC (Chrome on Android); elsewhere the tab isn't shown at all.
+  // §11: the Tools page (badge linker and tag writer) needs Web NFC (Chrome on Android); elsewhere the tab isn't shown.
   const nfc = useSyncExternalStore(subscribeNever, nfcSupported, () => false);
-  const tabs = nfc ? [...TABS, ['/badges', 'Badges'] as const] : TABS;
+  const tabs = nfc ? [...TABS, ['/tools', 'Tools'] as const] : TABS;
   return (
     <nav aria-label="Admin" className={styles.nav}>
       {tabs.map(([path, label]) => {

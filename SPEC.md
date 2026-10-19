@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.4.1 · **Owner:** Ade · **Last updated:** 2026-10-19
+> **Status:** Draft v0.5 · **Owner:** Ade · **Last updated:** 2026-10-19
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -63,7 +63,7 @@ The following are out of scope for v1:
 | **Staff** | An authenticated user with a role on an event: `organizer` or `volunteer`. |
 | **Door check-in** | A live scan at the event's single `door` checkpoint. |
 | **Outbox** | A queue table of emails to send. Emails are never sent inline in a request. |
-| **Badge** | An NFC tag whose UID is linked to one participant for one event. Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
+| **Badge** | An NFC tag whose UID is linked to one participant for one event, normally by its holder ("This is my badge", v0.5). Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
 | **Badge profile** | The page `/profile/<uid>`, for signed-in attendees and staff of the badge's event. It shows a name and LinkedIn only if the participant opted in. |
 
 ---
@@ -87,10 +87,11 @@ The following are out of scope for v1:
 | Answer an RSVP (`/rsvp#token`), and set a first password | RSVP link holder only | | | |
 | Send RSVPs to chosen applicants | — | — | — | ✅ |
 | See own passes (`/me`) | — | ✅ signed in with their registered email | — | — |
-| Link a badge to a participant of their event | — | — | ✅ (only an unlinked badge) | ✅ (can move a linked badge) |
+| Link a badge (v0.5) | — | ✅ to themselves, signed in with their registered email (only an unlinked badge) | ✅ only an unlinked badge, through the link API (no UI since v0.5) | ✅ to anyone in their event, on the Tools page (can move a linked badge) |
 | View a badge profile (`/profile/<uid>`, opted-in fields only) | — (sign in first) | ✅ signed in with their registered email (same event) | ✅ (own event) | ✅ (own event) |
 | Opt in/out of the badge profile | — | ✅ | — | — |
-| Write badge tags (Badges page) | — | — | — | ✅ |
+| Set own LinkedIn (`/me`, v0.5) | — | ✅ signed in with their registered email | — | — |
+| Write badge tags (Tools page) | — | — | — | ✅ |
 
 Authorization is always checked **server-side**. Hiding a button is not authorization.
 
@@ -338,6 +339,7 @@ create table badges (
 );
 
 alter table participants add column profile_public boolean not null default false;  -- badge profile opt-in
+alter table participants add column linkedin_set_at timestamptz;  -- v0.5: the attendee set their own LinkedIn (§6.5, F3)
 ```
 `badges` follows the deny-all rules above. Who linked a badge is recorded in `audit_log` (`badge.link`), not on the row.
 
@@ -414,9 +416,10 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 
 - **UID:** the Web NFC `serialNumber` (e.g. `04:A1:B2:C3:D4:E5:F6`), normalized by `normalizeUid()` (`lib/domain/badge.ts`) to lowercase hex without separators, 4–10 bytes: `^([0-9a-f]{2}){4,10}$`. Anything else is `MALFORMED` on the client and `400` on the server.
 - **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
-- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works after a staff member linked it, and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
-- **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
-- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet and is not editable by the participant.
+- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works once it is linked (by its holder signed in as an accepted attendee, or by an organizer), and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
+- **DECISION (v0.5): attendees link their own badge** (as in the datathon-badges app, but tied to their account). Tapping an unlinked badge opens `/profile/<uid>`; a signed-in, accepted, undeleted attendee of an event that ended at most 30 days ago (matched by verified email) presses **This is my badge** (one button per such event). `claim_badge(uid, event_id, email, user_id)` returns `LINKED` (claiming another badge frees their old one), `BADGE_TAKEN` (linked to someone else) or `NOT_FOUND`, takes the same lock as `link_badge()`, and audits `badge.claim` with ids only. Then `/me` asks for their LinkedIn and sharing. An unlinked badge's UID is in its URL, so someone could claim a badge they don't hold; the holder sees "belongs to someone else" and an organizer moves it on the Tools page (§11). The scanner no longer links badges (§10.5).
+- **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` (organizers, Tools page) returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
+- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet until the attendee sets their own on `/me` (v0.5: `normalizeLinkedIn()` turns `linkedin.com/in/x` and similar into `https://www.linkedin.com/in/x`; blank clears it). `save_badge_profile()` changes only the signed-in person's own accepted row, sets `linkedin_set_at`, and audits `profile.update` without PII; from then on the Sheet no longer changes their LinkedIn (F3).
 - **Browsers:** Web NFC exists only in Chrome on Android. Every NFC control is **hidden** where `NDEFReader` is absent (no fallback text). iPhones still open the profile page by reading the URL record natively.
 
 ---
@@ -451,7 +454,7 @@ The installable `onFormSubmit` trigger writes `Utilities.getUuid()` into `Applic
 | accepted | name, dietary notes or LinkedIn changed | update | `UPDATED` |
 | accepted | **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
 
-Any email change also clears the RSVP token (F13): that link was sent to the old address.
+Any email change also clears the RSVP token (F13): that link was sent to the old address. A LinkedIn the attendee set themselves (`linkedin_set_at`, v0.5) is never overwritten or compared: only the other fields count.
 | deleted (tombstone) | anything | nothing | `UNCHANGED` |
 | any | invalid row | nothing | `INVALID:<field,field>` |
 | none, or an email change, where the email is already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
@@ -797,12 +800,12 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
 | `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
-| `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5) |
+| `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5); used by the Tools page (§11) |
 | `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
-| `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5) |
+| `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5); an unlinked badge offers **This is my badge** (server action, `claim_badge()`, v0.5) |
 | `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
 | `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation; `{ token, going, password? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn }` (F13) |
-| `GET /me` | signed in | The signed-in person's passes (§6.1) |
+| `GET /me` | signed in | The signed-in person's passes (§6.1) and badge profile: LinkedIn + sharing (server action, `save_badge_profile()`, v0.5) |
 | `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
 ---
@@ -838,7 +841,7 @@ Every state needs an icon, a text label and a color, never color alone. Names ar
 | ALREADY_SCANNED, `scannedByMe` and < 60 s ago | amber ⟳ | "You scanned this 8 s ago" | tap |
 | ALREADY_SCANNED otherwise | red ✕ | "ALREADY SCANNED 12:03 PM by Maya": check the photo | tap |
 | NOT_FOUND | red ✕ | "UNKNOWN CODE": use manual search | tap |
-| NOT_FOUND via NFC | red ✕ | "UNKNOWN BADGE": scan their QR, then Link badge | tap |
+| NOT_FOUND via NFC | red ✕ | "UNKNOWN BADGE": scan their QR instead | tap |
 | REVOKED, reissued | amber ! | "OLD CODE": ask for their newest email | tap |
 | REVOKED, not reissued | red ✕ | "PASS CANCELLED": send to organizer | tap |
 | NOT_ACCEPTED | red ✕ | "NOT ACCEPTED (waitlisted)" | tap |
@@ -881,7 +884,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
 - **NFC toggle:** an on/off button; the preference is saved in `localStorage` under `passline:nfc`. The first start must come from a tap (it triggers Chrome's permission prompt); later it auto-starts if the `nfc` permission is already granted.
 - **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
-- **Link badge:** after an `ACCEPTED` or `ALREADY_SCANNED` door scan by QR or manual search, "Link badge to {name}" arms the next tap to call `POST /api/events/:slug/badges`. A badge tapped before arming (UNKNOWN BADGE) keeps the person; Undo or a new QR/manual scan clears it. Scanning stays paused until the link request settles, and the linking tap counts for the 3 s dedupe. The outcome is shown as a short notice (✓ linked / ✕ linked to someone else), never as a green result screen.
+- **No Link badge in the scanner (v0.5).** Attendees link their own badge from their phone (§6.5); organizers link one on the Tools page (§11).
 - The reader keeps running while a result is shown (taps are ignored), so Android doesn't open the tag's URL in a new tab.
 
 ---
@@ -896,7 +899,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
-| Badges | Android only; the tab is hidden elsewhere. Writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
+| Tools | Android only; the tab is hidden elsewhere. **Link a badge** (v0.5): search a participant by name, pick them, tap a badge → `POST /api/events/:slug/badges`; an organizer's link moves a badge linked to someone else. The reader runs only while waiting for that tap, and the outcome is a notice showing the UID (✓ linked / ✕), never a green screen. **Write tags:** writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
 ---
 
@@ -1040,6 +1043,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ING-23 | Invalid `linkedin_url` (`linkedin.com/company/x`, `javascript:`) | row processed, `linkedin_url` null | I |
 | T-ING-24 | Same row posted 5× concurrently | 1 participant (1 `CREATED`), no outbox row | I |
 | T-ING-25 | Sync-now dry run | returns diff; zero writes (row counts identical before/after) | I |
+| T-ING-26 | Accepted participant set their own LinkedIn on `/me` (v0.5); the Sheet row resent, then with another LinkedIn, then with a new first name and a blank LinkedIn | `UNCHANGED`; `UNCHANGED`; `UPDATED` with the new name and their own LinkedIn kept | I |
 
 ### 14.3 Apps Script — `T-GAS` (manual, on a copy of the real Sheet)
 | ID | Scenario | Expected |
@@ -1235,13 +1239,16 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-08 | 10 parallel `link_badge` (volunteer) with one UID and 10 participants, 20 rounds; two badges swapped in parallel, 30 rounds | exactly 1 `LINKED`, 9 `BADGE_TAKEN`, 1 row per round; swaps return only `LINKED`/`BADGE_TAKEN`, never an error (deadlock) | I |
 | T-NFC-09 | Result view: `NOT_FOUND` via NFC; every non-`ACCEPTED` code via NFC | red "UNKNOWN BADGE", tap to dismiss; never green (I-1) | U |
 | T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests | E |
-| T-NFC-11 | Manual door scan of B → "Link badge" → tap; that badge at R; stubbed `BADGE_TAKEN`; badge tapped before arming, the same tap reported again after linking, a manual rescan at the door | "Badge linked" notice; RECORDED; "linked to someone else" notice; Link badge still offered, no extra `/api/scan`, Link badge offered after ALREADY_SCANNED | E |
+| T-NFC-11 | Tools page (v0.5): search "ben" → Link a badge to Ben → tap; a second tap; that badge at R; stubbed `BADGE_TAKEN`; the scanner after a door ADMIT | "Badge … linked to Ben Fixture" notice; nothing more linked (reader stopped); `ACCEPTED`; red "linked to someone else" notice, no result screen; no Link badge button | E |
 | T-NFC-12 | `badge_profile` as an attendee of the event: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago. Viewers: other event's attendee, withdrawn or waitlisted attendee, other event's staff, a random account; this event's staff; email in another case | null; null; `{allowed,public:false}`; name + LinkedIn; newest link wins (and only its event's people may view); null; null vs shown. `{allowed:false}` only, for each non-eligible viewer; allowed for staff and case-insensitive email; never email, dietary, status or photo | I |
 | T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
 | T-NFC-14 | Signed out `/profile/<uid>?tap`; sign in (email + password) as an attendee of the event; each state; invalid UID; sign in as another event's attendee | 307 to `/login?next=…` with "Sign in to see this badge"; back on the badge after sign-in; correct state, no email or dietary notes in the HTML; 404; "Only people at this event…" | E |
 | T-NFC-15 | `badgeUrl(origin, uid)`; `badgeWritable` for `https://` vs `http://` origins; `BADGE_ORIGIN` env | exact string; only `https://` is writable; optional, bare origin like `NEXT_PUBLIC_APP_ORIGIN` | U |
-| T-NFC-16 | Badges page with the fake: blank tag; tag already holding the link; no `NDEFReader` | `write()` with exactly one URL record; no write; no Badges tab and no write control | E |
+| T-NFC-16 | Tools page with the fake: blank tag; tag already holding the link; no `NDEFReader` | `write()` with exactly one URL record; no write; no Tools tab, no linker and no write control | E |
 | T-NFC-18 | Auth callback: staff with a display name; staff without one; an account with no staff role (attendee) | no onboarding; onboarding; no onboarding | I |
+| T-NFC-19 | `normalizeLinkedIn`: `linkedin.com/in/x`, `www.`, `http://`, query/fragment, country host, accented handle; blank, `/company/x`, `/in/`, `/in/a/b`, `javascript:`, other hosts, credentials, a port, `ftp:`, > 200 chars | `https://www.linkedin.com/in/x` (accents percent-encoded); the rest null, no throw | U |
+| T-NFC-20 | `claim_badge`: A claims an unlinked badge, then a second one; B claims A's badge; C (waitlisted), Wd, X (other event), a deleted participant, a staff-only email; an event that ended 31 vs 29 days ago; 10 attendees claim one badge in parallel (20 rounds) | `LINKED` (scans as A, audit `badge.claim` with `{}` detail), the first badge freed; `BADGE_TAKEN`, both badges unchanged; `NOT_FOUND`; `NOT_FOUND` vs `LINKED`; exactly 1 `LINKED` + 9 `BADGE_TAKEN` | I |
+| T-NFC-21 | A taps an unlinked badge signed out → signs in → This is my badge → `/me`; saves `linkedin.com/company/x`, then `linkedin.com/in/ada-claimed` + sharing; B taps the badge; the badge at D; waitlisted C opens an unlinked badge | "Badge linked" on `/me`; "Not saved", then saved as `https://www.linkedin.com/in/ada-claimed`; B sees Ada's name and that link, no claim button; `ACCEPTED`; no claim button, "sign in with the email you registered" | E |
 | T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
 
 ### 14.16 RSVP — `T-RSVP` (v0.4)
@@ -1266,6 +1273,7 @@ Target: at least 95% of attempts under 3 s.
 | T-AUTH-06 | `isAdminEmail` with case and spaces, another address, an empty list, null; `ADMIN_EMAILS` parsing; sign-in landing for an admin account (one event as volunteer) and for another account | matches only the normalized address; a normalized list, empty when unset; organizer on every event (volunteer row upgraded), still sent to onboarding without a display name; no roles | U+I |
 | T-ME-01 | `/me` for A with an old random pass; with a derived pass; accepted with no pass yet; waitlisted, withdrawn, past event; signed out | "in your email"; `/p#<token>` whose hash matches; "on its way"; nothing; redirect to `/login?next=/me` | I+E |
 | T-ME-02 | `/me` as an organizer; as a volunteer | Admin and Scanner links to the event; Scanner only | E |
+| T-ME-03 | `saveBadgeProfile` as A (email in another case): `linkedin.com/in/ada-l` + share; `/company/x`; blank + hide; B's id; a malformed id. `myBadgeProfiles`: A, before and after a badge link; waitlisted C; 32 days after the event | saved normalized; `INVALID_LINKEDIN`, nothing changed; cleared; `NOT_FOUND`, B unchanged; `NOT_FOUND`. Audit `profile.update` rows without PII. One entry with event and `badge: false`, then `true`; none; none | I |
 
 ---
 
@@ -1284,7 +1292,7 @@ Target: at least 95% of attempts under 3 s.
   | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
   | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
   | Photo uploads per pass | 10 / h |
-- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, Link badge, the Badges page) need Chrome on Android and are hidden elsewhere.
+- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, the Tools page) need Chrome on Android and are hidden elsewhere. Claiming a badge works on any phone: it only opens the badge's URL.
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
   - status never conveyed by color alone,
@@ -1295,7 +1303,7 @@ Target: at least 95% of attempts under 3 s.
   - Follow the college's student-organization data policies.
   - Retention: photos and dietary notes are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
-  - The badge profile is opt-in and off by default; participants switch it on or off on their pass page. It is only shown to signed-in attendees and staff of the same event.
+  - The badge profile is opt-in and off by default; participants switch it on or off on their pass page or `/me`, where they can also set their LinkedIn (v0.5). It is only shown to signed-in attendees and staff of the same event.
 - **Logging:**
   - Structured JSON logs.
   - Allowed fields: `participant_id`, `event_id`, `checkpoint_id`, `result_code`, `latency_ms`.
@@ -1315,7 +1323,7 @@ Target: at least 95% of attempts under 3 s.
 - Send RSVPs to the chosen applicants well before this (Participants page); check the outbox for failures.
 - Invite staff; every volunteer sets their password from the invite email on their own phone and runs a test scan.
 - Export and **print the accepted roster** (name, checkbox per checkpoint) as the offline fallback.
-- If using badges: write the tags on the Badges page (Android), and check one opens `/profile/<uid>` on an iPhone.
+- If using badges: write the tags on the Tools page (Android), and check one opens `/profile/<uid>` on an iPhone. Tell attendees to tap their badge with their phone and press **This is my badge**.
 - Check the dashboard: outbox has 0 failed and 0 pending.
 - Charge phones and bring battery packs.
 
@@ -1330,7 +1338,7 @@ Target: at least 95% of attempts under 3 s.
 |-----------|--------|
 | Code won't scan | Manual search → Record scan |
 | `NOT_FOUND` | Manual search by name; check for an email typo in the Sheet; organizer adds a walk-in if they're legit |
-| UNKNOWN BADGE | Scan their QR (or manual search), then "Link badge" |
+| UNKNOWN BADGE | Scan their QR (or manual search). Ask them to tap the badge with their own phone and press "This is my badge"; without a phone, an organizer links it on the Tools page |
 | `REVOKED` + reissued | Ask them to open their **newest** email; organizer can resend on the spot |
 | `ALREADY_SCANNED` by someone else | Compare the photo; escalate to an organizer |
 | `WRONG_EVENT` | Organizer decides |
@@ -1378,7 +1386,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
 | **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet; admin emails and staff links on `/me` (v0.4.1) | T-AUTH-01..06, T-RSVP-01..05, T-ME-01..02, T-TOK-10, rewritten T-ING |
-| **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC + Link badge · N3 badge profile + opt-in · N4 tag writer | T-NFC-01..16, T-NFC-18 (+ T-NFC-17 manual) |
+| **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC · N3 badge profile + opt-in · N4 tag writer · N5 (v0.5) self-claimed badges, LinkedIn on `/me`, Tools linker | T-NFC-01..21, T-ME-03, T-ING-26 (+ T-NFC-17 manual) |
 
 ---
 
@@ -1406,6 +1414,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
 - **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.
+- **v0.5 (2026-10-19)** — Self-claimed badges, reversing a v0.3 DECISION: a signed-in attendee taps an unlinked badge and presses **This is my badge** (`claim_badge()`), then sets their LinkedIn and sharing on `/me` (`save_badge_profile()`, `normalizeLinkedIn()`); the Sheet stops overwriting a LinkedIn they set (`linkedin_set_at`, F3). The scanner's door "Link badge" is gone; organizers link badges on the admin **Tools** page (formerly Badges, which keeps the tag writer). §2, §3, §5.2, §6.5, F3, §9.3, §10.2, §10.5, §11, §15, §16, S8. New tests T-NFC-19..21, T-ME-03, T-ING-26; T-NFC-11 and T-NFC-16 rewritten for Tools.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
