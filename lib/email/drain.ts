@@ -8,6 +8,7 @@ import { renderQrPng } from '@/lib/qr/render';
 import { ProviderError, type EmailProvider } from './provider';
 import { renderPassEmail, type RenderedEmail } from './templates/pass';
 import { renderRsvpEmail } from './templates/rsvp';
+import { renderTeamInviteEmail } from './templates/team-invite';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -87,6 +88,16 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
         return 'cancelled';
       }
       email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}` });
+    } else if (row.kind === 'team_invite') {
+      const { data: invite, error: inviteError } = await opts.db.from('team_invites')
+        .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
+        .eq('participant_id', row.participant_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
+      if (!invite) {
+        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+        return 'cancelled';
+      }
+      email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
     } else {
       // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
       const passId = randomUUID();

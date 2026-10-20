@@ -140,6 +140,7 @@ export function RsvpView() {
                     dietaryNotes: text('dietaryNotes'),
                     linkedin: text('linkedin'),
                     profilePublic: d.get('public') === 'on',
+                    lookingForTeam: d.get('lookingForTeam') === 'on',
                     ...(!view.invite.hasAccount && { password: text('password') }),
                   });
                 }}
@@ -178,6 +179,11 @@ export function RsvpView() {
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
                   <input type="checkbox" name="public" defaultChecked={view.invite.profile.profilePublic} style={{ width: 22, height: 22 }} />
                   Show my name and LinkedIn when someone at the event taps my badge
+                </label>
+
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+                  <input type="checkbox" name="lookingForTeam" style={{ width: 22, height: 22 }} />
+                  I&apos;m looking for a team: list me in the teammate directory (name only)
                 </label>
 
                 {!view.invite.hasAccount && (

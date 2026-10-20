@@ -1,14 +1,14 @@
 import { expect, test, type Browser } from '@playwright/test';
-import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // SPEC F15 / §11 Teams (v0.7): organizers open forming and release tracks; hackers team up from their menu.
 let f: StandardFixture;
 test.describe.configure({ mode: 'serial' });
-test.beforeAll(async () => {
+test.beforeEach(async () => {
   f = await createStandardFixture();
 });
-test.afterAll(async () => {
+test.afterEach(async () => {
   await f.close();
 });
 
@@ -71,4 +71,38 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   await expect(team.getByLabel('Track of Data Wizards').locator('option:checked')).toHaveText('Best Hardware Project');
   await a.context.close();
   await b.context.close();
+});
+
+
+test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and both see the team', async ({ browser }) => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const aContext = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const a = await aContext.newPage();
+  await createAccount(await emailOf(f.p.A));
+  await signIn(a, await emailOf(f.p.A), '/me/team');
+  await a.getByLabel('Team name').fill('Data Wizards');
+  await a.getByRole('button', { name: 'Create team' }).click();
+  await expect(a.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
+  const n = await hacker(browser, f.p.N);
+  await n.page.goto('/me/team');
+  await n.page.getByLabel('Looking for a team', { exact: true }).check();
+  await n.page.getByRole('button', { name: 'Save directory preference' }).click();
+  await expect(n.page.getByRole('status')).toContainText('Directory preference saved');
+  await expect(n.page.getByText('Create a team to invite them.')).toBeVisible();
+  await a.reload();
+  const directory = a.getByRole('region', { name: 'Teammate directory' });
+  await expect(directory.getByText('Nia Fixture')).toBeVisible();
+  await directory.getByRole('button', { name: 'Invite' }).click();
+  await expect(a.getByRole('status')).toContainText('Invite sent');
+  expect(await consoleMailText(await emailOf(f.p.N), '/me/team')).toContain(`${E2E_ORIGIN}/me/team`);
+  await n.page.reload();
+  const invites = n.page.getByRole('region', { name: 'Pending invites' });
+  await expect(invites).toContainText('Data Wizards');
+  await expect(invites).toContainText('Ada');
+  await invites.getByRole('button', { name: 'Accept', exact: true }).click();
+  await expect(n.page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
+  await a.reload();
+  await expect(a.getByText('Nia Fixture')).toBeVisible();
+  await aContext.close();
+  await n.context.close();
 });

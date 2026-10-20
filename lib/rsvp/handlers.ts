@@ -42,6 +42,7 @@ const rsvpBody = z
     dietaryNotes: field,
     linkedin: field,
     profilePublic: z.boolean().optional(),
+    lookingForTeam: z.boolean().optional(),
   })
   .strict();
 
@@ -89,6 +90,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     const { data: code, error: respondError } = await deps.db.rpc('rsvp_respond', {
       p_token_hash: hash,
       p_going: going,
+      p_looking_for_team: body.data.lookingForTeam,
       ...(profile?.ok && profileArgs(profile.value)),
     });
     if (respondError) throw new Error(`rsvp_respond failed (${respondError.code})`);

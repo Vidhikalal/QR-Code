@@ -17,9 +17,10 @@ export function normalizeJoinCode(raw: string): string | null {
 
 export const formatJoinCode = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
 
+// Control characters (line breaks included) are refused: the name goes into invite email subjects.
 export function parseTeamName(raw: string): string | null {
   const name = raw.trim();
-  return name.length >= 1 && name.length <= 60 ? name : null;
+  return name.length >= 1 && name.length <= 60 && !/\p{Cc}/u.test(name) ? name : null;
 }
 
 // The admin "Add tracks, one per line" box: trimmed, blank lines dropped, repeats (any case) dropped.

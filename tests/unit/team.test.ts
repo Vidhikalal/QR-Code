@@ -17,7 +17,7 @@ describe('teams (SPEC F15, v0.7)', () => {
   it('T-TEAM-01: team names are trimmed, 1 to 60 characters; track lines are trimmed, unique, 1 to 100 characters, at most 20', () => {
     expect(parseTeamName('  Data Wizards ')).toBe('Data Wizards');
     expect(parseTeamName('x'.repeat(60))).toBe('x'.repeat(60));
-    for (const bad of ['', '   ', 'x'.repeat(61)]) expect(parseTeamName(bad)).toBeNull();
+    for (const bad of ['', '   ', 'x'.repeat(61), 'Data\r\nBcc: x@y.z', 'Tab\there']) expect(parseTeamName(bad), bad).toBeNull();
 
     expect(parseTrackNames('Best AI/ML Project\r\n\n  Best Hardware Project \nbest ai/ml project\n')).toEqual(['Best AI/ML Project', 'Best Hardware Project']);
     expect(parseTrackNames('x'.repeat(100))).toEqual(['x'.repeat(100)]);

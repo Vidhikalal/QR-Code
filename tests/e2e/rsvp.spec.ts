@@ -42,12 +42,13 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
   await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
   await p.getByLabel('Emergency contact phone').fill('416 555 0100');
+  await p.getByLabel("I'm looking for a team: list me in the teammate directory (name only)").check();
   await p.getByLabel('Set a password for your Passline account').fill('rae-event-password');
   await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
   await p.waitForURL('**/me');
   await expect(p.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
-  const { rows } = await f.pool.query('select emergency_name, emergency_phone from participants where email = $1', [email]);
-  expect(rows).toEqual([{ emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100' }]);
+  const { rows } = await f.pool.query('select emergency_name, emergency_phone, looking_for_team from participants where email = $1', [email]);
+  expect(rows).toEqual([{ emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100', looking_for_team: true }]);
 
   // The pass email is sent after the response; /me shows the pass once it's issued.
   const passToken = /\/p#([A-Za-z0-9_-]{32})/.exec(await consoleMailText(email, '/p#'))?.[1] ?? '';

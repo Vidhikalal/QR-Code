@@ -1,11 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { after } from 'next/server';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { emailFrom, getProvider } from '@/lib/email';
+import { drainUntilIdle } from '@/lib/email/drain';
+import { env } from '@/lib/env';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent } from '@/lib/me/profile';
-import { createTeam, joinTeam, leaveTeam, myTeam, setTeamTrack, type TeamCode } from '@/lib/me/team';
+import { createTeam, declineInvite, inviteTeammate, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, type TeamCode } from '@/lib/me/team';
 import formStyles from '../../login/login.module.css';
 import styles from '../../profile/[uid]/profile.module.css';
 import me from '../me.module.css';
@@ -18,6 +22,10 @@ const NOTICES: Record<TeamCode, string> = {
   JOINED: '✓ You joined the team.',
   LEFT: '✓ You left the team.',
   SAVED: '✓ Track saved.',
+  INVITED: '✓ Invite sent. They can accept on their Team page.',
+  ALREADY_INVITED: '✕ You’ve already invited them.',
+  NOT_LOOKING: '✕ They’re no longer looking for a team.',
+  DECLINED: '✓ Invite declined.',
   IN_A_TEAM: '✕ You’re already in a team. Leave it first.',
   NAME_TAKEN: '✕ Another team already has that name.',
   BAD_CODE: '✕ No team has that code. Check it and try again.',
@@ -38,23 +46,28 @@ async function act(formData: FormData) {
   const field = (k: string) => String(formData.get(k) ?? '');
   const op = field('op');
   const r =
-    op === 'create'
+    op === 'invite' ? await inviteTeammate(db(), user, m.participantId, field('inviteeId'))
+    : op === 'accept' ? await joinTeam(db(), user, m.participantId, { teamId: field('teamId') })
+    : op === 'decline' ? await declineInvite(db(), user, m.participantId, field('teamId'))
+    : op === 'looking' ? await setLooking(db(), user, m.participantId, field('looking') === 'on')
+    : op === 'create'
       ? await createTeam(db(), user, m.participantId, field('name'))
       : op === 'join'
         ? await joinTeam(db(), user, m.participantId, { code: field('code') })
         : op === 'leave'
           ? await leaveTeam(db(), user, m.participantId)
           : await setTeamTrack(db(), user, m.participantId, field('trackId'));
+  if (r === 'INVITED') after(() => drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom(), passSecret: env().PASS_TOKEN_SECRET }));
   redirect(`/me/team?r=${r}`);
 }
 
 export default async function TeamPage(props: { searchParams: Promise<{ r?: string }> }) {
   const { r } = await props.searchParams;
   const { me: m, now } = await loadMyEvent('/me/team');
-  const { tracks, team } = await myTeam(db(), m);
+  const { tracks, team, invites, directory } = await myTeam(db(), m);
   const live = Date.parse(m.event.endsAt) > now.getTime();
   const open = m.event.teamsOpen && live;
-  const notice = r && r in NOTICES ? NOTICES[r as TeamCode] : null;
+  const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
   const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
 
   return (
@@ -68,6 +81,42 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
         <p role={notice.startsWith('✓') ? 'status' : 'alert'} className={notice.startsWith('✓') ? formStyles.ok : formStyles.error}>
           {notice}
         </p>
+      )}
+      {!team && live && (
+        <section aria-labelledby="looking-title" className={styles.card} style={{ marginTop: 16 }}>
+          <h2 id="looking-title">Find teammates</h2>
+          <form action={act} className={formStyles.form}>
+            <input type="hidden" name="op" value="looking" />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+              <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
+              Looking for a team
+            </label>
+            <p>List my name in the teammate directory for this event.</p>
+            <button type="submit">Save directory preference</button>
+          </form>
+        </section>
+      )}
+      {!team && invites.length > 0 && (
+        <section aria-labelledby="invites-title" className={styles.card} style={{ marginTop: 16 }}>
+          <h2 id="invites-title">Pending invites</h2>
+          {invites.map((invite) => (
+            <div key={invite.teamId}>
+              <p style={{ marginTop: 12 }}>{invite.from} invited you to join {invite.teamName}.</p>
+              {open && (
+                <form action={act} className={formStyles.form}>
+                  <input type="hidden" name="op" value="accept" />
+                  <input type="hidden" name="teamId" value={invite.teamId} />
+                  <button type="submit">Accept</button>
+                </form>
+              )}
+              <form action={act} className={formStyles.form}>
+                <input type="hidden" name="op" value="decline" />
+                <input type="hidden" name="teamId" value={invite.teamId} />
+                <button type="submit">Decline</button>
+              </form>
+            </div>
+          ))}
+        </section>
       )}
       {team ? (
         <section aria-labelledby="team-name" className={styles.card} style={{ marginTop: 16 }}>
@@ -133,6 +182,30 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
             </form>
           </section>
         </>
+      )}
+      {open && (!team || team.members.length < 4) && (
+        <section aria-labelledby="directory-title" className={styles.card} style={{ marginTop: 16 }}>
+          <h2 id="directory-title">Teammate directory</h2>
+          {!team && <p>Create a team to invite them.</p>}
+          {directory.length === 0 ? <p>No one is looking for a team yet.</p> : (
+            <ul>
+              {directory.map((person) => (
+                <li key={person.id} style={{ marginTop: 12 }}>
+                  {person.name}
+                  {team && (
+                    <form action={act} className={formStyles.form}>
+                      <input type="hidden" name="op" value="invite" />
+                      <input type="hidden" name="inviteeId" value={person.id} />
+                      <button type="submit" aria-label={`Invite ${person.name}`}>
+                        Invite
+                      </button>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       )}
     </main>
   );

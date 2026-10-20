@@ -626,6 +626,53 @@ export type Database = {
         }
         Relationships: []
       }
+      team_invites: {
+        Row: {
+          created_at: string
+          event_id: string
+          invited_by: string | null
+          participant_id: string
+          team_id: string
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          event_id: string
+          invited_by?: string | null
+          participant_id: string
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          invited_by?: string | null
+          participant_id?: string
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_invites_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_invites_participant_id_event_id_fkey"
+            columns: ["participant_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id", "event_id"]
+          },
+          {
+            foreignKeyName: "team_invites_team_id_event_id_fkey"
+            columns: ["team_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id", "event_id"]
+          },
+        ]
+      }
       teams: {
         Row: {
           created_at: string
@@ -954,6 +1001,7 @@ export type Database = {
           p_emergency_relation?: string
           p_going: boolean
           p_linkedin_url?: string
+          p_looking_for_team?: boolean
           p_public?: boolean
           p_token_hash: string
         }
@@ -1008,6 +1056,15 @@ export type Database = {
           p_code: string
           p_email: string
           p_name: string
+          p_participant_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      team_invite: {
+        Args: {
+          p_email: string
+          p_invitee_id: string
           p_participant_id: string
           p_user_id: string
         }
