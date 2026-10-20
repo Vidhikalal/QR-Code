@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.7 · **Owner:** Ade · **Last updated:** 2026-10-19
+> **Status:** Draft v0.7.1 · **Owner:** Ade · **Last updated:** 2026-10-20
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -82,7 +82,7 @@ The following are out of scope for v1:
 | Void own scan ≤ 120 s old | — | — | ✅ | ✅ |
 | Void any scan | — | — | — | ✅ |
 | Open/close checkpoints, CRUD checkpoints | — | — | — | ✅ |
-| Resend/revoke pass, add walk-in, delete participant | — | — | — | ✅ |
+| Resend/revoke pass, add attendee (walk-in or not RSVPed yet), delete participant | — | — | — | ✅ |
 | Invite/remove staff | — | — | — | ✅ |
 | Organizer on every event without an invite | — | — | — | ✅ only an account whose email is in `ADMIN_EMAILS` (F9) |
 | Dashboard, analytics, CSV export | — | — | — | ✅ |
@@ -606,6 +606,8 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 
 An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional. A walk-in who wants an account uses "Forgot or never set your password?" (F9).
 
+**v0.7.1:** the dialog is **Add attendee**. With **Not RSVPed yet** ticked, the person is added as a pending applicant instead (source `walk_in`, audit `participant.applicant`) and sent nothing; an organizer sends their RSVP like anyone else's (F13), e.g. to see the RSVP email. Check-in and a pass can't be combined with it (400). They have no Applicant ID, so the Sheet never updates them.
+
 ### F13 — RSVP (v0.4)
 
 1. On the Participants page an organizer ticks applicants who aren't accepted yet and presses **Send RSVP**. `queue_rsvps()` queues one `rsvp` outbox row each; accepted, deleted and other events' people are skipped. Audit `rsvp.send` records the count only.
@@ -970,7 +972,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
-| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6). |
+| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". **Add attendee**: a walk-in, or **Not RSVPed yet** for a pending applicant (F12, v0.7.1). Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6). |
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
@@ -1253,6 +1255,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ADM-06 | Door closed, now = `starts_at − 20 min` | dashboard warning visible | E |
 | T-ADM-07 | 31 `NOT_FOUND` from vol1 in 5 min | 429 for vol1; alert on dashboard | I |
 | T-ADM-08 | PATCH `{schedule, emergencyInfo}`; one field alone; 5001 / 2001 chars, `{}`, a wrong type or an extra key; `{sheet}`. Info tab in the browser; participant detail with and without a contact (v0.6) | saved, returned by GET, audit `event.info` with `{}`; the other field unchanged; 400; still `{sheetId}`. The text shows on the hacker Schedule page; the organizer sees the contact with a `tel:` link, or `emergency: null` | I+E |
+| T-ADM-09 | Add attendee with **Not RSVPed yet** (v0.7.1); then Send RSVP; with check-in or a pass as well; the same email again. In the browser: the dialog, the pending row, Send RSVP | 201, `pending`, source `walk_in`, no outbox row, no drain, no scan or pass, audit `participant.applicant` with `{}`; one RSVP email with a `/rsvp#` link; 400; 409. The check-in box disappears; the row shows "RSVP sent" | I+E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1519,6 +1522,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.6 (2026-10-19)** — Hacker menu (F14, S10). Tapping your own badge opens `/me/<slug>` (`badge_profile` adds `self`, `slug`): Hacker profile (LinkedIn, sharing, and now dietary notes), Schedule and Emergency contact (the event's info and your own contact), and My pass. The RSVP Yes form requires an emergency contact and offers the networking profile and dietary notes, prefilled from the Sheet, all stored with the answer (`rsvp_respond` gains optional fields; `rsvp_lookup` returns the prefill). Organizers write the schedule and emergency info on a new admin **Info** tab and see the emergency contact on the participant detail. The Sheet stops overwriting dietary notes the attendee set (`dietary_set_at`); set-at timestamps move only on a real change. The emergency contact is deleted by the tombstone and by retention, and never logged. §2, §3, §5.1, §5.4, §6.5, F3, F13, F14, §9.3, §11, §12, §15, §18. New tests T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08; T-ADM-05, T-PRIV-01, T-RSVP-05, T-NFC-21 and T-SEC-05/T-PRIV-03 updated.
 - **v0.6.1 (2026-10-19)** — The hacker menu drops the event slug: `/me` is the menu for your event (the next one not yet over, else the most recent; DECISION), with `/me/profile`, `/me/schedule` and `/me/emergency`, and keeps the staff links. The pass list and its Menu button are gone (**My pass** replaces them). Your own badge and "This is my badge" open `/me` and `/me/profile`. §2, §3, §6.5, F14, §9.3; T-ME-06/07, T-NFC-21/22, T-RSVP-05 updated.
 - **v0.7 (2026-10-20)** — Teams and tracks (F15, S11a). Organizers type an event's tracks, open team forming and release the tracks on a new admin **Teams** page, and can edit any team. Accepted hackers create a team or join one with its join code (not a secret, DECISION) from a **Team** item in their menu, up to 4 per team (DECISION, enforced by a trigger), and pick one track once released. The tombstone takes people out of their team. §2, §3, §5.1, §5.5, F15, §9.3, §11, §14.18, §18. New tests T-TEAM-01..04, T-TEAM-07. S11b adds the opt-in name-only teammate directory, consent-based invites and their email, invite cleanup on joining or tombstoning, and the RSVP directory checkbox. §5.5, F13, F15, §9.3, §12, §14.18, §18. New tests T-TEAM-05..06; T-TEAM-07 extended.
+- **v0.7.1 (2026-10-20)** — The Participants page's **Add walk-in** becomes **Add attendee**, with a **Not RSVPed yet** box that adds a pending applicant (sent nothing) so organizers can send them an RSVP, e.g. to test the RSVP email (F12, §3, §11). `add_walk_in()` gains `p_not_rsvped` (default false). New test T-ADM-09.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 

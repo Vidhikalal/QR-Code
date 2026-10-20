@@ -98,8 +98,11 @@ const walkInBody = z
     email: z.string().transform(normalizeEmail).pipe(z.email()),
     checkInNow: z.boolean().default(false),
     sendPass: z.boolean().default(false),
+    // F12 (v0.7.1): a pending applicant instead of an accepted walk-in; they get an RSVP, not a pass.
+    notRsvped: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .refine((b) => !b.notRsvped || (!b.checkInNow && !b.sendPass));
 
 const rsvpBody = z.object({ ids: z.array(z.uuid()).min(1).max(1000) }).strict();
 const inviteBody = z.object({ email: z.string().transform(normalizeEmail).pipe(z.email()), role: z.enum(['organizer', 'volunteer']) }).strict();
@@ -381,6 +384,8 @@ export function createAdminApi(deps: AdminDeps) {
         p_search_text: toSearchText(`${b.firstName} ${b.lastName}`),
         p_check_in: b.checkInNow,
         p_send_pass: b.sendPass,
+        // Only when set: plain walk-ins then also work against a database without the v0.7.1 argument.
+        ...(b.notRsvped && { p_not_rsvped: true }),
       });
       if (error) throw new Error(`add_walk_in failed (${error.code})`);
       const result = z.object({ code: z.string(), participantId: z.string().optional(), scan: z.unknown().optional() }).parse(data);

@@ -809,6 +809,7 @@ export type Database = {
           p_event_id: string
           p_first_name: string
           p_last_name: string
+          p_not_rsvped?: boolean
           p_organizer_id: string
           p_search_text: string
           p_send_pass: boolean

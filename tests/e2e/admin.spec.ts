@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { authStatePath, E2E_ORIGIN, saveSignedInState } from '../fixtures/e2e';
+import { authStatePath, consoleMailText, E2E_ORIGIN, saveSignedInState } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // SPEC §11 organizer UI. Pages are gated server-side (403), and every number comes from /api/admin.
@@ -105,13 +105,13 @@ test('T-ADM-06: door closed 20 min before starts_at shows a warning; opening the
 
 test('Admin smoke: walk-in with check-in shows as checked in; void a scan; exports are CSV', async ({ page }) => {
   await page.goto(`/admin/${f.slug}/participants`);
-  await page.getByRole('button', { name: 'Add walk-in' }).click();
+  await page.getByRole('button', { name: 'Add attendee' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('First name').fill('Wanda');
   await dialog.getByLabel('Last name').fill('Walkin');
   await dialog.getByLabel('Email', { exact: true }).fill(`wanda@${f.slug}.test`);
   await dialog.getByLabel('Check in now').check();
-  await dialog.getByRole('button', { name: 'Add walk-in' }).click();
+  await dialog.getByRole('button', { name: 'Add attendee' }).click();
 
   const row = page.getByRole('row', { name: /Wanda Walkin/ });
   await expect(row).toContainText('Checked in');
@@ -137,6 +137,32 @@ test('Admin smoke: walk-in with check-in shows as checked in; void a scan; expor
     expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toContain('text/csv');
   }
+});
+
+test('T-ADM-09: Add attendee with "Not RSVPed yet" adds a pending applicant; Send RSVP then emails them', async ({ page }) => {
+  const email = `nora-${f.slug}@example.test`;
+  await page.goto(`/admin/${f.slug}/participants`);
+  await page.getByRole('button', { name: 'Add attendee' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('First name').fill('Nora');
+  await dialog.getByLabel('Last name').fill('Notyet');
+  await dialog.getByLabel('Email', { exact: true }).fill(email);
+  await dialog.getByLabel('Not RSVPed yet').check();
+  await expect(dialog.getByLabel('Check in now')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add attendee' }).click();
+  await expect(page.getByRole('status')).toContainText('Added Nora as not RSVPed yet');
+
+  const row = page.getByRole('row', { name: /Nora Notyet/ });
+  await expect(row).toContainText('pending');
+  await expect(row).not.toContainText('RSVP sent');
+  await page.getByLabel('Select Nora Notyet').check();
+  await page.getByRole('button', { name: 'Send RSVP (1)' }).click();
+  await expect(page.getByRole('status')).toHaveText('✓ RSVP emails queued for 1 person.');
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole('row', { name: /Nora Notyet/ })).toContainText('RSVP sent', { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  expect(await consoleMailText(email, '/rsvp#')).toMatch(/\/rsvp#[A-Za-z0-9_-]{32}/);
 });
 
 test('Admin: Sync page explains when no Sheet is linked', async ({ page }) => {

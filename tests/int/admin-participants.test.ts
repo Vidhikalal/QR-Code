@@ -43,6 +43,33 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     expect(c.scheduled.length).toBeGreaterThan(0);
   });
 
+  it('T-ADM-09: add a person who is not RSVPed yet → pending applicant, nothing sent; Send RSVP then emails them; contradictions are 400', async () => {
+    const email = `apply.me+${f.slug}@example.test`;
+    const before = c.scheduled.length;
+    const res = await c.call('addWalkIn', org, { slug: f.slug }, { body: { firstName: 'Apply', lastName: 'Me', email, notRsvped: true } });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ code: 'CREATED' });
+    const id = String(obj(res.body).participantId);
+    expect((await f.pool.query('select source, status from participants where id = $1', [id])).rows).toEqual([{ source: 'walk_in', status: 'pending' }]);
+    expect((await f.pool.query('select 1 from email_outbox where participant_id = $1', [id])).rowCount).toBe(0);
+    expect((await f.pool.query('select 1 from scans where participant_id = $1 union all select 1 from passes where participant_id = $1', [id])).rowCount).toBe(0);
+    expect(c.scheduled.length).toBe(before);
+    const audit = await f.pool.query('select detail from audit_log where subject_id = $1 and action = $2', [id, 'participant.applicant']);
+    expect(audit.rows).toEqual([{ detail: {} }]);
+
+    // The point of it: Send RSVP works on them like on any applicant, and the RSVP email goes out.
+    expect((await c.call('sendRsvps', org, { slug: f.slug }, { body: { ids: [id] } })).body).toEqual({ queued: 1 });
+    await c.drain();
+    expect(onlyEmailTo(c.mail.sent, email).text).toMatch(/\/rsvp#[A-Za-z0-9_-]{32}/);
+
+    for (const contradiction of [{ checkInNow: true }, { sendPass: true }]) {
+      const bad = await c.call('addWalkIn', org, { slug: f.slug }, { body: { firstName: 'No', email: `no+${f.slug}@example.test`, notRsvped: true, ...contradiction } });
+      expect(bad.status, JSON.stringify(contradiction)).toBe(400);
+    }
+    const dup = await c.call('addWalkIn', org, { slug: f.slug }, { body: { firstName: 'Dup', email, notRsvped: true } });
+    expect(dup.status).toBe(409);
+  });
+
   it('T-ADM-05: delete → tombstone per §5.1; counts unchanged; old token → REVOKED (deleted); no PII in audit', async () => {
     await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent' where id = $1`, [f.p.B]);
     await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.B });
