@@ -13,6 +13,15 @@ import { renderQrPng } from '@/lib/qr/render';
 const SLUG = 'demo';
 const EVENT_NAME = 'Demo Hack Day';
 const FIRST = ['Ada', 'Zoë', 'Liam', 'Priya', 'Mateo', 'Aisha', 'Kenji', 'Sofía', 'Noah', 'Chloé'];
+const TRACKS = [
+  '[Sponsored] Tangerine - Best Data Project',
+  '[Sponsored] IBM - Best Data Project',
+  '[Sponsored] ElevenLabs - Best Data Project',
+  '[Sheridan Datathon] Best Data Visualization & Storytelling Project',
+  '[Sheridan Datathon] Best Hardware Project',
+  '[Sheridan Datathon] Best Beginner Project',
+  '[Sheridan Datathon] Best AI/ML Project',
+];
 const LAST = ["O'Brien", 'Nguyen', 'Okafor', 'Smith', 'García', 'Kowalski', 'Haddad', 'Li', 'Martin', 'Adebayo'];
 
 function need(name: string): string {
@@ -58,6 +67,10 @@ async function main() {
     { event_id: eventId, name: 'Raffle', kind: 'custom', requires_checkin: false, is_open: true, sort_order: 3 },
   ], { defaultToNull: false });
   if (cps.error) throw cps.error;
+
+  // F15 (v0.7): the datathon's tracks (the 1st/2nd/3rd place prizes aren't tracks). Created in this order.
+  const tracks = await db.from('tracks').insert(TRACKS.map((name) => ({ event_id: eventId, name })));
+  if (tracks.error) throw tracks.error;
 
   // Dev staff: at /login use "Forgot or never set your password?" with these addresses; the link lands in Mailpit (http://127.0.0.1:54324).
   const invites = await db.from('staff_invites').insert([

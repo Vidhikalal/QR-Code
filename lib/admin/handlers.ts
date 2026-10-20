@@ -8,6 +8,7 @@ import { bucketLabel, doorClosedWarning } from '@/lib/domain/dashboard';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
+import { generateJoinCode, parseTeamName, parseTrackNames } from '@/lib/domain/team';
 import { syncSheet } from '@/lib/ingest/sync';
 import { PHOTO_BUCKET, signedPhotoUrl } from '@/lib/storage/photos';
 
@@ -67,7 +68,13 @@ const metricsSchema = z.object({
 
 // §11: the Sheet link (Sync page) and, since v0.6, the hackers' schedule and emergency info (Info page).
 const eventUpdate = z
-  .object({ sheet: z.string().max(500).nullable().optional(), schedule: z.string().max(5000).optional(), emergencyInfo: z.string().max(2000).optional() })
+  .object({
+    sheet: z.string().max(500).nullable().optional(),
+    schedule: z.string().max(5000).optional(),
+    emergencyInfo: z.string().max(2000).optional(),
+    teamsOpen: z.boolean().optional(),
+    tracksReleased: z.boolean().optional(),
+  })
   .strict()
   .refine((b) => Object.keys(b).length > 0);
 
@@ -142,7 +149,7 @@ export function createAdminApi(deps: AdminDeps) {
   }
 
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -533,27 +540,205 @@ export function createAdminApi(deps: AdminDeps) {
         sheetId: e.sheet_id,
         schedule: e.schedule,
         emergencyInfo: e.emergency_info,
+        teamsOpen: e.teams_open,
+        tracksReleased: e.tracks_released,
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
 
-    // PATCH /api/admin/[slug]/event  { sheet?: id | URL | null, schedule?, emergencyInfo? }  (F10, §11 Info)
+    // PATCH /api/admin/[slug]/event  { sheet?: id | URL | null, schedule?, emergencyInfo?, teamsOpen?, tracksReleased? }  (F10, §11 Info, §11 Teams)
     async updateEvent(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
       const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const { sheet, schedule, emergencyInfo } = body.data;
+      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased } = body.data;
       const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
       if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
       const { error } = await db
         .from('events')
-        .update({ ...(sheet !== undefined && { sheet_id: sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergency_info: emergencyInfo }) })
+        .update({
+          ...(sheet !== undefined && { sheet_id: sheetId }),
+          ...(schedule !== undefined && { schedule }),
+          ...(emergencyInfo !== undefined && { emergency_info: emergencyInfo }),
+          ...(teamsOpen !== undefined && { teams_open: teamsOpen }),
+          ...(tracksReleased !== undefined && { tracks_released: tracksReleased }),
+        })
         .eq('id', g.eventId);
       if (error) throw new Error(`event update failed (${error.code})`);
       if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
       if (schedule !== undefined || emergencyInfo !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
-      return json({ ...(sheet !== undefined && { sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergencyInfo }) });
+      const flags = { ...(teamsOpen !== undefined && { teamsOpen }), ...(tracksReleased !== undefined && { tracksReleased }) };
+      if (Object.keys(flags).length > 0) await audit(g.eventId, g.userId, 'event.teams', g.eventId, flags);
+      return json({ ...(sheet !== undefined && { sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergencyInfo }), ...flags });
+    },
+
+    // GET /api/admin/[slug]/teams  (§11 Teams, v0.7): switches, tracks, teams with members, accepted people without a team
+    async getTeams(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const [event, tracks, teams, unassigned] = await Promise.all([
+        loadEvent(g.eventId),
+        db.from('tracks').select('id, name').eq('event_id', g.eventId).order('created_at'),
+        db.from('teams').select('id, name, join_code, track_id, participants(id, first_name, last_name, status)').eq('event_id', g.eventId).order('created_at'),
+        db
+          .from('participants')
+          .select('id, first_name, last_name, looking_for_team')
+          .eq('event_id', g.eventId)
+          .eq('status', 'accepted')
+          .is('deleted_at', null)
+          .is('team_id', null)
+          .order('first_name'),
+      ]);
+      for (const r of [tracks, teams, unassigned]) if (r.error) throw new Error(`teams load failed (${r.error.code})`);
+      const name = (p: { first_name: string; last_name: string }) => `${p.first_name} ${p.last_name}`.trim();
+      return json({
+        teamsOpen: event.teams_open,
+        tracksReleased: event.tracks_released,
+        tracks: tracks.data ?? [],
+        teams: (teams.data ?? []).map((t) => ({
+          id: t.id,
+          name: t.name,
+          code: t.join_code,
+          trackId: t.track_id,
+          members: t.participants.map((p) => ({ id: p.id, displayName: name(p), status: p.status })),
+        })),
+        unassigned: (unassigned.data ?? []).map((p) => ({ id: p.id, displayName: name(p), looking: p.looking_for_team })),
+      });
+    },
+
+    // POST /api/admin/[slug]/tracks  { text }: one track per line; names already there (any case) are skipped
+    async addTracks(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = z.object({ text: z.string().max(5000) }).strict().safeParse(await readJson(request));
+      const names = body.success ? parseTrackNames(body.data.text) : null;
+      if (!names) return badRequest();
+      const { data: existing, error: loadError } = await db.from('tracks').select('name').eq('event_id', g.eventId);
+      if (loadError) throw new Error(`tracks load failed (${loadError.code})`);
+      const taken = new Set(existing.map((t) => t.name.toLowerCase()));
+      const fresh = names.filter((n) => !taken.has(n.toLowerCase()));
+      if (fresh.length > 0) {
+        const { error } = await db.from('tracks').insert(fresh.map((name) => ({ event_id: g.eventId, name })));
+        if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another track already has that name.' }, 409);
+        if (error) throw new Error(`tracks insert failed (${error.code})`);
+        await audit(g.eventId, g.userId, 'track.add', null, { count: fresh.length });
+      }
+      return json({ added: fresh.length }, 201);
+    },
+
+    // PATCH /api/admin/[slug]/tracks/[id]  { name }
+    async updateTrack(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      const body = z.object({ name: z.string().trim().min(1).max(100) }).strict().safeParse(await readJson(request));
+      if (!id) return notFound();
+      if (!body.success) return badRequest();
+      const { data, error } = await db.from('tracks').update({ name: body.data.name }).eq('id', id).eq('event_id', g.eventId).select('id, name').maybeSingle();
+      if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another track already has that name.' }, 409);
+      if (error) throw new Error(`track update failed (${error.code})`);
+      if (!data) return notFound();
+      await audit(g.eventId, g.userId, 'track.update', id);
+      return json({ track: data });
+    },
+
+    // DELETE /api/admin/[slug]/tracks/[id]: teams that chose it are left without a track (FK set null)
+    async deleteTrack(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return notFound();
+      const { data, error } = await db.from('tracks').delete().eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
+      if (error) throw new Error(`track delete failed (${error.code})`);
+      if (!data) return notFound();
+      await audit(g.eventId, g.userId, 'track.delete', id);
+      return json({ deleted: true });
+    },
+
+    // POST /api/admin/[slug]/teams  { name, trackId? }
+    async createTeam(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const body = z.object({ name: z.string().max(200), trackId: z.uuid().nullable().optional() }).strict().safeParse(await readJson(request));
+      const name = body.success ? parseTeamName(body.data.name) : null;
+      if (!body.success || !name) return badRequest();
+      const { data, error } = await db
+        .from('teams')
+        .insert({ event_id: g.eventId, name, join_code: generateJoinCode(), track_id: body.data.trackId ?? null })
+        .select('id, name, join_code, track_id')
+        .single();
+      if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another team already has that name.' }, 409);
+      if (error?.code === '23503') return notFound(); // another event's track
+      if (error) throw new Error(`team insert failed (${error.code})`);
+      await audit(g.eventId, g.userId, 'team.create', data.id);
+      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackId: data.track_id } }, 201);
+    },
+
+    // PATCH /api/admin/[slug]/teams/[id]  { name?, trackId? }
+    async updateTeam(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      const body = z
+        .object({ name: z.string().max(200).optional(), trackId: z.uuid().nullable().optional() })
+        .strict()
+        .refine((b) => Object.keys(b).length > 0)
+        .safeParse(await readJson(request));
+      if (!id) return notFound();
+      if (!body.success) return badRequest();
+      const name = body.data.name === undefined ? undefined : parseTeamName(body.data.name);
+      if (name === null) return badRequest();
+      const { data, error } = await db
+        .from('teams')
+        .update({ ...(name !== undefined && { name }), ...(body.data.trackId !== undefined && { track_id: body.data.trackId }) })
+        .eq('id', id)
+        .eq('event_id', g.eventId)
+        .select('id, name, join_code, track_id')
+        .maybeSingle();
+      if (error?.code === '23505') return json({ error: 'NAME_TAKEN', message: 'Another team already has that name.' }, 409);
+      if (error?.code === '23503') return notFound();
+      if (error) throw new Error(`team update failed (${error.code})`);
+      if (!data) return notFound();
+      await audit(g.eventId, g.userId, 'team.update', id);
+      return json({ team: { id: data.id, name: data.name, code: data.join_code, trackId: data.track_id } });
+    },
+
+    // DELETE /api/admin/[slug]/teams/[id]: its members are moved out (FK set null)
+    async deleteTeam(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return notFound();
+      const { data, error } = await db.from('teams').delete().eq('id', id).eq('event_id', g.eventId).select('id').maybeSingle();
+      if (error) throw new Error(`team delete failed (${error.code})`);
+      if (!data) return notFound();
+      await audit(g.eventId, g.userId, 'team.delete', id);
+      return json({ deleted: true });
+    },
+
+    // PATCH /api/admin/[slug]/participants/[id]  { teamId: uuid | null }: the database refuses a 5th member
+    async setParticipantTeam(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      const body = z.object({ teamId: z.uuid().nullable() }).strict().safeParse(await readJson(request));
+      if (!id) return notFound();
+      if (!body.success) return badRequest();
+      const { data, error } = await db
+        .from('participants')
+        .update({ team_id: body.data.teamId })
+        .eq('id', id)
+        .eq('event_id', g.eventId)
+        .is('deleted_at', null)
+        .select('id')
+        .maybeSingle();
+      if (error?.code === '23514') return json({ error: 'TEAM_FULL', message: 'That team already has 4 people.' }, 409);
+      if (error?.code === '23503') return notFound(); // another event's team
+      if (error) throw new Error(`team member update failed (${error.code})`);
+      if (!data) return notFound();
+      await audit(g.eventId, g.userId, 'team.member', id, { teamId: body.data.teamId });
+      return json({ teamId: body.data.teamId });
     },
 
     // POST /api/admin/[slug]/sync  { dryRun }  (F10)

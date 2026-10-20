@@ -9,6 +9,7 @@ import styles from './admin.module.css';
 const TABS = [
   ['', 'Dashboard'],
   ['/participants', 'Participants'],
+  ['/teams', 'Teams'],
   ['/checkpoints', 'Checkpoints'],
   ['/staff', 'Staff'],
   ['/sync', 'Sync'],

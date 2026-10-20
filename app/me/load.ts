@@ -17,11 +17,12 @@ export async function loadMe(path: string) {
   await connection(); // per request: own details, never cached
   const user = await currentUser();
   if (!user) redirect(`/login?next=${encodeURIComponent(path)}`);
-  return { user, me: await myEvent(db(), user.email ?? '', new Date()) };
+  const now = new Date();
+  return { user, now, me: await myEvent(db(), user.email ?? '', now) };
 }
 
 export async function loadMyEvent(path: string) {
-  const { user, me } = await loadMe(path);
+  const { user, now, me } = await loadMe(path);
   if (!me) notFound();
-  return { user, me };
+  return { user, now, me };
 }

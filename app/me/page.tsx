@@ -40,6 +40,11 @@ export default async function MePage() {
                 </Link>
               </li>
               <li>
+                <Link className={me.item} href="/me/team">
+                  Team
+                </Link>
+              </li>
+              <li>
                 <Link className={me.item} href="/me/schedule">
                   Schedule
                 </Link>

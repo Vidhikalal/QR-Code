@@ -250,7 +250,9 @@ export type Database = {
           sheet_id: string | null
           slug: string
           starts_at: string
+          teams_open: boolean
           timezone: string
+          tracks_released: boolean
           venue: string
         }
         ComputedFields: never
@@ -264,7 +266,9 @@ export type Database = {
           sheet_id?: string | null
           slug: string
           starts_at: string
+          teams_open?: boolean
           timezone?: string
+          tracks_released?: boolean
           venue: string
         }
         Update: {
@@ -277,7 +281,9 @@ export type Database = {
           sheet_id?: string | null
           slug?: string
           starts_at?: string
+          teams_open?: boolean
           timezone?: string
+          tracks_released?: boolean
           venue?: string
         }
         Relationships: []
@@ -300,6 +306,7 @@ export type Database = {
           last_name: string
           linkedin_set_at: string | null
           linkedin_url: string | null
+          looking_for_team: boolean
           photo_path: string | null
           photo_updated_at: string | null
           profile_public: boolean
@@ -308,6 +315,7 @@ export type Database = {
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
+          team_id: string | null
           updated_at: string
         }
         ComputedFields: never
@@ -328,6 +336,7 @@ export type Database = {
           last_name?: string
           linkedin_set_at?: string | null
           linkedin_url?: string | null
+          looking_for_team?: boolean
           photo_path?: string | null
           photo_updated_at?: string | null
           profile_public?: boolean
@@ -336,6 +345,7 @@ export type Database = {
           search_text: string
           source: string
           status: Database["public"]["Enums"]["participant_status"]
+          team_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -355,6 +365,7 @@ export type Database = {
           last_name?: string
           linkedin_set_at?: string | null
           linkedin_url?: string | null
+          looking_for_team?: boolean
           photo_path?: string | null
           photo_updated_at?: string | null
           profile_public?: boolean
@@ -363,6 +374,7 @@ export type Database = {
           search_text?: string
           source?: string
           status?: Database["public"]["Enums"]["participant_status"]
+          team_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -372,6 +384,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "events"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participants_team_fk"
+            columns: ["team_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id", "event_id"]
           },
         ]
       }
@@ -606,6 +625,79 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      teams: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          join_code: string
+          name: string
+          track_id: string | null
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          join_code: string
+          name: string
+          track_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          join_code?: string
+          name?: string
+          track_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teams_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "teams_track_id_event_id_fkey"
+            columns: ["track_id", "event_id"]
+            isOneToOne: false
+            referencedRelation: "tracks"
+            referencedColumns: ["id", "event_id"]
+          },
+        ]
+      }
+      tracks: {
+        Row: {
+          created_at: string
+          event_id: string
+          id: string
+          name: string
+        }
+        ComputedFields: never
+        Insert: {
+          created_at?: string
+          event_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          event_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tracks_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -910,6 +1002,39 @@ export type Database = {
       set_rsvp_token: {
         Args: { p_outbox_id: string; p_token_hash: string }
         Returns: boolean
+      }
+      team_create: {
+        Args: {
+          p_code: string
+          p_email: string
+          p_name: string
+          p_participant_id: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      team_join: {
+        Args: {
+          p_code?: string
+          p_email: string
+          p_participant_id: string
+          p_team_id?: string
+          p_user_id: string
+        }
+        Returns: string
+      }
+      team_leave: {
+        Args: { p_email: string; p_participant_id: string; p_user_id: string }
+        Returns: string
+      }
+      team_set_track: {
+        Args: {
+          p_email: string
+          p_participant_id: string
+          p_track_id: string
+          p_user_id: string
+        }
+        Returns: string
       }
       void_scan: {
         Args: { p_reason: string; p_scan_id: string; p_staff_user_id: string }

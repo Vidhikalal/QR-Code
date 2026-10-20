@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.6.1 · **Owner:** Ade · **Last updated:** 2026-10-19
+> **Status:** Draft v0.7 · **Owner:** Ade · **Last updated:** 2026-10-19
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -65,7 +65,9 @@ The following are out of scope for v1:
 | **Outbox** | A queue table of emails to send. Emails are never sent inline in a request. |
 | **Badge** | An NFC tag whose UID is linked to one participant for one event, normally by its holder ("This is my badge", v0.5). Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
 | **Badge profile** | The page `/profile/<uid>`, for signed-in attendees and staff of the badge's event. It shows a name and LinkedIn only if the participant opted in. |
-| **Hacker menu** | `/me` (v0.6; no event slug since v0.6.1): an attendee's own page for their event, with **Hacker profile**, **Schedule**, **Emergency contact** and **My pass**. Tapping your own badge opens it (F14). |
+| **Hacker menu** | `/me` (v0.6; no event slug since v0.6.1): an attendee's own page for their event, with **Hacker profile**, **Team** (v0.7), **Schedule**, **Emergency contact** and **My pass**. Tapping your own badge opens it (F14). |
+| **Team** | Up to 4 accepted attendees of one event, with a name, a join code and at most one track (F15, v0.7). |
+| **Track** | A prize category of an event that a team enters (e.g. "Best AI/ML Project"). Organizers type them; placing prizes (1st, 2nd, 3rd) are not tracks. |
 
 ---
 
@@ -94,6 +96,8 @@ The following are out of scope for v1:
 | Set own LinkedIn (`/me/profile`, v0.5) | — | ✅ signed in with their registered email | — | — |
 | Open own hacker menu; set own dietary notes and emergency contact (F14, v0.6) | — | ✅ signed in with their registered email | — | — |
 | Write the event's schedule and emergency info (Info page, v0.6) | — | — | — | ✅ |
+| Create, join (with a code) or leave a team while forming is open; pick its track once released (F15, v0.7) | — | ✅ signed in with their registered email | — | — |
+| Open team forming, release tracks, edit tracks and any team at any time (§11 Teams, v0.7) | — | — | — | ✅ |
 | See an attendee's emergency contact (v0.6) | — | — | — | ✅ |
 | Write badge tags (Tools page) | — | — | — | ✅ |
 
@@ -324,7 +328,7 @@ end $$;
 - **Cross-event scans are impossible**, enforced by the composite foreign keys (T-SCAN-22).
 - **Exactly one door checkpoint per event** is enforced by `checkpoints_one_door`.
 - **Never hard-delete scans.** Void them instead.
-- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, emergency contact (v0.6) and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct.
+- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, emergency contact (v0.6) and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct. The tombstone also takes them out of their team (v0.7).
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
 
@@ -371,6 +375,27 @@ alter table events
   add column emergency_info text not null default '' check (length(emergency_info) <= 2000);
 ```
 The emergency contact is personal data: organizers only (§11), never in logs or `audit_log.detail` (I-11), not in any CSV, deleted by the tombstone (§5.1) and by retention (§15). `save_hacker_profile()` and `rsvp_respond()` write the attendee's fields through one internal helper (`_set_hacker_profile`, no grants); `linkedin_set_at` and `dietary_set_at` move only when the value actually changes.
+
+### 5.5 Teams (v0.7)
+
+```sql
+alter table events
+  add column teams_open boolean not null default false,       -- organizers open team forming (F15)
+  add column tracks_released boolean not null default false;  -- and release the tracks
+
+create table tracks (id uuid primary key, event_id uuid not null references events on delete cascade,
+  name text not null check (length(name) between 1 and 100), created_at timestamptz not null default clock_timestamp(),
+  unique (id, event_id));                                        -- + unique (event_id, lower(name))
+create table teams (id uuid primary key, event_id uuid not null references events on delete cascade,
+  name text not null check (length(name) between 1 and 60),
+  join_code text not null check (join_code ~ '^[A-HJ-NP-Z2-9]{8}$'), track_id uuid,
+  unique (id, event_id), unique (event_id, join_code),        -- + unique (event_id, lower(name))
+  foreign key (track_id, event_id) references tracks (id, event_id) on delete set null (track_id));
+alter table participants
+  add column team_id uuid, add column looking_for_team boolean not null default false,
+  add foreign key (team_id, event_id) references teams (id, event_id) on delete set null (team_id);
+```
+Composite foreign keys keep a team's track and members in its own event. A trigger (`_participant_team`) locks the team row and refuses a 5th member (`check_violation`), however the member is added, and takes a new member out of the teammate directory (`looking_for_team = false`). Deleting a track leaves its teams without one; deleting a team moves its members out.
 
 ---
 
@@ -594,6 +619,16 @@ An organizer adds a walk-in with name and email (source `walk_in`, status `accep
 5. **Emergency contact** (`/me/emergency`): the event's `emergency_info`, read-only, and the attendee's own contact (name and phone required, relationship optional). The phone input carries the same rule as an HTML `pattern`, so a typo is caught before the form is sent.
 6. **My pass:** the `/p#token` link, or "In your email", "On its way by email" or "The event is over".
 7. Saves go through `save_hacker_profile()` (own row only, §6.5) and audit `profile.update` with at most the sharing flag.
+
+### F15 — Teams (v0.7)
+
+1. **Organizers set it up** on the admin **Teams** page (§11): they type the tracks, switch **Team forming open** on the morning of the hackathon (DECISION: an organizer switch, not a time), and **Tracks released** when the tracks are announced. They can edit tracks and any team at any time.
+2. **Team page** (`/me/team`, a **Team** item in the hacker menu, F14). Before forming opens it says "Teams open on hackathon day"; a team an organizer already made shows read-only.
+3. **Create** a team (a name, 1–60 characters, unique in the event in any case): the creator joins it and sees its **join code**, 8 characters without look-alikes (no I, O, 0, 1), shown as `ABCD-EFGH`. **DECISION: a join code is not a secret.** Teams share it on purpose; it only lets an accepted attendee of the same event join until the team is full, and a member can leave.
+4. **Join** with a code (case, spaces and dashes ignored): `BAD_CODE` for an unknown code or another event's, `TEAM_FULL` past 4 (**DECISION: at most 4**, enforced by the database), `IN_A_TEAM` if they already have one.
+5. **Leave**: the last member leaving deletes the team. The team row is locked first, so a join racing the last leaver either lands before (the team stays) or finds it gone (`BAD_CODE`).
+6. **Track**: once tracks are released, any member picks the team's one track until the event ends, even after forming closes.
+7. Every hacker action goes through one SQL function (`team_create`, `team_join`, `team_leave`, `team_set_track`): own accepted, undeleted row only (matched by verified email), event not ended, forming open (except the track). Audit `team.*` with ids only: no team names or codes (I-11).
 
 ---
 
@@ -837,7 +872,9 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation + `profile` prefill; `{ token, going, password?, emergencyName, emergencyPhone, emergencyRelation?, dietaryNotes?, linkedin?, profilePublic? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn }` (F13; the emergency contact is required on Yes) |
 | `GET /me` | signed in | The hacker menu for the signed-in person's event (F14, v0.6.1), with their pass (§6.1), and staff links |
 | `GET /me/profile`, `/me/schedule`, `/me/emergency` | signed-in accepted attendee | Hacker menu pages (F14); profile and emergency saves are server actions calling `save_hacker_profile()` |
-| `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo? }`, strict, at least one key; `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info) |
+| `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo?, teamsOpen?, tracksReleased? }`, strict, at least one key; `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info, §11 Teams) |
+| `GET /api/admin/:slug/teams`, `POST …/teams` `{ name, trackId? }`, `PATCH`/`DELETE …/teams/:id`, `POST …/tracks` `{ text }`, `PATCH`/`DELETE …/tracks/:id`, `PATCH …/participants/:id` `{ teamId }` | organizer | Teams page (§11, v0.7): switches, tracks, teams with members, accepted people without a team; 409 `NAME_TAKEN` / `TEAM_FULL`, 404 for another event's team or track |
+| `GET /me/team` | signed-in accepted attendee | Team page (F15); its actions are server actions calling the `team_*` functions |
 | `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
 ---
@@ -931,6 +968,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
 | Info (v0.6) | **Schedule** and **Emergency info** textareas (plain text, line breaks kept) that every accepted hacker sees in their menu (F14). Saved with `PATCH /api/admin/:slug/event`; audit `event.info` with `{}`. |
+| Teams (v0.7) | **Team forming open** and **Tracks released** switches. Tracks: "Add tracks, one per line" (repeats in any case are skipped), rename, delete (teams that chose it have none). Teams: create (name, track), rename, change the track, delete (members move out), each with its join code and members (status shown when not accepted); remove a member, or add an accepted person without a team (those looking for one are marked). The 4-member limit applies to organizers too. Audit `team.*`, `track.*`, `event.teams` with ids, counts and flags only. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
 | Tools | Android only; the tab is hidden elsewhere. **Link a badge** (v0.5): search a participant by name, pick them, tap a badge → `POST /api/events/:slug/badges`; an organizer's link moves a badge linked to someone else. The reader runs only while waiting for that tap, and the outcome is a notice showing the UID (✓ linked / ✕), never a green screen. **Write tags:** writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
@@ -1317,6 +1355,15 @@ Target: at least 95% of attempts under 3 s.
 | T-ME-07 | Signed out `/me/profile`; A taps their own badge → menu at `/me` (Hacker profile, Schedule, Emergency contact, My pass); edits dietary notes; reads the schedule; types a bad phone, then saves a contact; C opens `/me`, then `/me/profile` (v0.6.1) | login with `next`; the four items, "In your email"; saved; line breaks kept; the browser refuses the phone and keeps the typed name, then saved; "My events" without the menu, then 404 | E |
 | T-ME-03 | `saveBadgeProfile` as A (email in another case): `linkedin.com/in/ada-l` + share; `/company/x`; blank + hide; B's id; a malformed id. `myBadgeProfiles`: A, before and after a badge link; waitlisted C; 32 days after the event | saved normalized; `INVALID_LINKEDIN`, nothing changed; cleared; `NOT_FOUND`, B unchanged; `NOT_FOUND`. Audit `profile.update` rows without PII. One entry with event and `badge: false`, then `true`; none; none | I |
 
+### 14.18 Teams — `T-TEAM` (v0.7)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-TEAM-01 | 1,000 join codes; `normalizeJoinCode` with case, spaces, dashes, wrong length, `I`/`O`/`0`/`1`, a 2 KB string; `parseTeamName`; `parseTrackNames` with blank lines, repeats in another case, 100/101 chars, 21 lines | 8 chars without look-alikes, almost all distinct; normalized or null, no throw; trimmed 1–60; trimmed, unique, in order, or null | U |
+| T-TEAM-02 | Forming closed; open: blank name; another's row; create; again; a taken name in another case; join with a lowercase dashed code; again; unknown, malformed and E2 codes; C, Wd; track before release, E2's track, without a team, after release with forming closed; leave while closed; leave (two members); last leaves; after the event ends | `CLOSED`; `INVALID_NAME`; `NOT_FOUND`; `CREATED` with a valid code; `IN_A_TEAM`; `NAME_TAKEN`; `JOINED`; `IN_A_TEAM`; `BAD_CODE` ×3; `NOT_FOUND` ×2; `NOT_RELEASED`, `NOT_FOUND` ×2, `SAVED`; `CLOSED`; `LEFT` (team stays); `LEFT` (team deleted); `NOT_FOUND`. Audit `team.*` without names, codes or emails | I |
+| T-TEAM-03 | 10 parallel joins into a 1-member team; a raw 5th-member update; the last member leaving while someone joins, 30 rounds | 3 `JOINED` + 7 `TEAM_FULL`, 4 members; check violation; never a `JOINED` member of a deleted team (`BAD_CODE` and no team instead) | I |
+| T-TEAM-04 | Admin API: GET; switches; add tracks with repeats, again with an existing one in another case, blank; rename to a taken name; create a team with a track, a taken name, a blank name; rename + change track; 4 members, a 5th, E2's participant, E2's team; another event's team through this slug; remove a member; delete a track; tombstone a member; delete the team, twice | the switches, tracks, teams and unassigned accepted people; saved and audited; 201, `{added: 1}`, 400; 409; 201 with a code, 409, 400; 200; 200 ×4, 409, 404, 404; 404; 200; the team's track null; the tombstone has no team; members moved out, 404. Audit without names or codes | I |
+| T-TEAM-07 | Organizer adds tracks; A opens Team before forming opens; organizer opens it; A creates a team; B joins with the code in lowercase; organizer releases tracks; A picks one; the admin page | "Teams open on hackathon day", no forms; created, code shown, "Tracks are announced at the hackathon"; B sees the team and Ada; track saved; the team card shows Ada, Ben and the track | E |
+
 ---
 
 ## 15. Non-functional requirements
@@ -1429,6 +1476,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
 | **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet; admin emails and staff links on `/me` (v0.4.1) | T-AUTH-01..06, T-RSVP-01..05, T-ME-01..02, T-TOK-10, rewritten T-ING |
 | **S10** Hacker menu (v0.6) | `/me` menu (own badge tap; no slug since v0.6.1), Hacker profile with dietary notes, Schedule and Emergency contact pages, admin Info tab, emergency contact on the RSVP Yes form and participant detail; tombstone, retention, Sheet rule | T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08 |
+| **S11** Teams (v0.7) | S11a: tracks, teams, the forming and release switches, the hacker Team page (create, join by code, leave, pick a track) and the admin Teams page. S11b: teammate directory, invites with email, the RSVP opt-in | T-TEAM-01..04, T-TEAM-07 (S11a); T-TEAM-05..06 (S11b) |
 | **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC · N3 badge profile + opt-in · N4 tag writer · N5 (v0.5) self-claimed badges, LinkedIn on `/me`, Tools linker | T-NFC-01..21, T-ME-03, T-ING-26 (+ T-NFC-17 manual) |
 
 ---
@@ -1460,6 +1508,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.5 (2026-10-19)** — Self-claimed badges, reversing a v0.3 DECISION: a signed-in attendee taps an unlinked badge and presses **This is my badge** (`claim_badge()`), then sets their LinkedIn and sharing on `/me` (`save_badge_profile()`, `normalizeLinkedIn()`); the Sheet stops overwriting a LinkedIn they set (`linkedin_set_at`, F3). The scanner's door "Link badge" is gone; organizers link badges on the admin **Tools** page (formerly Badges, which keeps the tag writer). §2, §3, §5.2, §6.5, F3, §9.3, §10.2, §10.5, §11, §15, §16, S8. New tests T-NFC-19..21, T-ME-03, T-ING-26; T-NFC-11 and T-NFC-16 rewritten for Tools.
 - **v0.6 (2026-10-19)** — Hacker menu (F14, S10). Tapping your own badge opens `/me/<slug>` (`badge_profile` adds `self`, `slug`): Hacker profile (LinkedIn, sharing, and now dietary notes), Schedule and Emergency contact (the event's info and your own contact), and My pass. The RSVP Yes form requires an emergency contact and offers the networking profile and dietary notes, prefilled from the Sheet, all stored with the answer (`rsvp_respond` gains optional fields; `rsvp_lookup` returns the prefill). Organizers write the schedule and emergency info on a new admin **Info** tab and see the emergency contact on the participant detail. The Sheet stops overwriting dietary notes the attendee set (`dietary_set_at`); set-at timestamps move only on a real change. The emergency contact is deleted by the tombstone and by retention, and never logged. §2, §3, §5.1, §5.4, §6.5, F3, F13, F14, §9.3, §11, §12, §15, §18. New tests T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08; T-ADM-05, T-PRIV-01, T-RSVP-05, T-NFC-21 and T-SEC-05/T-PRIV-03 updated.
 - **v0.6.1 (2026-10-19)** — The hacker menu drops the event slug: `/me` is the menu for your event (the next one not yet over, else the most recent; DECISION), with `/me/profile`, `/me/schedule` and `/me/emergency`, and keeps the staff links. The pass list and its Menu button are gone (**My pass** replaces them). Your own badge and "This is my badge" open `/me` and `/me/profile`. §2, §3, §6.5, F14, §9.3; T-ME-06/07, T-NFC-21/22, T-RSVP-05 updated.
+- **v0.7 (2026-10-20)** — Teams and tracks (F15, S11a). Organizers type an event's tracks, open team forming and release the tracks on a new admin **Teams** page, and can edit any team. Accepted hackers create a team or join one with its join code (not a secret, DECISION) from a **Team** item in their menu, up to 4 per team (DECISION, enforced by a trigger), and pick one track once released. The tombstone takes people out of their team. §2, §3, §5.1, §5.5, F15, §9.3, §11, §14.18, §18. New tests T-TEAM-01..04, T-TEAM-07.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
