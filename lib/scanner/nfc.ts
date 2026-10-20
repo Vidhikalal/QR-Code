@@ -32,12 +32,17 @@ export function useNfcReader(opts: {
   autoStart?: boolean;
   onTag: (tag: NfcTag, reader: NDEFReader) => void;
   onUnreadable?: () => void;
+  /** Diagnostics only (the scanner's ?debug=nfc): one line per reader event. */
+  onDebug?: (line: string) => void;
 }) {
   const { prefKey, defaultOn = true, autoStart = true } = opts;
   const supported = useSyncExternalStore(subscribeNever, nfcSupported, () => false);
   const [state, setState] = useState<NfcState>('off');
   const [error, setError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
+  // Held while scanning: otherwise only the reader's own listeners reach it, and a collected reader
+  // could leave Chrome holding the tag with nobody listening.
+  const active = useRef<NDEFReader | null>(null);
   const handlers = useRef(opts);
   useEffect(() => {
     handlers.current = opts;
@@ -57,23 +62,34 @@ export function useNfcReader(opts: {
   const start = useCallback(async () => {
     const Reader = window.NDEFReader;
     if (!Reader) return;
+    const debug = (line: string) => handlers.current.onDebug?.(line);
+    if (controller.current) debug('start: aborting the previous reader');
     controller.current?.abort();
     const ctrl = new AbortController();
     controller.current = ctrl;
     setError(null);
     setState('starting');
     const reader = new Reader();
+    active.current = reader;
     reader.addEventListener('reading', (e) => {
       const ev = e as NDEFReadingEvent;
+      debug(`reading: serial ${JSON.stringify(ev.serialNumber)} (${typeof ev.serialNumber}), ${ev.message?.records?.length ?? '?'} record(s)`);
       handlers.current.onTag({ serial: ev.serialNumber, records: ev.message.records }, reader);
     });
-    reader.addEventListener('readingerror', () => handlers.current.onUnreadable?.());
+    reader.addEventListener('readingerror', () => {
+      debug('readingerror');
+      handlers.current.onUnreadable?.();
+    });
+    ctrl.signal.addEventListener('abort', () => debug('reader aborted'));
     try {
+      debug('scan() called');
       await reader.scan({ signal: ctrl.signal });
       if (ctrl.signal.aborted) return;
+      debug('scan() resolved: reader on');
       setState('on');
       remember(true);
     } catch (e) {
+      debug(`scan() failed: ${e instanceof DOMException ? `${e.name}: ${e.message}` : String(e)}`);
       if (ctrl.signal.aborted) return;
       setState('off');
       const name = e instanceof DOMException ? e.name : '';
@@ -84,6 +100,7 @@ export function useNfcReader(opts: {
   const stop = useCallback(() => {
     controller.current?.abort();
     controller.current = null;
+    active.current = null;
     setState('off');
     remember(false);
   }, [remember]);
@@ -102,12 +119,14 @@ export function useNfcReader(opts: {
       void navigator.permissions
         .query({ name: 'nfc' as PermissionName })
         .then((p) => {
+          handlers.current.onDebug?.(`auto-start: nfc permission is ${p.state}`);
           if (!stale && p.state === 'granted') void start();
         })
         .catch(() => undefined);
     }
     return () => {
       stale = true;
+      if (controller.current) handlers.current.onDebug?.('cleanup: reader aborted (unmount or effect re-run)');
       controller.current?.abort();
     };
   }, [supported, prefKey, defaultOn, autoStart, start]);
