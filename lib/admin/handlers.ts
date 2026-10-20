@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Authenticate } from '@/lib/auth/session';
 import { requireStaffBySlug } from '@/lib/auth/staff';
+import { staffNames as sharedStaffNames } from '@/lib/db/staff-names';
 import type { Database, Json } from '@/lib/db/types.gen';
 import { toCsv } from '@/lib/domain/csv';
 import { bucketLabel, doorClosedWarning } from '@/lib/domain/dashboard';
@@ -162,12 +163,7 @@ export function createAdminApi(deps: AdminDeps) {
     return metricsSchema.parse(data);
   }
 
-  async function staffNames(ids: string[]): Promise<Map<string, string>> {
-    if (ids.length === 0) return new Map();
-    const { data, error } = await db.from('staff_profiles').select('user_id, display_name').in('user_id', [...new Set(ids)]);
-    if (error) throw new Error(`staff_profiles load failed (${error.code})`);
-    return new Map(data.map((r) => [r.user_id, r.display_name]));
-  }
+  const staffNames = (ids: string[]) => sharedStaffNames(db, ids);
 
   return {
     // GET /api/admin/[slug]/dashboard (§11, §13)

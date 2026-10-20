@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Authenticate } from '@/lib/auth/session';
 import { requireStaffBySlug } from '@/lib/auth/staff';
+import { staffNames } from '@/lib/db/staff-names';
 import type { Database } from '@/lib/db/types.gen';
 import { BADGE_UID_RE, LINK_CODES } from '@/lib/domain/badge';
 import { maskEmail } from '@/lib/domain/mask';
@@ -9,6 +10,7 @@ import { sanitizeError } from '@/lib/domain/outbox';
 import { SCAN_CODES, VOID_CODES } from '@/lib/domain/scan-codes';
 import { searchQuery } from '@/lib/domain/search';
 import { sha256hex } from '@/lib/domain/token';
+import { UNDO_WINDOW_MS } from '@/lib/scanner/undo';
 import { signedPhotoUrl, signedPhotoUrls } from '@/lib/storage/photos';
 import { scanRequestSchema } from './schema';
 
@@ -25,6 +27,7 @@ const json = (body: unknown, status = 200) => Response.json(body, { status, head
 const unauthorized = () => json({ error: 'unauthorized' }, 401);
 const forbidden = () => json({ error: 'forbidden' }, 403);
 const badRequest = () => json({ error: 'invalid_request' }, 400);
+const notFound = () => json({ error: 'not_found' }, 404);
 
 async function readJson(request: Request): Promise<unknown> {
   try {
@@ -165,6 +168,47 @@ export function createCheckpointsHandler(deps: ApiDeps) {
         isOpen: c.is_open,
         requiresCheckin: c.requires_checkin,
         capacity: c.capacity,
+      })),
+    });
+  };
+}
+
+// GET /api/events/[slug]/checkpoints/[id]/scans (SPEC §10.6, §11, v0.8): who was scanned here, for the
+// event's staff (names only, no emails). canRemove only decides whether to offer Remove: void_scan() is the
+// authority (F11: organizers any scan, volunteers their own within 120 s).
+export function createCheckpointScansHandler(deps: ApiDeps) {
+  return async (request: Request, params: { slug: string; id: string }): Promise<Response> => {
+    const user = await deps.authenticate(request);
+    if (!user) return unauthorized();
+    const staff = await requireStaffBySlug(deps.db, user.id, params.slug);
+    if (!staff) return forbidden();
+    const id = z.uuid().safeParse(params.id);
+    if (!id.success) return notFound();
+    const { data: cp, error: cpError } = await deps.db.from('checkpoints').select('id').eq('id', id.data).eq('event_id', staff.eventId).maybeSingle();
+    if (cpError) throw new Error(`checkpoint lookup failed (${cpError.code})`);
+    if (!cp) return notFound();
+    // shortcut: newest 1000 only; paginate if a checkpoint ever sees more people than that.
+    const { data, error } = await deps.db
+      .from('scans')
+      .select('id, scanned_at, method, scanned_by, participants!inner(first_name, last_name, is_test)')
+      .eq('checkpoint_id', cp.id)
+      .is('voided_at', null)
+      .is('participants.deleted_at', null) // deleted people drop off, like every count (§5.1, §13)
+      .order('scanned_at', { ascending: false })
+      .limit(1000);
+    if (error) throw new Error(`checkpoint scans load failed (${error.code})`);
+    const names = await staffNames(deps.db, data.map((s) => s.scanned_by));
+    const now = Date.now();
+    return json({
+      role: staff.role,
+      scans: data.map((s) => ({
+        id: s.id,
+        displayName: `${s.participants.first_name} ${s.participants.last_name}`.trim(),
+        isTest: s.participants.is_test,
+        scannedAt: s.scanned_at,
+        method: s.method,
+        scannedByName: names.get(s.scanned_by) ?? null,
+        canRemove: staff.role === 'organizer' || (s.scanned_by === user.id && now - Date.parse(s.scanned_at) < UNDO_WINDOW_MS),
       })),
     });
   };

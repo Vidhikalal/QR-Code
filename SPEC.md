@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.7.4 · **Owner:** Ade · **Last updated:** 2026-10-20
+> **Status:** Draft v0.8 · **Owner:** Ade · **Last updated:** 2026-10-20
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -81,6 +81,7 @@ The following are out of scope for v1:
 | Manual search + manual scan | — | — | ✅ (masked email) | ✅ (full email) |
 | Void own scan ≤ 120 s old | — | — | ✅ | ✅ |
 | Void any scan | — | — | — | ✅ |
+| See who was scanned at a checkpoint and remove a scan from that list (= void, rows above; v0.8) | — | — | ✅ (own event) | ✅ |
 | Open/close checkpoints, CRUD checkpoints | — | — | — | ✅ |
 | Resend/revoke pass, add attendee (walk-in or not RSVPed yet), delete participant | — | — | — | ✅ |
 | Invite/remove staff | — | — | — | ✅ |
@@ -875,6 +876,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
 | `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
 | `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5); used by the Tools page (§11) |
+| `GET /api/events/:slug/checkpoints/:id/scans` | staff of the event | Who was scanned at that checkpoint (v0.8): live scans of undeleted people, newest first (at most 1000), `{ role, scans: [{ id, displayName, isTest, scannedAt, method, scannedByName, canRemove }] }`; names only, no emails or photos; 404 for another event's checkpoint. `canRemove` only decides whether to offer Remove; removing is `POST /api/scans/:id/void` (§10.6, §11) |
 | `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
 | `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5); an unlinked badge offers **This is my badge** (server action, `claim_badge()`, v0.5) |
 | `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
@@ -969,13 +971,19 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 
 ---
 
+### 10.6 Scanned here (v0.8)
+
+- A **Scanned here** button next to Manual search lists who was scanned at the current checkpoint: name (test people marked; deleted people left out, like every count), day and time in the event timezone, how (QR, badge, manual) and by whom, newest first. Scanning pauses while it is open, like Manual search.
+- **Remove** is the void (F11, I-9) with the Undo reasons: the scan stays in the history, stops counting, and the person drops off the list and can be scanned again. Volunteers see Remove only on their own scans from the last 120 s, organizers on every scan; `void_scan()` decides either way.
+- A repeat scan still answers **ALREADY_SCANNED** (§10.2); the list is how staff check who has been through.
+
 ## 11. Admin UI (`/admin/[slug]`, organizer only)
 
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
 | Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". **Add attendee**: a walk-in, or **Not RSVPed yet** for a pending applicant (F12, v0.7.1). Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6). |
-| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
+| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. **People** (v0.8): who was scanned there, newest first, with **Remove** (a void with a reason, F11). |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
 | Info (v0.6) | **Schedule** and **Emergency info** textareas (plain text, line breaks kept) that every accepted hacker sees in their menu (F14). Saved with `PATCH /api/admin/:slug/event`; audit `event.info` with `{}`. |
@@ -1206,6 +1214,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCAN-27 | Deleted participant: old token → ; manual by id → | `REVOKED` (`deleted`); `NOT_FOUND` |
 | T-SCAN-28 | Volunteer voids own scan at 119 s; at 121 s; voids vol2's scan | `VOIDED`; `FORBIDDEN`; `FORBIDDEN` (organizer: all `VOIDED`) |
 | T-SCAN-29 | Void without reason / reason "ok" (2 chars) | 400 / 400 |
+| T-SCAN-30 | `GET …/checkpoints/:id/scans` (v0.8): A (vol1, fresh), B (vol2), T (org1, manual), N (vol1, 5 min old) at R, as org1 and as vol1; Rv scanned, then tombstoned; vol3; no session; D2 through E1's slug; a bad id; then void A's scan and scan A again | newest first, names and who scanned, `isTest` for T, no email; org1 may remove all, vol1 only A; Rv listed, then left out; 403; 401; 404; 404; A drops off the list and scans `ACCEPTED` again |
 
 ### 14.7 Concurrency — `T-CONC` (MUST use truly parallel connections, e.g. a `pg.Pool` of size ≥ N with `Promise.all`; never sequential awaits)
 | ID | Scenario | Expected |
@@ -1233,6 +1242,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCUI-10 | Session expired mid-shift | redirect to login, then back to the same slug + checkpoint | E |
 | T-SCUI-11 | `<video>` has `playsinline` and `muted` | yes | E |
 | T-SCUI-12 | ALREADY_SCANNED with `scannedByMe` 8 s ago vs 90 s ago vs by vol2 | amber vs red vs red | E |
+| T-SCUI-14 | Scanned here at R after vol1 scanned N and vol2 scanned Rv (v0.8); Remove N with "Test scan" | both listed; Remove only on N; N drops off, Rv stays | E |
 | T-SCUI-13 | Device matrix (§14.13) | all pass | M |
 
 ### 14.9 Manual search — `T-SRCH`
@@ -1258,6 +1268,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ADM-07 | 31 `NOT_FOUND` from vol1 in 5 min | 429 for vol1; alert on dashboard | I |
 | T-ADM-08 | PATCH `{schedule, emergencyInfo}`; one field alone; 5001 / 2001 chars, `{}`, a wrong type or an extra key; `{sheet}`. Info tab in the browser; participant detail with and without a contact (v0.6) | saved, returned by GET, audit `event.info` with `{}`; the other field unchanged; 400; still `{sheetId}`. The text shows on the hacker Schedule page; the organizer sees the contact with a `tel:` link, or `emergency: null` | I+E |
 | T-ADM-09 | Add attendee with **Not RSVPed yet** (v0.7.1); then Send RSVP; with check-in or a pass as well; the same email again. In the browser: the dialog, the pending row, Send RSVP | 201, `pending`, source `walk_in`, no outbox row, no drain, no scan or pass, audit `participant.applicant` with `{}`; one RSVP email with a `/rsvp#` link; 400; 409. The check-in box disappears; the row shows "RSVP sent" | I+E |
+| T-ADM-10 | Checkpoints → People at R after A and B were scanned (v0.8); Remove A with "Test scan"; scan A again | both listed, "2 people"; A gone, "1 person"; `ACCEPTED` | E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1529,6 +1540,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.7.2 (2026-10-20)** — The RSVP Yes form always requires a password: people without an account set one, people with an account enter theirs (checked like a sign-in with its own per-email limit; 400 `wrong_password`), and both end up signed in with `/login`'s post-sign-in steps. An RSVP still never changes an existing password. `/api/rsvp` takes JSON bodies only (no cross-site form posts). F13, §9.3, §15; T-RSVP-04 rewritten (I+E).
 - **v0.7.3 (2026-10-20)** — The scanner taps twice (a pattern no result uses) the moment it reads a badge, before the answer, so volunteers know the tap registered; unreadable tags get the amber pulse, and until the page has been tapped once (Chrome's rule for vibration) the scanner says so (§10.5). T-NFC-10 extended.
 - **v0.7.4 (2026-10-20)** — Fix: on a real Android phone, badge taps on the scanner did nothing. The page didn't hold its `NDEFReader`, so Chrome collected it while keeping the NFC session. The hook now keeps the active reader, and an exception in the read handler shows a notice instead of failing silently (§10.5). T-NFC-10 gains a garbage-collection case; the e2e fake now holds readers weakly. The dashboard no longer shows the Scan problems table (§13).
+- **v0.8 (2026-10-20)** — Who was scanned at each checkpoint: Admin → Checkpoints → **People**, and **Scanned here** in the scanner, with **Remove** (a void, F11: organizers any scan, volunteers their own within 120 s). New staff endpoint `GET /api/events/:slug/checkpoints/:id/scans` (§3, §9.3, §10.6, §11). New tests T-SCAN-30, T-SCUI-14, T-ADM-10.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 

@@ -165,6 +165,25 @@ test('T-ADM-09: Add attendee with "Not RSVPed yet" adds a pending applicant; Sen
   expect(await consoleMailText(email, '/rsvp#')).toMatch(/\/rsvp#[A-Za-z0-9_-]{32}/);
 });
 
+test('T-ADM-10: Checkpoints → People lists who was scanned there; Remove voids one, and they can be scanned again', async ({ page }) => {
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.A });
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol2, token: f.token.B });
+  await page.goto(`/admin/${f.slug}/checkpoints`);
+  await page.getByRole('button', { name: 'People at Raffle' }).click();
+  const people = page.getByRole('region', { name: 'People at Raffle' });
+  await expect(people.getByText('Ada Fixture')).toBeVisible();
+  await expect(people.getByText('Ben Fixture')).toBeVisible();
+  await expect(people).toContainText('2 people');
+  await people.getByRole('button', { name: 'Remove Ada Fixture' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Test scan' }).click();
+  // The confirmation names Ada too, so check the table rows.
+  await expect(people.getByRole('status')).toContainText('Removed Ada Fixture');
+  await expect(people.getByRole('row', { name: /Ada Fixture/ })).toHaveCount(0);
+  await expect(people.getByRole('row', { name: /Ben Fixture/ })).toBeVisible();
+  await expect(people).toContainText('1 person');
+  expect((await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.A })).code).toBe('ACCEPTED');
+});
+
 test('Admin: Sync page explains when no Sheet is linked', async ({ page }) => {
   await page.goto(`/admin/${f.slug}/sync`);
   await page.getByRole('button', { name: 'Sync now (preview)' }).click();

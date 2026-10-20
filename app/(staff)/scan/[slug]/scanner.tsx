@@ -17,6 +17,7 @@ import { keepScreenAwake } from '@/lib/scanner/wake-lock';
 import { CheckpointPicker } from './checkpoint-picker';
 import { ManualSearch } from './manual-search';
 import { ResultScreen } from './result-screen';
+import { ScannedHere } from './scanned-here';
 import styles from './scanner.module.css';
 import { CAMERA_KEY, checkpointKey, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint } from './types';
 import { UndoDialog } from './undo-dialog';
@@ -45,6 +46,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [pickerOpen, setPickerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [undoOpen, setUndoOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const peopleButton = useRef<HTMLButtonElement>(null);
   const [result, setResult] = useState<{ view: ResultView; id: number; shownAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [networkDown, setNetworkDown] = useState(false);
@@ -147,7 +150,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     [checkpoint, show, toLogin],
   );
 
-  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || !checkpoint;
+  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || peopleOpen || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);
   useEffect(() => {
     onDecode.current = (text: string) => {
@@ -316,6 +319,9 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         <button type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
           Manual search
         </button>
+        <button ref={peopleButton} type="button" className={styles.secondary} onClick={() => setPeopleOpen(true)} disabled={offline || !checkpoint}>
+          Scanned here
+        </button>
         {showUndo && (
           <button type="button" className={styles.secondary} onClick={() => setUndoOpen(true)}>
             Undo last
@@ -358,6 +364,20 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
             setSearchOpen(false);
             void record({ method: 'manual', participantId });
           }}
+        />
+      )}
+      {peopleOpen && checkpoint && (
+        <ScannedHere
+          slug={slug}
+          checkpoint={checkpoint}
+          timezone={timezone}
+          disabled={offline}
+          onUnauthorized={toLogin}
+          onClose={() => {
+            setPeopleOpen(false);
+            requestAnimationFrame(() => peopleButton.current?.focus());
+          }}
+          onRemoved={(scanId) => setLastOwn((l) => (l?.scanId === scanId ? null : l))}
         />
       )}
       {undoOpen && <UndoDialog onSubmit={(r) => void undo(r)} onCancel={() => setUndoOpen(false)} />}
