@@ -59,10 +59,18 @@ export async function installFakeNfc(page: Page): Promise<void> {
       const records = urls.map((u) => ({ recordType: 'url', data: new DataView(new TextEncoder().encode(u).buffer) }));
       for (const r of readers) r.dispatchEvent(Object.assign(new Event('reading'), { serialNumber, message: { records } }));
     };
+    // A tag sensed but not read (Chrome fires 'readingerror').
+    w.__nfcUnreadable = () => {
+      for (const r of readers) r.dispatchEvent(new Event('readingerror'));
+    };
   });
 }
 
-type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcWrites: unknown[] };
+type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcUnreadable(): void; __nfcWrites: unknown[] };
+
+export async function nfcUnreadable(page: Page): Promise<void> {
+  await page.evaluate(() => (window as unknown as NfcWindow).__nfcUnreadable());
+}
 
 export async function nfcTap(page: Page, serial: string, urls: string[] = []): Promise<void> {
   await page.evaluate(([s, u]) => (window as unknown as NfcWindow).__nfcTap(s, u), [serial, urls] as const);

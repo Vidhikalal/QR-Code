@@ -1,6 +1,28 @@
+import { useSyncExternalStore } from 'react';
+
 // SPEC §10.2: a distinct chime (green), buzz (red) and double tone (amber). Generated with Web Audio,
 // so there are no sound files. navigator.vibrate only where it exists: never relied on (iOS lacks it).
 type Sound = 'chime' | 'buzz' | 'double';
+
+function vibrate(pattern: number | number[]): void {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(pattern);
+}
+
+// §10.5: a badge read ticks at once, before the server answers, so the volunteer knows the tap registered.
+// Two quick taps: unlike every result pattern, so it can't be felt as the green single pulse.
+export const vibrateRead = () => vibrate([30, 60, 30]);
+
+// Chrome ignores navigator.vibrate (and keeps audio silent) until the page has been tapped once.
+const ACTIVATION_EVENTS = ['click', 'pointerup', 'keydown'] as const;
+function subscribeActivation(onChange: () => void) {
+  for (const e of ACTIVATION_EVENTS) window.addEventListener(e, onChange, true);
+  return () => {
+    for (const e of ACTIVATION_EVENTS) window.removeEventListener(e, onChange, true);
+  };
+}
+export function useNeedsTap(): boolean {
+  return useSyncExternalStore(subscribeActivation, () => navigator.userActivation?.hasBeenActive === false, () => false);
+}
 
 let audio: AudioContext | null = null;
 
@@ -40,5 +62,5 @@ export function playFeedback(sound: Sound): void {
   } catch {
     // sound is a nicety; the screen is the source of truth
   }
-  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(p.vibrate);
+  vibrate(p.vibrate);
 }

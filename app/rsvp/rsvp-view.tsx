@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import form from '../login/login.module.css';
 import me from '../me/me.module.css';
@@ -47,7 +48,8 @@ async function post(body: object): Promise<{ status: number; data: Record<string
 }
 
 // SPEC F13: answer the invitation. Yes opens one form: the emergency contact (required), the networking
-// profile and dietary notes (prefilled from the Sheet), and a password if they have no account yet; then
+// profile and dietary notes (prefilled from the Sheet), and a password (required, v0.7.2: a new one without
+// an account, their own with one); then
 // it signs them in and goes to /me, and the pass is emailed. No withdraws (they can change their mind until
 // the event ends).
 export function RsvpView() {
@@ -57,14 +59,20 @@ export function RsvpView() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // A late answer from an abandoned lookup (React runs this twice in dev) must not reset an open form.
+    let stale = false;
     const token = readToken();
-    void (token ? post({ token }) : Promise.resolve({ status: 404, data: {} })).then((r) =>
+    void (token ? post({ token }) : Promise.resolve({ status: 404, data: {} })).then((r) => {
+      if (stale) return;
       setView(
         r.status === 200
           ? { kind: 'invite', invite: r.data as unknown as Invite, yesForm: false }
           : { kind: r.status === 404 ? 'not_found' : r.status === 429 ? 'rate_limited' : 'error' },
-      ),
-    );
+      );
+    });
+    return () => {
+      stale = true;
+    };
   }, []);
 
   async function respond(going: boolean, fields: Record<string, string | boolean> = {}) {
@@ -73,11 +81,18 @@ export function RsvpView() {
     const r = await post({ token: readToken(), going, ...fields });
     setBusy(false);
     if (r.status === 400 && r.data.error === 'weak_password') return setError('Use 8 to 72 characters for your password.');
+    if (r.status === 400 && r.data.error === 'wrong_password') {
+      // The server sees an account (maybe made by an earlier try of this form): ask for its password from now on.
+      setView((v) => (v.kind === 'invite' ? { ...v, invite: { ...v.invite, hasAccount: true } } : v));
+      return setError('That isn’t your Passline password. Try again, or reset it on the sign-in page.');
+    }
+    if (r.status === 400 && r.data.error === 'password_required') return setError('Enter your password.');
     if (r.status === 400 && r.data.error === 'invalid_profile') return setError(FIELD_ERRORS[String(r.data.field)] ?? 'Check the form and try again.');
     if (r.status === 404) return setView({ kind: 'not_found' });
     if (r.status !== 200) return setError(r.status === 429 ? 'Too many tries. Wait a minute and try again.' : 'Something went wrong. Try again.');
     if (r.data.code === 'NOT_GOING') return setView({ kind: 'not_going' });
-    if (r.data.signedIn === true) return router.push('/me');
+    // Where the server says (staff may need onboarding first); only our own paths.
+    if (r.data.signedIn === true) return router.push(safeNextPath(typeof r.data.next === 'string' ? r.data.next : null, '/me'));
     setView({ kind: 'going' });
   }
 
@@ -141,7 +156,7 @@ export function RsvpView() {
                     linkedin: text('linkedin'),
                     profilePublic: d.get('public') === 'on',
                     lookingForTeam: d.get('lookingForTeam') === 'on',
-                    ...(!view.invite.hasAccount && { password: text('password') }),
+                    password: text('password'),
                   });
                 }}
               >
@@ -186,7 +201,18 @@ export function RsvpView() {
                   I&apos;m looking for a team: list me in the teammate directory (name only)
                 </label>
 
-                {!view.invite.hasAccount && (
+                {view.invite.hasAccount ? (
+                  <>
+                    <label htmlFor="password">Your Passline password</label>
+                    <input id="password" name="password" type="password" required maxLength={200} autoComplete="current-password" className={form.input} />
+                    <p className={styles.eyebrow}>
+                      You already have a Passline account with this email.{' '}
+                      <a className={form.linkButton} style={{ display: 'inline-flex', alignItems: 'center' }} href="/login" target="_blank" rel="noopener">
+                        Forgot it?
+                      </a>
+                    </p>
+                  </>
+                ) : (
                   <>
                     <label htmlFor="password">Set a password for your Passline account</label>
                     <input id="password" name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" className={form.input} />

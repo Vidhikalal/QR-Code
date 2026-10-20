@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
-import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
+import { generateToken, sha256hex } from '@/lib/domain/token';
+import { createAccount, createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
 
 // SPEC F13 + §6.1 (v0.4): organizer sends an RSVP → Yes (emergency contact, v0.6) + password → /me shows the pass.
 let f: StandardFixture;
@@ -69,5 +70,55 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await expect(p).toHaveURL(/\/login\?next=%2Fme/);
   await signIn(p, email, '/me', 'rae-event-password');
   await expect(p.getByRole('link', { name: 'My pass' })).toBeVisible();
+  await attendee.close();
+});
+
+test('T-RSVP-04 (E): someone who already has an account types their own password on Yes; a wrong one is refused', async ({ browser }) => {
+  const email = `ari-${f.slug}@example.test`;
+  await createAccount(email);
+  const token = generateToken();
+  await f.pool.query(
+    `insert into participants (event_id, external_id, email, first_name, last_name, search_text, status, source, rsvp_token_hash)
+     values ($1, 'rsvp-acct', $2, 'Ari', 'Account', 'ari account', 'pending', 'sheet', $3)`,
+    [f.e1.id, email, sha256hex(token)],
+  );
+  const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await attendee.newPage();
+  await p.goto(`/rsvp#${token}`);
+  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await expect(p.getByLabel('Set a password for your Passline account')).toHaveCount(0);
+  await p.getByLabel('Emergency contact name').fill('Sam Account');
+  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
+  await p.getByLabel('Your Passline password').fill('not-my-password');
+  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  // Next's route announcer is also role=alert (empty), so pick ours by its text.
+  await expect(p.getByRole('alert').filter({ hasText: 'isn’t your Passline password' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'pending' }]);
+  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
+  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await p.waitForURL('**/me');
+  await expect(p.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
+  await attendee.close();
+});
+
+test('T-RSVP-04 (E): a volunteer without a display name who answers Yes goes through onboarding first (F9)', async ({ browser }) => {
+  const email = `vic-${f.slug}@example.test`;
+  const userId = await createAccount(email);
+  await f.pool.query(`insert into event_staff (event_id, user_id, role) values ($1, $2, 'volunteer')`, [f.e1.id, userId]);
+  const token = generateToken();
+  await f.pool.query(
+    `insert into participants (event_id, external_id, email, first_name, last_name, search_text, status, source, rsvp_token_hash)
+     values ($1, 'rsvp-staff', $2, 'Vic', 'Volunteer', 'vic volunteer', 'pending', 'sheet', $3)`,
+    [f.e1.id, email, sha256hex(token)],
+  );
+  const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await attendee.newPage();
+  await p.goto(`/rsvp#${token}`);
+  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await p.getByLabel('Emergency contact name').fill('Sam Volunteer');
+  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
+  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
+  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await p.waitForURL((u) => u.pathname === '/onboarding' && u.searchParams.get('next') === '/me');
   await attendee.close();
 });

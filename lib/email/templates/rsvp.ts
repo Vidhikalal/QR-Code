@@ -25,7 +25,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
 <p>You're invited to <strong>${e.event}</strong>. Will you be there?</p>
 <p><strong>When:</strong> ${e.when}<br><strong>Where:</strong> ${e.venue}</p>
 <p><a href="${e.url}" style="display:inline-block;padding:12px 20px;background:#111111;color:#ffffff;border-radius:10px;text-decoration:none">Reply to the invitation</a></p>
-<p>If you say yes, you'll add an emergency contact (and, if you like, your LinkedIn), set a password for your Passline account, and we'll email your check-in pass.</p>
+<p>If you say yes, you'll add an emergency contact (and, if you like, your LinkedIn) and a password for your Passline account, and we'll email your check-in pass.</p>
 <p>Questions? Just reply to this email.</p>
 <p style="font-size:12px;color:#555555">We use your details only to run ${e.event}: admission, meals, attendance and emergencies. Dietary notes and emergency contacts are deleted 30 days after the event.</p>
 </body></html>`;
@@ -40,7 +40,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
     '',
     `Reply to the invitation: ${input.rsvpUrl}`,
     '',
-    "If you say yes, you'll add an emergency contact (and, if you like, your LinkedIn), set a password for your Passline account, and we'll email your check-in pass.",
+    "If you say yes, you'll add an emergency contact (and, if you like, your LinkedIn) and a password for your Passline account, and we'll email your check-in pass.",
     '',
     'Questions? Just reply to this email.',
     '',

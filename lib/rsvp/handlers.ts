@@ -1,17 +1,22 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
+import { sanitizeError } from '@/lib/domain/outbox';
 import { parseProfileInput } from '@/lib/domain/profile';
 import { sha256hex } from '@/lib/domain/token';
 import { profileArgs } from '@/lib/me/profile';
-import { ipKey, withinLimit } from '@/lib/pass/handlers';
+import { emailKey, ipKey, withinLimit } from '@/lib/pass/handlers';
 
 type Db = SupabaseClient<Database>;
 
+/** `next`: where /login would send them (e.g. staff onboarding first). 'wrong': GoTrue refused the password.
+ * 'error': anything else (rate limit, 5xx), never shown as a wrong password. */
+export type SignInOutcome = { next: string } | 'wrong' | 'error';
+
 export interface RsvpDeps {
   db: Db;
-  /** Signs the browser in (sets the session cookie); false if it didn't work. */
-  signIn: (email: string, password: string) => Promise<boolean>;
+  /** Signs the browser in (sets the session cookie). */
+  signIn: (email: string, password: string) => Promise<SignInOutcome>;
   /** Runs `task` after the response is sent (Next.js `after()` in production). */
   scheduleDrain: (task: () => Promise<unknown>) => void;
   drain: () => Promise<unknown>;
@@ -47,13 +52,17 @@ const rsvpBody = z
   .strict();
 
 // POST /api/rsvp (SPEC F13, §9.3). The RSVP token travels only in the body (I-3); same per-IP limit as
-// /api/pass. `{token}` looks the invitation up; `{token, going, password?}` answers it. A Yes from
-// someone without an account creates one with their password (the emailed link proved the address)
-// and signs them in. An existing account's password is never changed here. Yes also needs the emergency
-// contact; the form is checked before anything changes (no account is made for a refused answer).
+// /api/pass. `{token}` looks the invitation up; `{token, going, password}` answers it. A Yes always needs
+// a password (v0.7.2): someone without an account sets one (the emailed link proved the address); someone
+// with an account enters theirs, checked like a sign-in with its own per-email limit (only the token holder
+// gets here, so burning /login's tries can't block a Yes). Either way they end up signed in, and an existing
+// account's password is never changed here. Yes also needs the emergency contact; everything is checked
+// before anything changes (no account is made for a refused answer). JSON bodies only: a cross-site form
+// can't send one, so no other site can post a Yes and sign a visitor into someone else's account.
 export function createRsvpHandler(deps: RsvpDeps) {
   return async (request: Request): Promise<Response> => {
     if (!(await withinLimit(deps.db, ipKey(request.headers, 'rsvp'), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) return json({ error: 'invalid_body' }, 400);
 
     let raw: unknown;
     try {
@@ -69,7 +78,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     if (error) throw new Error(`rsvp_lookup failed (${error.code})`);
     if (data === null) return json({ state: 'not_found' }, 404);
     const found = lookupSchema.parse(data);
-    const { going, password } = body.data;
+    const { going, password = '' } = body.data;
     if (going === undefined) {
       // The prefill holds the Sheet's dietary notes and LinkedIn, never the email or the emergency contact.
       return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile });
@@ -77,14 +86,26 @@ export function createRsvpHandler(deps: RsvpDeps) {
     const profile = going ? parseProfileInput(body.data, { requireEmergency: true }) : null;
     if (profile && !profile.ok) return json({ error: 'invalid_profile', field: profile.field }, 400);
 
-    const newAccount = going && !found.hasAccount && password !== undefined;
+    if (going && password === '') return json({ error: 'password_required' }, 400);
+
+    let landing: string | null = null;
+    let newAccount = going && !found.hasAccount;
     if (newAccount) {
       // 8–72: bcrypt ignores anything longer. Checked before anything changes.
       if (password.length < 8 || password.length > 72) return json({ error: 'weak_password' }, 400);
       const created = await deps.db.auth.admin.createUser({ email: found.email, password, email_confirm: true });
       if (created.error?.code === 'weak_password') return json({ error: 'weak_password' }, 400);
-      // email_exists: made a moment ago (a double tap). Their password stays as it is.
-      if (created.error && created.error.code !== 'email_exists') throw new Error(`createUser failed (${created.error.code ?? created.error.status})`);
+      // email_exists: an account appeared since the lookup (a double tap): it needs its own password, below.
+      if (created.error?.code === 'email_exists') newAccount = false;
+      else if (created.error) throw new Error(`createUser failed (${created.error.code ?? created.error.status})`);
+    }
+    if (going && !newAccount) {
+      // Over the limit looks like a wrong password, as on /login (§15).
+      if (!(await withinLimit(deps.db, emailKey('rsvp-signin', found.email), 900, 10))) return json({ error: 'wrong_password' }, 400);
+      const outcome = await deps.signIn(found.email, password);
+      if (outcome === 'error') throw new Error('RSVP sign-in failed');
+      if (outcome === 'wrong') return json({ error: 'wrong_password' }, 400);
+      landing = outcome.next;
     }
 
     const { data: code, error: respondError } = await deps.db.rpc('rsvp_respond', {
@@ -97,7 +118,15 @@ export function createRsvpHandler(deps: RsvpDeps) {
     if (code === 'NOT_FOUND') return json({ state: 'not_found' }, 404);
     // Never send inline (SPEC §2 Outbox): the pass email goes out after the response.
     if (code === 'GOING') deps.scheduleDrain(deps.drain);
-    const signedIn = newAccount ? await deps.signIn(found.email, password) : false;
-    return json({ code, signedIn });
+    // A new account whose sign-in fails here keeps its answer: they're told to sign in (signedIn: false).
+    if (newAccount) {
+      try {
+        const outcome = await deps.signIn(found.email, password);
+        if (typeof outcome === 'object') landing = outcome.next;
+      } catch (err) {
+        console.error(JSON.stringify({ level: 'error', where: 'rsvp.signIn', error: sanitizeError(err) }));
+      }
+    }
+    return json(landing === null ? { code, signedIn: false } : { code, signedIn: true, next: landing });
   };
 }

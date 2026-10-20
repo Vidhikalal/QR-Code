@@ -53,6 +53,9 @@ export function ipKey(headers: Headers, scope = 'pass'): string {
   return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
 }
 
+// Per email only: a whole venue can share one IP. Keys hold hashes only (I-11).
+export const emailKey = (scope: string, email: string) => `${scope}:email:${sha256hex(email).slice(0, 32)}`;
+
 const passBody = z.object({ token: z.string().max(512) }).strict();
 
 // POST /api/pass (SPEC F5, §9.3): token in the body only, never in a URL (I-3).

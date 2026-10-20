@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateToken, sha256hex } from '@/lib/domain/token';
-import { createRsvpHandler } from '@/lib/rsvp/handlers';
+import { emailKey } from '@/lib/pass/handlers';
+import { createRsvpHandler, type RsvpDeps } from '@/lib/rsvp/handlers';
 import { adminClient } from '../fixtures/admin-api';
 import { requireEnv } from '../fixtures/db';
 import { drainUntilIdle } from '@/lib/email/drain';
@@ -25,22 +26,32 @@ const anon = () =>
 const canSignIn = async (email: string, password: string) => !(await anon().auth.signInWithPassword({ email, password })).error;
 const signIns: Array<{ email: string; password: string }> = [];
 const drains: string[] = [];
-const handler = createRsvpHandler({
+const deps: RsvpDeps = {
   db: serviceClient(),
   scheduleDrain: () => drains.push('scheduled'),
   drain: async () => undefined,
   signIn: async (email, password) => {
     signIns.push({ email, password });
-    return canSignIn(email, password);
+    return (await canSignIn(email, password)) ? { next: '/me' } : 'wrong';
   },
-});
+};
+const handler = createRsvpHandler(deps);
 let ip = 0;
-const call = async (body: unknown, from = `10.9.${Math.floor(ip / 250)}.${(ip++ % 250) + 1}`) => {
-  const res = await handler(
-    new Request('http://localhost/api/rsvp', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': from }, body: JSON.stringify(body) }),
-  );
+const nextIp = () => `10.9.${Math.floor(ip / 250)}.${(ip++ % 250) + 1}`;
+const request = (body: unknown, from = nextIp(), type = 'application/json') =>
+  new Request('http://localhost/api/rsvp', { method: 'POST', headers: { 'content-type': type, 'x-forwarded-for': from }, body: JSON.stringify(body) });
+const call = async (body: unknown, from = nextIp(), h = handler) => {
+  const res = await h(request(body, from));
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 };
+// Fills a per-email limit bucket for this window and the next, so a window boundary can't reset it mid-test.
+const fillBucket = (key: string) =>
+  f.pool.query(
+    `insert into rate_limits (key, window_start, hits)
+     select $1, to_timestamp(floor(extract(epoch from now()) / 900) * 900) + make_interval(secs => 900 * g), 10 from generate_series(0, 1) g
+     on conflict (key, window_start) do update set hits = 10`,
+    [key],
+  );
 
 async function newApplicant(label: string): Promise<{ id: string; email: string }> {
   const email = `${label}-${f.slug}@example.test`;
@@ -57,7 +68,9 @@ async function rsvpToken(participantId: string): Promise<string> {
   return token;
 }
 // v0.6: Yes always carries the emergency contact (F13 step 4).
-const YES = { emergencyName: 'Sam Lee', emergencyPhone: '416 555 0100' };
+const CONTACT = { emergencyName: 'Sam Lee', emergencyPhone: '416 555 0100' };
+// v0.7.2: Yes always carries a password (set on the first Yes, then their own).
+const YES = { ...CONTACT, password: 'rae-event-password' };
 const outbox = async (id: string) =>
   (await f.pool.query<{ kind: string; status: string }>('select kind, status from email_outbox where participant_id = $1 order by created_at', [id])).rows;
 const statusOf = async (id: string) => (await f.pool.query<{ status: string }>('select status from participants where id = $1', [id])).rows[0]?.status;
@@ -117,8 +130,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(look.body).toMatchObject({ firstName: 'Rae', status: 'pending', hasAccount: false, event: { name: f.e1.name } });
     expect(JSON.stringify(look.body)).not.toContain('@');
 
-    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: false });
-    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
+    expect((await call({ token, going: true, ...YES })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
     expect(await statusOf(p.id)).toBe('accepted');
     expect(await outbox(p.id)).toEqual([{ kind: 'pass_issued', status: 'pending' }]);
     expect(drains).toEqual(['scheduled', 'scheduled']);
@@ -203,28 +216,117 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(rows).toEqual([{ email: mine }]);
   });
 
-  it('T-RSVP-04: Yes without an account creates one with the password and signs in; an existing password never changes', async () => {
+  it('T-RSVP-04: Yes always needs a password: without an account it creates one and signs in; with one it must be theirs and never changes', async () => {
     const weak = await newApplicant('weak');
     const weakToken = await rsvpToken(weak.id);
-    expect(await call({ token: weakToken, going: true, ...YES, password: 'short' })).toEqual({ status: 400, body: { error: 'weak_password' } });
+    expect(await call({ token: weakToken, going: true, ...CONTACT })).toEqual({ status: 400, body: { error: 'password_required' } });
+    expect(await call({ token: weakToken, going: true, ...CONTACT, password: 'short' })).toEqual({ status: 400, body: { error: 'weak_password' } });
     expect(await statusOf(weak.id)).toBe('pending');
     expect((await f.pool.query('select 1 from auth.users where email = $1', [weak.email])).rows).toHaveLength(0);
 
     const p = await newApplicant('new');
     const token = await rsvpToken(p.id);
-    expect((await call({ token, going: true, ...YES, password: 'my-event-password' })).body).toEqual({ code: 'GOING', signedIn: true });
+    expect((await call({ token, going: true, ...CONTACT, password: 'my-event-password' })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
     expect(signIns.at(-1)).toEqual({ email: p.email, password: 'my-event-password' });
     const { rows } = await f.pool.query<{ confirmed: boolean }>('select email_confirmed_at is not null as confirmed from auth.users where email = $1', [p.email]);
     expect(rows).toEqual([{ confirmed: true }]);
     expect((await call({ token })).body).toMatchObject({ status: 'accepted', hasAccount: true });
 
-    // Already has an account: the password sent along is ignored.
+    // Already has an account: their own password is required, checked like a sign-in, and never changed.
     const existing = await newApplicant('existing');
     await createAccount(existing.email);
     const t2 = await rsvpToken(existing.id);
-    expect((await call({ token: t2, going: true, ...YES, password: 'attacker-password' })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token: t2 })).body).toMatchObject({ hasAccount: true });
+    expect(await call({ token: t2, going: true, ...CONTACT })).toEqual({ status: 400, body: { error: 'password_required' } });
+    expect(await call({ token: t2, going: true, ...CONTACT, password: 'attacker-password' })).toEqual({ status: 400, body: { error: 'wrong_password' } });
+    expect(await statusOf(existing.id)).toBe('pending');
+    expect((await call({ token: t2, going: true, ...CONTACT, password: STAFF_PASSWORD })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
     expect(await canSignIn(existing.email, STAFF_PASSWORD)).toBe(true);
     expect(await canSignIn(existing.email, 'attacker-password')).toBe(false);
+
+    // Its own per-email limit (§15: 10 per 15 min): past it, even the right password is refused. /login's
+    // bucket doesn't count here, so nobody can block someone's Yes by burning their /login tries.
+    const limited = await newApplicant('limited');
+    await createAccount(limited.email);
+    const t3 = await rsvpToken(limited.id);
+    await fillBucket(emailKey('rsvp-signin', limited.email));
+    const signInsBefore = signIns.length;
+    expect(await call({ token: t3, going: true, ...CONTACT, password: STAFF_PASSWORD })).toEqual({ status: 400, body: { error: 'wrong_password' } });
+    expect(signIns.length).toBe(signInsBefore); // the limit is checked before GoTrue is asked
+    expect(await statusOf(limited.id)).toBe('pending');
+    const blocked = await newApplicant('login-blocked');
+    await createAccount(blocked.email);
+    await fillBucket(emailKey('signin', blocked.email));
+    expect((await call({ token: await rsvpToken(blocked.id), going: true, ...CONTACT, password: STAFF_PASSWORD })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
+  });
+
+  it('T-RSVP-04 (review): an account made since the lookup still needs its password; a sign-in failure is not a wrong password; JSON only', async () => {
+    // The lookup saw no account, then one appeared before createUser (email_exists): its own password is needed.
+    const raced = await newApplicant('raced-account');
+    const racingFor = (email: string) => createRsvpHandler({
+      ...deps,
+      db: new Proxy(deps.db, {
+        get(target, key) {
+          if (key !== 'rpc') return Reflect.get(target, key);
+          return async (name: string, args: unknown) => {
+            const rpc = target.rpc.bind(target) as unknown as (n: string, a: unknown) => Promise<{ data: unknown; error: unknown }>;
+            const res = await rpc(name, args);
+            if (name !== 'rsvp_lookup' || !res.data) return res;
+            await createAccount(email);
+            return { ...res, data: { ...(res.data as object), hasAccount: false } };
+          };
+        },
+      }),
+    });
+    expect(await call({ token: await rsvpToken(raced.id), going: true, ...CONTACT, password: 'attacker-password' }, nextIp(), racingFor(raced.email))).toEqual({
+      status: 400,
+      body: { error: 'wrong_password' },
+    });
+    expect(await statusOf(raced.id)).toBe('pending');
+    // A real double tap (same person, same password) just goes through.
+    const tapped = await newApplicant('double-tap');
+    expect((await call({ token: await rsvpToken(tapped.id), going: true, ...CONTACT, password: STAFF_PASSWORD }, nextIp(), racingFor(tapped.email))).body).toEqual({
+      code: 'GOING',
+      signedIn: true,
+      next: '/me',
+    });
+
+    // GoTrue itself failing (rate limit, 5xx) is an error, not "wrong password", and changes nothing.
+    const flaky = await newApplicant('gotrue-down');
+    await createAccount(flaky.email);
+    const down = createRsvpHandler({ ...deps, signIn: async () => 'error' });
+    await expect(down(request({ token: await rsvpToken(flaky.id), going: true, ...CONTACT, password: STAFF_PASSWORD }))).rejects.toThrow();
+    expect(await statusOf(flaky.id)).toBe('pending');
+
+    // Staff who still need a display name: the server passes /login's landing (onboarding) through.
+    const staffer = await newApplicant('onboarding');
+    await createAccount(staffer.email);
+    const onboarding = createRsvpHandler({ ...deps, signIn: async () => ({ next: '/onboarding?next=%2Fme' }) });
+    expect((await call({ token: await rsvpToken(staffer.id), going: true, ...CONTACT, password: STAFF_PASSWORD }, nextIp(), onboarding)).body).toEqual({
+      code: 'GOING',
+      signedIn: true,
+      next: '/onboarding?next=%2Fme',
+    });
+
+    // A new account whose sign-in throws after its answer is recorded keeps the answer (signedIn: false).
+    const late = await newApplicant('late-sign-in');
+    const throwing = createRsvpHandler({
+      ...deps,
+      signIn: async () => {
+        throw new Error('landing failed');
+      },
+    });
+    expect((await call({ token: await rsvpToken(late.id), going: true, ...CONTACT, password: 'late-event-password' }, nextIp(), throwing)).body).toEqual({
+      code: 'GOING',
+      signedIn: false,
+    });
+    expect(await statusOf(late.id)).toBe('accepted');
+
+    // A cross-site form can only send text/plain (or form) bodies: refused before anything happens.
+    const csrf = await newApplicant('csrf');
+    const res = await handler(request({ token: await rsvpToken(csrf.id), going: true, ...CONTACT, password: STAFF_PASSWORD }, nextIp(), 'text/plain'));
+    expect({ status: res.status, body: await res.json() }).toEqual({ status: 400, body: { error: 'invalid_body' } });
+    expect(await statusOf(csrf.id)).toBe('pending');
   });
 
   it('T-RSVP-06: Yes needs an emergency contact; an invalid form is refused before anything changes (no account is made)', async () => {
@@ -255,7 +357,7 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(JSON.stringify(look.body)).not.toMatch(/@|emergency/i);
 
     const yes = { ...YES, emergencyRelation: 'Sister', dietaryNotes: 'Vegetarian', linkedin: 'linkedin.com/in/rae-r', profilePublic: true };
-    expect((await call({ token, going: true, ...yes })).body).toEqual({ code: 'GOING', signedIn: false });
+    expect((await call({ token, going: true, ...yes })).body).toEqual({ code: 'GOING', signedIn: true, next: '/me' });
     const row = async () =>
       (
         await f.pool.query(
@@ -271,7 +373,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
       linkedin_url: 'https://www.linkedin.com/in/rae-r', own_linkedin: true, profile_public: true,
     };
     expect(await row()).toEqual(saved);
-    expect(JSON.stringify((await call({ token })).body)).not.toMatch(/Sam|555|Sister/); // never the contact
+    // Never the contact. Exact values: a bare /555/ also matched random slugs and timestamps (~1% of runs).
+    expect(JSON.stringify((await call({ token })).body)).not.toMatch(/Sam Lee|416 555 0100|Sister/);
 
     // An answer without the form (SQL) leaves the profile as it is; so does No.
     await f.pool.query('select rsvp_respond($1, true)', [sha256hex(token)]);

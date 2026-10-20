@@ -7,7 +7,7 @@ import { normalizeUid } from '@/lib/domain/badge';
 import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper } from '@/lib/scanner/dedupe';
-import { playFeedback, unlockAudio } from '@/lib/scanner/feedback';
+import { playFeedback, unlockAudio, useNeedsTap, vibrateRead } from '@/lib/scanner/feedback';
 import { useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
@@ -162,13 +162,21 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
   // NFC taps follow the QR rules: dedupe, pause while anything is on screen, MALFORMED without a request.
   const onTag = useRef<(tag: NfcTag) => void>(() => undefined);
+  const onUnreadable = useRef<() => void>(() => undefined);
   useEffect(() => {
     onTag.current = ({ serial }) => {
       if (scanningPaused || !checkpoint) return;
       if (!deduper.current.shouldHandle(`nfc:${serial}`, Date.now())) return;
+      vibrateRead();
       const uid = normalizeUid(serial);
       if (!uid) return show({ kind: 'malformed' }, checkpoint);
       void record({ method: 'nfc', badgeUid: uid });
+    };
+    // A tag sensed but not read: amber feedback, unless reads are being ignored anyway (same guard as onTag).
+    onUnreadable.current = () => {
+      if (scanningPaused || !checkpoint) return;
+      playFeedback('double');
+      setNotice('✕ Couldn’t read that badge. Hold it still and try again.');
     };
   }, [scanningPaused, checkpoint, record, show]);
 
@@ -176,8 +184,9 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const nfc = useNfcReader({
     prefKey: NFC_KEY,
     onTag: (tag) => onTag.current(tag),
-    onUnreadable: () => setNotice('✕ Couldn’t read that badge. Hold it still and try again.'),
+    onUnreadable: () => onUnreadable.current(),
   });
+  const needsTap = useNeedsTap();
 
   // Camera: started once; decoding pauses while anything else is on screen (§10.2).
   useEffect(() => {
@@ -317,6 +326,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           </button>
         )}
       </div>
+      {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate when it reads a badge.</p>}
       {nfc.error && (
         <p className={styles.notice} role="alert">
           ✕ {nfc.error}

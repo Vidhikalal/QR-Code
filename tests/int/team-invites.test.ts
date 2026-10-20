@@ -116,8 +116,8 @@ it('T-TEAM-05: decline is own-invite only; one in-flight email, newest invite, f
 it('T-TEAM-05: RSVP Yes stores the optional directory flag in the answer transaction; strict boolean', async () => {
   const token = generateToken();
   await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [f.p.C, sha256hex(token)]);
-  const handler = createRsvpHandler({ db, signIn: async () => false, scheduleDrain: () => undefined, drain });
-  const call = (lookingForTeam: unknown) => handler(new Request('http://localhost/api/rsvp', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.55.1.1' }, body: JSON.stringify({ token, going: true, emergencyName: 'Sam', emergencyPhone: '416 555 0100', lookingForTeam }) }));
+  const handler = createRsvpHandler({ db, signIn: async () => 'wrong', scheduleDrain: () => undefined, drain });
+  const call = (lookingForTeam: unknown) => handler(new Request('http://localhost/api/rsvp', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.55.1.1' }, body: JSON.stringify({ token, going: true, emergencyName: 'Sam', emergencyPhone: '416 555 0100', password: 'team-event-password', lookingForTeam }) }));
   expect((await call('true')).status).toBe(400);
   const response = await call(true);
   expect(response.status).toBe(200);

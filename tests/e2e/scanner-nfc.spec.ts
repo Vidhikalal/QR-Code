@@ -5,6 +5,7 @@ import {
   fakeCameraArgs,
   installFakeNfc,
   nfcTap,
+  nfcUnreadable,
   saveSignedInState,
   serialOf,
   warmDevServer,
@@ -88,4 +89,56 @@ test('T-NFC-11: the scanner offers no Link badge after a door ADMIT (v0.5: atten
   await readerOn(page);
   await manualDoorScan(page, 'ben', 'Ben Fixture');
   await expect(page.getByRole('button', { name: /Link badge/ })).toHaveCount(0);
+});
+
+test('T-NFC-10: a badge read vibrates at once, before the answer; until the page is tapped, the scanner says to tap once', async ({ page }) => {
+  await installFakeNfc(page);
+  await page.addInitScript(() => {
+    const w = window as unknown as { __vibrations: unknown[] };
+    w.__vibrations = [];
+    // Playwright's own locator checks count as user activation, so fake Chrome's sticky activation: only a click sets it.
+    let tapped = false;
+    for (const e of ['click', 'keydown']) window.addEventListener(e, () => (tapped = true), true);
+    Object.defineProperty(navigator, 'userActivation', { value: { get hasBeenActive() { return tapped; }, get isActive() { return tapped; } } });
+    Object.defineProperty(navigator, 'vibrate', {
+      value: (pattern: unknown) => {
+        w.__vibrations.push(pattern);
+        return true;
+      },
+    });
+  });
+  const vibrations = () => page.evaluate(() => (window as unknown as { __vibrations: unknown[] }).__vibrations);
+  const { uid } = await f.linkBadge(f.p.A);
+  let release: () => void = () => undefined;
+  const answer = new Promise<void>((r) => (release = r));
+  await page.route('**/api/scan', async (route) => {
+    await answer; // hold the server's answer back
+    await route.continue();
+  });
+
+  await page.goto(`/scan/${f.slug}`);
+  const hint = page.getByText('Tap the screen once so the phone can vibrate when it reads a badge.');
+  await expect(hint).toBeVisible();
+  await page.keyboard.press('Shift'); // an activation that changes nothing else: only the activation listener can hide it
+  await expect(hint).toBeHidden();
+  await chooseCheckpoint(page, 'Raffle');
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+  await readerOn(page);
+
+  await nfcTap(page, serialOf(uid));
+  await expect.poll(vibrations).toEqual([[30, 60, 30]]);
+  const result = page.getByTestId('scan-result');
+  await expect(result).toBeHidden(); // the tick came before any answer
+  release();
+  await expect(result).toHaveAttribute('data-tone', 'green');
+  expect(await vibrations()).toEqual([[30, 60, 30], [60]]);
+
+  // An unreadable tag while the green result is up is ignored (no amber over green); once it's gone, amber + notice.
+  await nfcUnreadable(page);
+  expect(await vibrations()).toEqual([[30, 60, 30], [60]]);
+  await expect(page.getByText('Couldn’t read that badge')).toHaveCount(0);
+  await expect(result).toBeHidden({ timeout: 4000 });
+  await nfcUnreadable(page);
+  await expect(page.getByText('Couldn’t read that badge. Hold it still and try again.')).toBeVisible();
+  expect(await vibrations()).toEqual([[30, 60, 30], [60], [80, 80, 80]]);
 });

@@ -9,18 +9,15 @@ import { landingAfterSignIn } from '@/lib/auth/onboarding';
 import { supabaseForRequest } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { normalizeEmail } from '@/lib/domain/normalize';
-import { sha256hex } from '@/lib/domain/token';
 import { env } from '@/lib/env';
-import { withinLimit } from '@/lib/pass/handlers';
+import { emailKey, withinLimit } from '@/lib/pass/handlers';
 
 // Never carries the email back: Next logs server-action arguments (incl. this state) in dev (I-11).
 export type LoginState = { error: 'credentials' } | { sent: true } | null;
 
 const emailSchema = z.string().transform(normalizeEmail).pipe(z.email());
 const nextOf = (form: FormData) => safeNextPath(String(form.get('next') ?? ''), '/me');
-// Postgres-backed limits (serverless has no shared memory), per email only: a whole venue can share one
-// IP. Keys hold hashes only (I-11).
-const emailKey = (scope: string, email: string) => `${scope}:email:${sha256hex(email).slice(0, 32)}`;
+// Postgres-backed limits (serverless has no shared memory), per email (emailKey).
 
 // SPEC F9 (v0.4): email + password. One generic error, whether the email or the password was wrong.
 export async function signIn(_prev: LoginState, form: FormData): Promise<LoginState> {
