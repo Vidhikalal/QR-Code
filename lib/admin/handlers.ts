@@ -63,7 +63,6 @@ const metricsSchema = z.object({
   arrivals: z.array(z.object({ bucketUtc: z.string(), arrivals: z.number() })),
   outbox: z.object({ pending: z.number(), failed: z.number() }),
   notFound: z.array(z.object({ staffUserId: z.string(), displayName: z.string().nullable(), count: z.number() })),
-  scanProblems: z.array(z.object({ checkpointId: z.string().nullable(), code: z.string(), count: z.number() })),
 });
 
 // §11: the Sheet link (Sync page) and, since v0.6, the hackers' schedule and emergency info (Info page).
@@ -203,7 +202,6 @@ export function createAdminApi(deps: AdminDeps) {
           doorClosed: doorClosedWarning({ now: now(), startsAt: event.starts_at, endsAt: event.ends_at, doorOpen: door?.isOpen ?? false }),
           notFound: m.notFound,
         },
-        scanProblems: m.scanProblems,
       });
     },
 

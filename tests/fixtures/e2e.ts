@@ -42,12 +42,15 @@ export const fakeCameraArgs = (videoFile?: string) => [
 export async function installFakeNfc(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const w = window as unknown as Record<string, unknown>;
-    const readers = new Set<EventTarget>();
+    // Held weakly, like Chrome: a reader the page doesn't keep a reference to can be collected while
+    // scanning, and its taps then go nowhere (the real-phone bug behind T-NFC-10's GC case).
+    const readers = new Set<WeakRef<EventTarget>>();
     const writes: unknown[] = [];
     class FakeNDEFReader extends EventTarget {
       async scan(options: { signal?: AbortSignal } = {}): Promise<void> {
-        readers.add(this);
-        options.signal?.addEventListener('abort', () => readers.delete(this));
+        const ref = new WeakRef<EventTarget>(this);
+        readers.add(ref);
+        options.signal?.addEventListener('abort', () => readers.delete(ref));
       }
       async write(message: unknown): Promise<void> {
         writes.push(message);
@@ -57,16 +60,21 @@ export async function installFakeNfc(page: Page): Promise<void> {
     w.__nfcWrites = writes;
     w.__nfcTap = (serialNumber: string, urls: string[]) => {
       const records = urls.map((u) => ({ recordType: 'url', data: new DataView(new TextEncoder().encode(u).buffer) }));
-      for (const r of readers) r.dispatchEvent(Object.assign(new Event('reading'), { serialNumber, message: { records } }));
+      for (const r of readers) r.deref()?.dispatchEvent(Object.assign(new Event('reading'), { serialNumber, message: { records } }));
     };
     // A tag sensed but not read (Chrome fires 'readingerror').
     w.__nfcUnreadable = () => {
-      for (const r of readers) r.dispatchEvent(new Event('readingerror'));
+      for (const r of readers) r.deref()?.dispatchEvent(new Event('readingerror'));
     };
   });
 }
 
 type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcUnreadable(): void; __nfcWrites: unknown[] };
+
+/** Needs Chromium launched with `--js-flags=--expose-gc`. */
+export async function forceGc(page: Page): Promise<void> {
+  for (let i = 0; i < 3; i++) await page.evaluate(() => (window as unknown as { gc(): void }).gc());
+}
 
 export async function nfcUnreadable(page: Page): Promise<void> {
   await page.evaluate(() => (window as unknown as NfcWindow).__nfcUnreadable());

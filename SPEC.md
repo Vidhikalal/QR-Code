@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.7.3 · **Owner:** Ade · **Last updated:** 2026-10-20
+> **Status:** Draft v0.7.4 · **Owner:** Ade · **Last updated:** 2026-10-20
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -962,6 +962,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
 - **NFC toggle:** an on/off button; the preference is saved in `localStorage` under `passline:nfc`. The first start must come from a tap (it triggers Chrome's permission prompt); later it auto-starts if the `nfc` permission is already granted.
 - **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
+- **Keep the reader referenced (v0.7.4):** the page holds the active `NDEFReader` while scanning. On a real Android phone a reader reachable only through its own listeners was garbage-collected while Chrome kept the NFC session: Android no longer opened the tag's URL, and every tap went to nobody.
 - **Read feedback (v0.7.3):** as soon as a read passes the dedupe and pause checks, the phone taps twice (30 ms, 60 ms gap, 30 ms, where `navigator.vibrate` exists), before the server answers: unlike every result pattern, so it can't be felt as the green single pulse. The result's own pattern follows (§10.2). An unreadable tag gets the amber double pulse with its notice, unless reads are being ignored (a result on screen, offline, a dialog open). Chrome ignores vibration (and sound) until the page has been tapped once, so until then the scanner shows "Tap the screen once so the phone can vibrate when it reads a badge." Vibration is a nicety, never relied on: the screen stays the source of truth.
 - **No Link badge in the scanner (v0.5).** Attendees link their own badge from their phone (§6.5); organizers link one on the Tools page (§11).
 - The reader keeps running while a result is shown (taps are ignored), so Android doesn't open the tag's URL in a new tab.
@@ -1024,7 +1025,7 @@ All metrics exclude voided scans, `is_test` participants and deleted participant
 | Session attendance | live scans per session; ranking by count desc, then name asc |
 | Session fill | live scans ÷ capacity (if set) |
 | Arrival curve | live door scans per 15-min bucket |
-| Scan problems | `scan_attempts` grouped by `result_code`, per checkpoint |
+| Scan problems | `scan_attempts` grouped by `result_code`, per checkpoint. For the post-event review (§16); not shown on the dashboard since v0.7.4 |
 
 ```sql
 create view v_checkpoint_counts with (security_invoker = true) as
@@ -1323,7 +1324,7 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-07 | Raw SQL: bad UID; a second badge for one participant; X linked in E1 | check violation; unique violation; FK violation | I |
 | T-NFC-08 | 10 parallel `link_badge` (volunteer) with one UID and 10 participants, 20 rounds; two badges swapped in parallel, 30 rounds | exactly 1 `LINKED`, 9 `BADGE_TAKEN`, 1 row per round; swaps return only `LINKED`/`BADGE_TAKEN`, never an error (deadlock) | I |
 | T-NFC-09 | Result view: `NOT_FOUND` via NFC; every non-`ACCEPTED` code via NFC | red "UNKNOWN BADGE", tap to dismiss; never green (I-1) | U |
-| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial; a read while the answer is held back; the page before and after its first tap; an unreadable tag while a result is shown, then without one (v0.7.3) | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests; the two-tap read pattern before any result, then the green pattern; the tap-once hint until the page is tapped; nothing, then the amber pulse and notice | E |
+| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial; a read while the answer is held back; the page before and after its first tap; an unreadable tag while a result is shown, then without one (v0.7.3); a tap after a forced garbage collection, with the fake holding readers weakly like Chrome (v0.7.4) | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests; the two-tap read pattern before any result, then the green pattern; the tap-once hint until the page is tapped; nothing, then the amber pulse and notice; green | E |
 | T-NFC-11 | Tools page (v0.5): search "ben" → Link a badge to Ben → tap; a second tap; that badge at R; stubbed `BADGE_TAKEN`; the scanner after a door ADMIT | "Badge … linked to Ben Fixture" notice; nothing more linked (reader stopped); `ACCEPTED`; red "linked to someone else" notice, no result screen; no Link badge button | E |
 | T-NFC-12 | `badge_profile` as an attendee of the event: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago. Viewers: other event's attendee, withdrawn or waitlisted attendee, other event's staff, a random account; this event's staff; email in another case | null; null; `{allowed,public:false}`; name + LinkedIn; newest link wins (and only its event's people may view); null; null vs shown. `{allowed:false}` only, for each non-eligible viewer; allowed for staff and case-insensitive email; never email, dietary, status or photo | I |
 | T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
@@ -1527,6 +1528,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.7.1 (2026-10-20)** — The Participants page's **Add walk-in** becomes **Add attendee**, with a **Not RSVPed yet** box that adds a pending applicant (sent nothing) so organizers can send them an RSVP, e.g. to test the RSVP email (F12, §3, §11). `add_walk_in()` gains `p_not_rsvped` (default false). New test T-ADM-09.
 - **v0.7.2 (2026-10-20)** — The RSVP Yes form always requires a password: people without an account set one, people with an account enter theirs (checked like a sign-in with its own per-email limit; 400 `wrong_password`), and both end up signed in with `/login`'s post-sign-in steps. An RSVP still never changes an existing password. `/api/rsvp` takes JSON bodies only (no cross-site form posts). F13, §9.3, §15; T-RSVP-04 rewritten (I+E).
 - **v0.7.3 (2026-10-20)** — The scanner taps twice (a pattern no result uses) the moment it reads a badge, before the answer, so volunteers know the tap registered; unreadable tags get the amber pulse, and until the page has been tapped once (Chrome's rule for vibration) the scanner says so (§10.5). T-NFC-10 extended.
+- **v0.7.4 (2026-10-20)** — Fix: on a real Android phone, badge taps on the scanner did nothing. The page didn't hold its `NDEFReader`, so Chrome collected it while keeping the NFC session. The hook now keeps the active reader, and an exception in the read handler shows a notice instead of failing silently (§10.5). T-NFC-10 gains a garbage-collection case; the e2e fake now holds readers weakly. The dashboard no longer shows the Scan problems table (§13).
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 

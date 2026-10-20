@@ -32,10 +32,6 @@ const subscribeOnline = (cb: () => void) => {
   };
 };
 
-// Diagnostics for real phones: /scan/<slug>?debug=nfc shows every badge-reader event on screen.
-const subscribeNever = () => () => undefined;
-const debugRequested = () => new URLSearchParams(window.location.search).get('debug') === 'nfc';
-
 const CAMERA_HELP: Record<CameraFailure, string> = {
   denied: 'Camera access is blocked. Allow the camera for this site in your browser settings, then reload. You can still use Manual search.',
   unavailable: 'No camera found or it is in use by another app. You can still use Manual search.',
@@ -58,13 +54,6 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [lastOwn, setLastOwn] = useState<{ at: number; scanId: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState<string | null>(null);
-  const nfcDebug = useSyncExternalStore(subscribeNever, debugRequested, () => false);
-  const [debugLines, setDebugLines] = useState<string[]>([]);
-  const debug = useCallback((line: string) => {
-    const at = new Date().toLocaleTimeString([], { hour12: false });
-    setDebugLines((l) => [...l.slice(-40), `${at} ${line}`]);
-  }, []);
-  const demoReader = useRef<NDEFReader | null>(null);
 
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const offline = !online || networkDown;
@@ -176,17 +165,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const onUnreadable = useRef<() => void>(() => undefined);
   useEffect(() => {
     onTag.current = ({ serial }) => {
-      if (nfcDebug) {
-        const why = Object.entries({ result: !!result, busy, offline, picker: pickerOpen, search: searchOpen, undo: undoOpen, noCheckpoint: !checkpoint })
-          .filter(([, v]) => v)
-          .map(([k]) => k);
-        debug(`handler: ${why.length ? `ignored (${why.join(', ')})` : 'handling'}; camera ${camera}; ${document.visibilityState}, focus ${document.hasFocus()}`);
-      }
       if (scanningPaused || !checkpoint) return;
-      if (!deduper.current.shouldHandle(`nfc:${serial}`, Date.now())) {
-        if (nfcDebug) debug('handler: ignored (same badge within 3 s)');
-        return;
-      }
+      if (!deduper.current.shouldHandle(`nfc:${serial}`, Date.now())) return;
       try {
         vibrateRead();
         const uid = normalizeUid(serial);
@@ -194,7 +174,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         void record({ method: 'nfc', badgeUid: uid });
       } catch (err) {
         // Never fail silently on a badge tap (the volunteer would think nothing was read).
-        if (nfcDebug) debug(`handler threw: ${String(err)}`);
+        console.error(JSON.stringify({ level: 'error', where: 'scanner.onTag', error: String(err).slice(0, 200) }));
         setNotice('✕ Couldn’t handle that badge. Reload the page and try again.');
       }
     };
@@ -204,44 +184,11 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       playFeedback('double');
       setNotice('✕ Couldn’t read that badge. Hold it still and try again.');
     };
-  }, [scanningPaused, checkpoint, record, show, nfcDebug, debug, result, busy, offline, pickerOpen, searchOpen, undoOpen, camera]);
-
-  // Diagnostics only: what the page looks like to Chrome when badges are tapped.
-  useEffect(() => {
-    if (!nfcDebug) return;
-    const env = `NDEFReader ${'NDEFReader' in window ? 'present' : 'missing'}; ${navigator.userAgent.replace(/^Mozilla\/5.0 /, '')}`;
-    void navigator.permissions.query({ name: 'nfc' as PermissionName }).then(
-      (p) => debug(`debug on: ${env}; nfc permission ${p.state}`),
-      (e: unknown) => debug(`debug on: ${env}; nfc permission query failed: ${String(e)}`),
-    );
-    const onVisibility = () => debug(`page ${document.visibilityState}`);
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [nfcDebug, debug]);
-
-  async function startDemoReader() {
-    const Reader = window.NDEFReader;
-    if (!Reader) return debug('demo reader: no NDEFReader');
-    try {
-      const reader = new Reader();
-      demoReader.current = reader; // held, like the demo's reader stays reachable
-      await reader.scan();
-      debug('demo reader: scan() resolved');
-      reader.addEventListener('reading', (e) => {
-        const ev = e as NDEFReadingEvent;
-        debug(`demo reader: reading ${JSON.stringify(ev.serialNumber)}`);
-        onTag.current({ serial: ev.serialNumber, records: ev.message.records });
-      });
-      reader.addEventListener('readingerror', () => debug('demo reader: readingerror'));
-    } catch (err) {
-      debug(`demo reader failed: ${String(err)}`);
-    }
-  }
+  }, [scanningPaused, checkpoint, record, show]);
 
   // Kept running while a result is shown (taps are ignored above) so Android doesn't open the tag's URL.
   const nfc = useNfcReader({
     prefKey: NFC_KEY,
-    onDebug: nfcDebug ? debug : undefined,
     onTag: (tag) => onTag.current(tag),
     onUnreadable: () => onUnreadable.current(),
   });
@@ -386,19 +333,6 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         )}
       </div>
       {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate when it reads a badge.</p>}
-      {nfcDebug && (
-        <section aria-label="Badge reader diagnostics" className={styles.notice} style={{ textAlign: 'left' }}>
-          <p style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: 0 }}>
-            <button type="button" className={styles.secondary} onClick={() => void scannerRef.current?.stop().then(() => debug('camera stopped'))}>
-              Stop camera
-            </button>
-            <button type="button" className={styles.secondary} onClick={() => void startDemoReader()}>
-              Demo-style reader
-            </button>
-          </p>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, margin: '8px 0 0' }}>{debugLines.join('\n') || 'No badge-reader events yet.'}</pre>
-        </section>
-      )}
       {nfc.error && (
         <p className={styles.notice} role="alert">
           ✕ {nfc.error}

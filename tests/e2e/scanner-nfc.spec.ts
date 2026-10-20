@@ -3,6 +3,7 @@ import {
   authStatePath,
   chooseCheckpoint,
   fakeCameraArgs,
+  forceGc,
   installFakeNfc,
   nfcTap,
   nfcUnreadable,
@@ -15,7 +16,7 @@ import { createStandardFixture, randomUid, type StandardFixture } from '../fixtu
 // SPEC §10.5 / §14.15: badge scanning in the scanner, with a fake Web NFC reader (CLAUDE.md mock list).
 const AUTH = authStatePath('scanner-nfc');
 test.describe.configure({ mode: 'serial' });
-test.use({ launchOptions: { args: fakeCameraArgs() }, permissions: ['camera'], storageState: AUTH });
+test.use({ launchOptions: { args: [...fakeCameraArgs(), '--js-flags=--expose-gc'] }, permissions: ['camera'], storageState: AUTH });
 
 let f: StandardFixture;
 test.beforeAll(async ({ browser }) => {
@@ -142,3 +143,15 @@ test('T-NFC-10: a badge read vibrates at once, before the answer; until the page
   await expect(page.getByText('Couldn’t read that badge. Hold it still and try again.')).toBeVisible();
   expect(await vibrations()).toEqual([[30, 60, 30], [60], [80, 80, 80]]);
 });
+
+test('T-NFC-10: taps still arrive after a garbage collection (a collected reader swallowed every tap on a real phone)', async ({ page }) => {
+  await installFakeNfc(page);
+  const { uid } = await f.linkBadge(f.p.B);
+  await openScanner(page, 'Raffle');
+  await readerOn(page);
+  expect(await page.evaluate(() => typeof (window as unknown as { gc?: unknown }).gc)).toBe('function');
+  await forceGc(page);
+  await nfcTap(page, serialOf(uid));
+  await expect(page.getByTestId('scan-result')).toHaveAttribute('data-tone', 'green');
+});
+
