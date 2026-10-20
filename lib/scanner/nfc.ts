@@ -16,7 +16,7 @@ export interface NfcTag {
 export type NfcState = 'off' | 'starting' | 'on';
 
 const START_ERRORS: Record<string, string> = {
-  NotAllowedError: 'NFC permission was denied. Allow it in Chrome’s site settings, then turn the badge reader on.',
+  NotAllowedError: 'NFC permission was denied. Allow it in Chrome’s site settings, then tap Start badge reader.',
   NotSupportedError: 'No usable NFC reader. Check that NFC is turned on in Android settings.',
 };
 
@@ -107,15 +107,21 @@ export function useNfcReader(opts: {
       void navigator.permissions
         .query({ name: 'nfc' as PermissionName })
         .then((p) => {
-          if (!stale && p.state === 'granted') void start();
+          // Not over a reader already started by a tap (that would abort and replace it).
+          if (!stale && p.state === 'granted' && !controller.current) void start();
         })
         .catch(() => undefined);
     }
     return () => {
-      stale = true;
-      controller.current?.abort();
+      stale = true; // only cancels a pending auto-start: a reader started by a tap must survive autoStart changing
     };
   }, [supported, prefKey, defaultOn, autoStart, start]);
+
+  // Leaving the page stops the reader.
+  useEffect(() => {
+    const ctrl = controller;
+    return () => ctrl.current?.abort();
+  }, []);
 
   return { supported, state, error, start, stop };
 }

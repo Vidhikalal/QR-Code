@@ -62,6 +62,7 @@ export async function installFakeNfc(page: Page): Promise<void> {
       const records = urls.map((u) => ({ recordType: 'url', data: new DataView(new TextEncoder().encode(u).buffer) }));
       for (const r of readers) r.deref()?.dispatchEvent(Object.assign(new Event('reading'), { serialNumber, message: { records } }));
     };
+    w.__nfcActive = () => [...readers].filter((r) => r.deref()).length;
     // A tag sensed but not read (Chrome fires 'readingerror').
     w.__nfcUnreadable = () => {
       for (const r of readers) r.deref()?.dispatchEvent(new Event('readingerror'));
@@ -69,7 +70,39 @@ export async function installFakeNfc(page: Page): Promise<void> {
   });
 }
 
-type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcUnreadable(): void; __nfcWrites: unknown[] };
+type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcUnreadable(): void; __nfcActive(): number; __nfcWrites: unknown[] };
+
+/** Readers currently scanning (started and not aborted). */
+export async function nfcActive(page: Page): Promise<number> {
+  return page.evaluate(() => (window as unknown as NfcWindow).__nfcActive());
+}
+
+/** Records every camera stream the page opens, so tests can check the camera itself is released. */
+export async function trackCameraStreams(page: Page, delayMs = 0): Promise<void> {
+  await page.addInitScript((delay) => {
+    const w = window as unknown as { __streams: MediaStream[] };
+    w.__streams = [];
+    const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = (c) =>
+      new Promise((resolve, reject) =>
+        setTimeout(
+          () =>
+            open(c).then((s) => {
+              w.__streams.push(s);
+              resolve(s);
+            }, reject),
+          delay,
+        ),
+      );
+  }, delayMs);
+}
+
+/** Live camera tracks among every stream the page opened (0 = the camera is really off). */
+export async function liveCameraTracks(page: Page): Promise<number> {
+  return page.evaluate(() =>
+    (window as unknown as { __streams: MediaStream[] }).__streams.flatMap((s) => s.getTracks()).filter((t) => t.readyState === 'live').length,
+  );
+}
 
 /** Needs Chromium launched with `--js-flags=--expose-gc`. */
 export async function forceGc(page: Page): Promise<void> {

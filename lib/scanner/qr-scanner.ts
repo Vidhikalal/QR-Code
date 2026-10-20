@@ -70,6 +70,8 @@ export interface BarcodeScanner extends QrScanner {
 export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: number } = {}): BarcodeScanner {
   const intervalMs = 1000 / Math.min(opts.fps ?? 10, 10); // SPEC §10.1: 10 fps or lower
   let stream: MediaStream | null = null;
+  let videoEl: HTMLVideoElement | null = null;
+  let generation = 0; // bumped by stop(): a start() still awaiting the camera must not switch it on afterwards
   let timer: ReturnType<typeof setTimeout> | null = null;
   let running = false;
   let paused = false;
@@ -77,23 +79,36 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
 
   return {
     async start(video, onDecode) {
+      const gen = ++generation;
       const { detector, engine: e } = await getDetector();
       engine = e;
+      if (gen !== generation) return;
+      let opened: MediaStream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        opened = await navigator.mediaDevices.getUserMedia({
           audio: false,
-          video: opts.deviceId ? { deviceId: { exact: opts.deviceId } } : { facingMode: { ideal: 'environment' } },
+          // The saved camera is preferred, not required: Chrome can hand out new deviceIds (e.g. after a
+          // reload), and an exact id that no longer exists would leave the camera "unavailable" for good.
+          video: opts.deviceId ? { deviceId: { ideal: opts.deviceId }, facingMode: { ideal: 'environment' } } : { facingMode: { ideal: 'environment' } },
         });
       } catch (err) {
+        if (gen !== generation) return;
         throw new CameraError(cameraFailure(err));
       }
+      if (gen !== generation) {
+        opened.getTracks().forEach((t) => t.stop()); // stopped while the camera was opening: release it at once
+        return;
+      }
+      stream = opened;
       // iOS Safari needs both, or the video opens fullscreen / refuses to autoplay (CLAUDE.md).
       video.muted = true;
       video.playsInline = true;
       video.setAttribute('playsinline', '');
       video.setAttribute('muted', '');
       video.srcObject = stream;
+      videoEl = video;
       await video.play();
+      if (gen !== generation) return; // stop() already released the stream
       running = true;
       const tick = async () => {
         if (!running) return;
@@ -110,10 +125,13 @@ export function createBarcodeScanner(opts: { deviceId?: string | null; fps?: num
       void tick();
     },
     async stop() {
+      generation++;
       running = false;
       if (timer) clearTimeout(timer);
       stream?.getTracks().forEach((t) => t.stop());
       stream = null;
+      if (videoEl) videoEl.srcObject = null; // fully released: NFC badge mode needs the camera off (§10.1)
+      videoEl = null;
     },
     async listCameras() {
       return (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');

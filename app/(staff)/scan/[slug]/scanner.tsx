@@ -8,7 +8,7 @@ import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper } from '@/lib/scanner/dedupe';
 import { playFeedback, unlockAudio, useNeedsTap, vibrateRead } from '@/lib/scanner/feedback';
-import { useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
+import { nfcSupported, useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
 import { submitScan } from '@/lib/scanner/submit';
@@ -19,7 +19,7 @@ import { ManualSearch } from './manual-search';
 import { ResultScreen } from './result-screen';
 import { ScannedHere } from './scanned-here';
 import styles from './scanner.module.css';
-import { CAMERA_KEY, checkpointKey, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint } from './types';
+import { CAMERA_KEY, checkpointKey, INPUT_KEY, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint, type InputMode } from './types';
 import { UndoDialog } from './undo-dialog';
 
 type CameraState = 'starting' | 'ready' | CameraFailure;
@@ -32,6 +32,21 @@ const subscribeOnline = (cb: () => void) => {
     window.removeEventListener('offline', cb);
   };
 };
+
+// Camera or NFC badges, one at a time (§10.1, v0.8.1): on a real Android phone a running camera stopped NFC
+// reads. Saved per device like the checkpoint (kept in memory too, for private mode); NFC only with Web NFC.
+let chosenInput: InputMode | null = null;
+const inputListeners = new Set<() => void>();
+const subscribeInput = (cb: () => void) => {
+  inputListeners.add(cb);
+  return () => void inputListeners.delete(cb);
+};
+const currentInput = (): InputMode => ((chosenInput ?? readPref(INPUT_KEY)) === 'nfc' && nfcSupported() ? 'nfc' : 'camera');
+function saveInput(mode: InputMode): void {
+  chosenInput = mode;
+  writePref(INPUT_KEY, mode);
+  for (const cb of inputListeners) cb();
+}
 
 const CAMERA_HELP: Record<CameraFailure, string> = {
   denied: 'Camera access is blocked. Allow the camera for this site in your browser settings, then reload. You can still use Manual search.',
@@ -57,6 +72,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [lastOwn, setLastOwn] = useState<{ at: number; scanId: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState<string | null>(null);
+  const mode = useSyncExternalStore(subscribeInput, currentInput, () => null); // null until hydrated
 
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const offline = !online || networkDown;
@@ -189,16 +205,19 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     };
   }, [scanningPaused, checkpoint, record, show]);
 
-  // Kept running while a result is shown (taps are ignored above) so Android doesn't open the tag's URL.
+  // Only in NFC mode; kept running while a result is shown (taps are ignored above) so Android doesn't
+  // open the tag's URL.
   const nfc = useNfcReader({
     prefKey: NFC_KEY,
+    autoStart: mode === 'nfc',
     onTag: (tag) => onTag.current(tag),
     onUnreadable: () => onUnreadable.current(),
   });
   const needsTap = useNeedsTap();
 
-  // Camera: started once; decoding pauses while anything else is on screen (§10.2).
+  // Camera: runs only in Camera mode; decoding pauses while anything else is on screen (§10.2).
   useEffect(() => {
+    if (mode !== 'camera') return;
     const video = videoRef.current;
     if (!video) return;
     const scanner = createBarcodeScanner({ deviceId: readPref(CAMERA_KEY) });
@@ -219,15 +238,30 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       });
     return () => {
       cancelled = true;
-      void scanner.stop();
+      void scanner.stop(); // releases the camera (its tracks), not just the decoder
+      if (scannerRef.current === scanner) scannerRef.current = null;
     };
-  }, []);
+  }, [mode]);
 
+  function chooseInput(next: InputMode) {
+    if (next === mode) return;
+    if (next === 'nfc') {
+      void nfc.start(); // this tap is the user gesture Chrome needs to start NFC
+    } else {
+      nfc.stop();
+      setCamera('starting');
+      setCameraReadyAt(null);
+    }
+    saveInput(next);
+  }
+
+  // Also on a mode change: a camera started after NFC mode must not decode while a dialog is open.
   useEffect(() => {
     scannerRef.current?.setPaused(scanningPaused);
-  }, [scanningPaused]);
+  }, [scanningPaused, mode]);
 
-  useEffect(() => (camera === 'ready' ? keepScreenAwake() : undefined), [camera]);
+  const awake = mode === 'nfc' ? nfc.state === 'on' : camera === 'ready';
+  useEffect(() => (awake ? keepScreenAwake() : undefined), [awake]);
 
   // Tick while an undo is possible so the button hides at 120 s (§10.3).
   useEffect(() => {
@@ -281,7 +315,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     <main
       className={styles.root}
       onPointerDown={unlockAudio}
-      data-camera={camera}
+      data-camera={mode === 'nfc' ? 'off' : camera}
       data-scanning={scanningPaused ? 'paused' : 'on'}
       data-active-at={activeAt ?? undefined}
     >
@@ -304,14 +338,40 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       )}
 
       <div className={styles.viewport}>
-        <video ref={videoRef} className={styles.video} playsInline muted aria-label="Camera view" />
-        {camera !== 'starting' && camera !== 'ready' && (
-          <div className={styles.viewportMessage} role="alert">
-            <p>📷 {CAMERA_HELP[camera]}</p>
+        <video ref={videoRef} className={styles.video} style={mode === 'nfc' ? { display: 'none' } : undefined} playsInline muted aria-label="Camera view" />
+        {mode === 'nfc' ? (
+          <div className={styles.viewportMessage}>
+            <p>📶 NFC badges: the camera is off. Hold a badge flat against the back of the phone.</p>
+            {nfc.state === 'off' && (
+              <button type="button" onClick={() => void nfc.start()}>
+                Start badge reader
+              </button>
+            )}
           </div>
+        ) : (
+          camera !== 'starting' &&
+          camera !== 'ready' && (
+            <div className={styles.viewportMessage} role="alert">
+              <p>📷 {CAMERA_HELP[camera]}</p>
+            </div>
+          )
         )}
         <div className={styles.status} aria-live="polite">
-          {busy ? 'Checking…' : camera === 'starting' ? 'Starting camera…' : camera === 'ready' && checkpoint ? 'Ready to scan' : ''}
+          {busy
+            ? 'Checking…'
+            : mode === 'nfc'
+              ? nfc.state === 'on'
+                ? checkpoint
+                  ? 'Ready: tap a badge on the back of the phone'
+                  : ''
+                : nfc.state === 'starting'
+                  ? 'Starting badge reader…'
+                  : 'Badge reader is off'
+              : camera === 'starting'
+                ? 'Starting camera…'
+                : camera === 'ready' && checkpoint
+                  ? 'Ready to scan'
+                  : ''}
         </div>
       </div>
 
@@ -327,19 +387,19 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
             Undo last
           </button>
         )}
-        {nfc.supported && (
-          <button
-            type="button"
-            className={styles.secondary}
-            aria-pressed={nfc.state !== 'off'}
-            onClick={() => (nfc.state === 'off' ? void nfc.start() : nfc.stop())}
-          >
-            {nfc.state === 'on' ? 'Badge reader: on' : nfc.state === 'starting' ? 'Badge reader: starting…' : 'Badge reader: off'}
-          </button>
+        {nfc.supported && mode && (
+          <div className={styles.inputSwitch} role="group" aria-label="Scan with">
+            <button type="button" className={mode === 'camera' ? undefined : styles.secondary} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
+              Camera
+            </button>
+            <button type="button" className={mode === 'nfc' ? undefined : styles.secondary} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
+              NFC badges
+            </button>
+          </div>
         )}
       </div>
-      {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate when it reads a badge.</p>}
-      {nfc.error && (
+      {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate on each scan.</p>}
+      {mode === 'nfc' && nfc.error && (
         <p className={styles.notice} role="alert">
           ✕ {nfc.error}
         </p>

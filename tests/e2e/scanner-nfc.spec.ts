@@ -5,10 +5,13 @@ import {
   fakeCameraArgs,
   forceGc,
   installFakeNfc,
+  liveCameraTracks,
+  nfcActive,
   nfcTap,
   nfcUnreadable,
   saveSignedInState,
   serialOf,
+  trackCameraStreams,
   warmDevServer,
 } from '../fixtures/e2e';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
@@ -34,9 +37,11 @@ async function openScanner(page: Page, checkpoint = 'Door') {
   await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
 }
 
+// v0.8.1: badges are their own input mode; the camera is off while the reader is on.
 async function readerOn(page: Page) {
-  await page.getByRole('button', { name: 'Badge reader: off' }).click();
-  await expect(page.getByRole('button', { name: 'Badge reader: on' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'NFC badges' }).click();
+  await expect(page.getByRole('button', { name: 'NFC badges' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('Ready: tap a badge on the back of the phone')).toBeVisible();
 }
 
 async function manualDoorScan(page: Page, query: string, name: string) {
@@ -51,6 +56,7 @@ async function manualDoorScan(page: Page, query: string, name: string) {
 test('T-NFC-10: without Web NFC there are no badge controls at all', async ({ page }) => {
   await openScanner(page);
   await expect(page.getByRole('button', { name: /badge/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Camera', exact: true })).toHaveCount(0); // no input switch either
 });
 
 test('T-NFC-10: a linked badge scans through the real API; repeats, unreadable tags and offline taps send nothing', async ({ page, context }) => {
@@ -118,7 +124,7 @@ test('T-NFC-10: a badge read vibrates at once, before the answer; until the page
   });
 
   await page.goto(`/scan/${f.slug}`);
-  const hint = page.getByText('Tap the screen once so the phone can vibrate when it reads a badge.');
+  const hint = page.getByText('Tap the screen once so the phone can vibrate on each scan.');
   await expect(hint).toBeVisible();
   await page.keyboard.press('Shift'); // an activation that changes nothing else: only the activation listener can hide it
   await expect(hint).toBeHidden();
@@ -153,5 +159,76 @@ test('T-NFC-10: taps still arrive after a garbage collection (a collected reader
   await forceGc(page);
   await nfcTap(page, serialOf(uid));
   await expect(page.getByTestId('scan-result')).toHaveAttribute('data-tone', 'green');
+});
+
+test('T-NFC-23: NFC badges mode turns the camera off and keeps the reader on; the choice survives a reload; Camera brings the camera back', async ({ page }) => {
+  await installFakeNfc(page);
+  await trackCameraStreams(page);
+  const { uid } = await f.linkBadge(f.p.N);
+  const scans: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().endsWith('/api/scan')) scans.push(r.url());
+  });
+  await openScanner(page, 'Raffle');
+  await expect(page.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await readerOn(page);
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'off');
+  expect(await page.evaluate(() => (document.querySelector('video') as HTMLVideoElement).srcObject)).toBeNull();
+  expect(await liveCameraTracks(page)).toBe(0); // the camera itself is off, not just hidden
+  expect(await nfcActive(page)).toBe(1);
+  await expect(page.getByRole('button', { name: /Badge reader/ })).toHaveCount(0); // always on: no off switch
+
+  // Reload: still in badge mode, camera off. Chrome needs a tap to start NFC unless permission was granted.
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'NFC badges' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'off');
+  await page.getByRole('button', { name: 'Start badge reader' }).click();
+  await expect(page.getByText('Ready: tap a badge on the back of the phone')).toBeVisible();
+  await nfcTap(page, serialOf(uid));
+  await expect(page.getByTestId('scan-result')).toHaveAttribute('data-tone', 'green');
+  await expect(page.getByTestId('scan-result')).toBeHidden({ timeout: 4000 });
+
+  // Back to the camera: it starts again, the reader stops, and a badge tap (a fresh one, so the dedupe can't
+  // hide a request) sends nothing.
+  await page.getByRole('button', { name: 'Camera', exact: true }).click();
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+  expect(await nfcActive(page)).toBe(0);
+  const before = scans.length;
+  await nfcTap(page, serialOf(randomUid()));
+  await page.waitForTimeout(1000);
+  expect(scans.length).toBe(before);
+  await expect(page.getByTestId('scan-result')).toBeHidden();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+});
+
+test('T-NFC-23: switching to NFC badges while the camera is still starting leaves it off', async ({ page }) => {
+  await installFakeNfc(page);
+  await trackCameraStreams(page, 1500); // a slow camera start (as with a permission prompt)
+  await page.goto(`/scan/${f.slug}`);
+  await chooseCheckpoint(page, 'Raffle');
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'starting');
+  await page.getByRole('button', { name: 'NFC badges' }).click();
+  await page.waitForTimeout(2500); // past the slow start
+  expect(await page.evaluate(() => (window as unknown as { __streams: MediaStream[] }).__streams.length)).toBe(1); // it did open
+  expect(await liveCameraTracks(page)).toBe(0); // ...and was released at once
+  await expect(page.locator('main')).toHaveAttribute('data-camera', 'off');
+});
+
+test('T-NFC-23: with the NFC permission already granted, NFC mode starts the reader by itself after a reload, exactly once', async ({ page }) => {
+  await installFakeNfc(page);
+  await page.addInitScript(() => {
+    const query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (d) => ((d as { name: string }).name === 'nfc' ? Promise.resolve({ state: 'granted' } as PermissionStatus) : query(d));
+  });
+  await openScanner(page, 'Raffle');
+  await readerOn(page);
+  expect(await nfcActive(page)).toBe(1); // the tap's reader, not replaced by an auto-start
+  await page.reload();
+  await expect(page.getByText('Ready: tap a badge on the back of the phone')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start badge reader' })).toHaveCount(0);
+  expect(await nfcActive(page)).toBe(1);
 });
 

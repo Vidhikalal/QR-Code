@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.8 · **Owner:** Ade · **Last updated:** 2026-10-20
+> **Status:** Draft v0.8.1 · **Owner:** Ade · **Last updated:** 2026-10-20
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -896,6 +896,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 
 - A **checkpoint banner** is always visible at the top. It shows the checkpoint name and a kind color (door = blue, meal = orange, session = purple, custom = teal).
 - Changing the checkpoint requires a confirm dialog. The selection is saved to `localStorage` under `passline:checkpoint:<slug>`.
+- **Camera or NFC badges, one at a time (v0.8.1).** On a phone with Web NFC (§10.5) a **Camera | NFC badges** switch picks the input; elsewhere there is no switch and the camera is the input. The choice is saved per device under `passline:input`. DECISION: one at a time, because on a real Android phone a running camera stopped NFC reads; NFC mode releases the camera entirely (tracks stopped, preview hidden) and keeps the badge reader on.
 - The camera viewport takes about 60% of the height, below that are the **Manual search** and **Undo last** buttons.
 - The scanner abstraction:
   ```ts
@@ -903,7 +904,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
     stop(): Promise<void>; listCameras(): Promise<MediaDeviceInfo[]> }
   ```
 - Camera settings:
-  - prefer `facingMode: 'environment'` and remember the chosen `deviceId`,
+  - prefer `facingMode: 'environment'` and remember the chosen `deviceId` as a preference (`ideal`), never `exact`: Chrome can hand out new device ids (e.g. after a reload), and an exact id that no longer exists left the camera "unavailable" (v0.8.1),
   - decode at 10 fps or lower,
   - the `<video>` element MUST have `playsinline` and `muted`.
 - Request a Screen Wake Lock while scanning where supported, and re-acquire it on `visibilitychange` (§17 A4).
@@ -962,10 +963,10 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 ### 10.5 NFC badges (v0.3, Android Chrome only)
 
 - Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
-- **NFC toggle:** an on/off button; the preference is saved in `localStorage` under `passline:nfc`. The first start must come from a tap (it triggers Chrome's permission prompt); later it auto-starts if the `nfc` permission is already granted.
+- **NFC badges mode (v0.8.1; replaces the on/off toggle):** choosing **NFC badges** turns the camera off and starts the reader from that tap (it triggers Chrome's permission prompt the first time); the reader then stays on, with no off switch, until **Camera** is chosen. Opening the scanner in NFC mode auto-starts the reader if the `nfc` permission is already granted; otherwise a **Start badge reader** button asks for the tap. The reader's own state is still saved under `passline:nfc`.
 - **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
 - **Keep the reader referenced (v0.7.4):** the page holds the active `NDEFReader` while scanning. On a real Android phone a reader reachable only through its own listeners was garbage-collected while Chrome kept the NFC session: Android no longer opened the tag's URL, and every tap went to nobody.
-- **Read feedback (v0.7.3):** as soon as a read passes the dedupe and pause checks, the phone taps twice (30 ms, 60 ms gap, 30 ms, where `navigator.vibrate` exists), before the server answers: unlike every result pattern, so it can't be felt as the green single pulse. The result's own pattern follows (§10.2). An unreadable tag gets the amber double pulse with its notice, unless reads are being ignored (a result on screen, offline, a dialog open). Chrome ignores vibration (and sound) until the page has been tapped once, so until then the scanner shows "Tap the screen once so the phone can vibrate when it reads a badge." Vibration is a nicety, never relied on: the screen stays the source of truth.
+- **Read feedback (v0.7.3):** as soon as a read passes the dedupe and pause checks, the phone taps twice (30 ms, 60 ms gap, 30 ms, where `navigator.vibrate` exists), before the server answers: unlike every result pattern, so it can't be felt as the green single pulse. The result's own pattern follows (§10.2). An unreadable tag gets the amber double pulse with its notice, unless reads are being ignored (a result on screen, offline, a dialog open). Chrome ignores vibration (and sound) until the page has been tapped once, so until then the scanner shows "Tap the screen once so the phone can vibrate on each scan." Vibration is a nicety, never relied on: the screen stays the source of truth.
 - **No Link badge in the scanner (v0.5).** Attendees link their own badge from their phone (§6.5); organizers link one on the Tools page (§11).
 - The reader keeps running while a result is shown (taps are ignored), so Android doesn't open the tag's URL in a new tab.
 
@@ -1347,6 +1348,7 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-20 | `claim_badge`: A claims an unlinked badge, then a second one; B claims A's badge; C (waitlisted), Wd, X (other event), a deleted participant, a staff-only email; an event that ended 31 vs 29 days ago; 10 attendees claim one badge in parallel (20 rounds) | `LINKED` (scans as A, audit `badge.claim` with `{}` detail), the first badge freed; `BADGE_TAKEN`, both badges unchanged; `NOT_FOUND`; `NOT_FOUND` vs `LINKED`; exactly 1 `LINKED` + 9 `BADGE_TAKEN` | I |
 | T-NFC-21 | A taps an unlinked badge signed out → signs in → This is my badge → Hacker profile (`/me/profile`, v0.6.1); saves `linkedin.com/company/x`, then `linkedin.com/in/ada-claimed` + sharing; B taps the badge; the badge at D; waitlisted C opens an unlinked badge | "Badge linked" on the Hacker profile; "Not saved", then saved as `https://www.linkedin.com/in/ada-claimed`; B sees Ada's name and that link, no claim button; `ACCEPTED`; no claim button, "sign in with the email you registered" | E |
 | T-NFC-22 | `badge_profile` viewed by the badge's holder (email in another case), shared and not; by another attendee, staff, another event's attendee. E: A taps their own badge; B taps it (v0.6) | `self: true` and the event `slug` added to the usual keys; never `self` or `slug` for anyone else. A lands on `/me`; B sees the badge profile | I+E |
+| T-NFC-23 | Scanner with the fake reader (v0.8.1): the default; NFC badges; reload; Start badge reader and a tap; Camera; a tap of another badge; reload. NFC badges while a slow camera start is still pending. With the `nfc` permission granted: NFC badges, then a reload | Camera pressed; every camera track ended, one reader, no reader off switch; still NFC mode with the camera off; a green result; the camera ready again and no reader; no `/api/scan` request; still Camera mode. The late camera stream is stopped at once (no live track). One reader after the tap (not replaced), and after the reload the reader is ready without a tap, still exactly one | E |
 | T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
 
 ### 14.16 RSVP — `T-RSVP` (v0.4)
@@ -1482,7 +1484,7 @@ Target: at least 95% of attempts under 3 s.
 | A7 | Scanner library choice: compare html5-qrcode, nimiq `qr-scanner` and `@zxing/browser` on iOS reliability, bundle size and maintenance activity | Swap behind the `QrScanner` interface |
 | A8 | `Utilities.computeHmacSha256Signature(value, key, Utilities.Charset.UTF_8)` output matches Node's HMAC for non-ASCII bodies | T-ING-05 catches it; fix encoding on one side |
 | A9 | Supabase region near Toronto | Choose the nearest and co-locate the Vercel functions |
-| A10 | Chrome on Android gives a `serialNumber` for our tags (NTAG21x) and doesn't open the tag's URL while the page is scanning | Ask volunteers to keep the scanner tab in front; consider tags without a URL record for staff-only use |
+| A10 | Chrome on Android gives a `serialNumber` for our tags (NTAG21x) and doesn't open the tag's URL while the page is scanning | Ask volunteers to keep the scanner tab in front; consider tags without a URL record for staff-only use **Checked on a real phone (2026-10-20):** the serial is there, but reads only arrived with the camera off, hence the one-input-at-a-time switch (§10.1). |
 | A11 | Web NFC needs no Permissions-Policy token (only the `nfc` permission) | Add `nfc=(self)` to `Permissions-Policy` and update T-SEC-06 |
 
 ---
@@ -1541,6 +1543,7 @@ Each slice ends with its tests green in CI and a short demo.
 - **v0.7.3 (2026-10-20)** — The scanner taps twice (a pattern no result uses) the moment it reads a badge, before the answer, so volunteers know the tap registered; unreadable tags get the amber pulse, and until the page has been tapped once (Chrome's rule for vibration) the scanner says so (§10.5). T-NFC-10 extended.
 - **v0.7.4 (2026-10-20)** — Fix: on a real Android phone, badge taps on the scanner did nothing. The page didn't hold its `NDEFReader`, so Chrome collected it while keeping the NFC session. The hook now keeps the active reader, and an exception in the read handler shows a notice instead of failing silently (§10.5). T-NFC-10 gains a garbage-collection case; the e2e fake now holds readers weakly. The dashboard no longer shows the Scan problems table (§13).
 - **v0.8 (2026-10-20)** — Who was scanned at each checkpoint: Admin → Checkpoints → **People**, and **Scanned here** in the scanner, with **Remove** (a void, F11: organizers any scan, volunteers their own within 120 s). New staff endpoint `GET /api/events/:slug/checkpoints/:id/scans` (§3, §9.3, §10.6, §11). New tests T-SCAN-30, T-SCUI-14, T-ADM-10.
+- **v0.8.1 (2026-10-20)** — The scanner takes one input at a time: a **Camera | NFC badges** switch (only where Web NFC exists). NFC mode releases the camera and keeps the badge reader on; on a real Android phone the running camera stopped NFC reads (§10.1, §10.5, A10). The saved camera is now a preference, not an exact requirement, which fixes a camera stuck as "unavailable" after Chrome changed its device id. The NFC hook no longer aborts a tap-started reader when auto-start settings change. New test T-NFC-23.
 - **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 

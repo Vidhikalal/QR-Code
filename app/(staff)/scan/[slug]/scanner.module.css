@@ -64,3 +64,4 @@
 .choice[aria-pressed='true'] { border-color: var(--accent); outline: 2px solid var(--accent); }
 .dialogActions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .secondary { background: #fff; color: var(--accent); }
+.inputSwitch { display: flex; gap: 12px; flex: 1 1 100%; }
