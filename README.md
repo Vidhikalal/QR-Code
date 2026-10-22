@@ -14,10 +14,12 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 
 | Page | Who | What it's for |
 |------|-----|---------------|
-| `/login` | Staff | Sign in with your email. You get a one-time link (locally it lands in the mail catcher, see below). First sign-in asks for a display name. |
+| `/login` | Staff and participants | Sign in with your email and password. Use **Forgot or never set your password?** to set or reset it by email. First staff sign-in asks for a display name. |
 | `/admin/<slug>` | Organizers | The event's control panel (tabs below). |
 | `/scan/<slug>` | Organizers + volunteers | The scanner. Also reachable from the admin tabs ("Scanner ↗"). |
 | `/p#<token>` | Participants | Their pass: name, event, QR code, optional photo upload. They get this link in their email. |
+| `/me` | Participants | My passes: upcoming events and links to open passes. |
+| `/rsvp#<token>` | Applicants | Answer Yes or No to an RSVP invitation. |
 
 **Switching events:** there's no event picker yet. Change the slug in the address bar, e.g. `/admin/demo` ↔ `/admin/test-2026`. After signing in you may land on the plain home page; type the `/admin/<slug>` or `/scan/<slug>` address from there.
 
@@ -47,9 +49,9 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 
 ### How a pass gets to someone
 
-Google Form → Google Sheet → an organizer sets **Status = Accepted** → the Sheet notifies the app (`Sync Status` shows `PASS_QUEUED`) → the app emails the pass → the participant shows the QR at the Door.
+Google Form → Google Sheet imports applicants as pending → an organizer selects them on the Participants page and sends an RSVP → each applicant answers Yes or No at `/rsvp#<token>`. Yes accepts them, signs them in after password setup if needed, and emails their QR pass; No withdraws them and revokes any pass. Applicants can change their answer until the event ends.
 
-Setting someone to Withdrawn or Rejected cancels their pass. Clearing an accepted status on purpose does nothing (`IGNORED_CLEAR`), so an accidental delete can't cancel a pass.
+The Sheet's `Status` column is ignored and optional; it can be kept for notes. The Participants list shows **RSVP sent** for pending people who have been emailed.
 
 ---
 
@@ -72,6 +74,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY
 SHEET_INGEST_SECRET=$(openssl rand -hex 32)
 DRAIN_SECRET=$(openssl rand -hex 32)
+PASS_TOKEN_SECRET=$(openssl rand -hex 32)
 EMAIL_PROVIDER=console
 ENV
 ```
@@ -118,16 +121,16 @@ When you're done, press Ctrl+C in tabs 1 and 2, then run `supabase stop`.
 
 ### Signing in locally
 
-Every sign-in email goes to the local mail catcher, **Mailpit**, at `http://127.0.0.1:54324`, not a real inbox. (`supabase status` shows the exact URL.)
+Supabase Auth emails for setting or resetting passwords go to **Mailpit** at `http://127.0.0.1:54324` locally. Anyone can open the link in any browser window; it opens a page with **Continue**, then **Set your password**.
 
-1. Go to `localhost:3000/login` and enter the email.
-2. Open Mailpit **in the same browser window** and click the link in the newest email. A sign-in only completes in the window that requested it, so for a second account in a private window, open Mailpit inside that private window.
+1. Go to `localhost:3000/login` and enter your email and password, or choose **Forgot or never set your password?**.
+2. Open Mailpit, at `http://127.0.0.1:54324`, and click the link in the newest email. Continue, then set your password.
 
 Accounts you can use:
-- `organizer@example.test` and `volunteer@example.test`, which `pnpm seed` invites to `demo`;
+- `organizer@example.test` and `volunteer@example.test`, seeded for `demo`. Choose **Forgot or never set your password?** for either address, then open the Mailpit link and set a password;
 - the `--organizer` email you gave `event:create`, for that event.
 
-Links work once and expire; if one fails, request a new one.
+Unknown email addresses get no email and the same on-screen message. A participant who is accepted another way or a walk-in can also use **Forgot or never set your password?** to get an account.
 
 ### Where passes end up locally
 
@@ -155,7 +158,7 @@ The Sheet talks to the app through `apps-script/Code.gs`. `apps-script/Setup.gs`
 
 | Function | When |
 |----------|------|
-| `setupTestForm` | Starting fresh: run it from a new, empty Google Sheet. It creates a form with the right questions, links it, adds the extra columns and a Status dropdown, saves the settings, and installs both triggers. The execution log prints the form link. |
+| `setupTestForm` | Starting fresh: run it from a new, empty Google Sheet. It creates a form with the right questions, links it, adds the extra columns (including a Status dropdown, which Passline ignores), saves the settings, and installs both triggers. The execution log prints the form link. |
 | `connectExistingSheet` | You already have a form and Sheet: saves the settings and installs the triggers. |
 | `updateEndpoint` | **After any `CONFIG` edit:** a new tunnel URL, a different event slug, a new secret. |
 | `showEndpoint` | Shows the address and event slug the Sheet will actually use. |
@@ -169,11 +172,11 @@ For a Sheet to connect:
 
 1. **The form is linked to the Sheet,** and the responses tab is named `Form Responses 1` (or change `SHEET_NAME` in `Code.gs`).
 2. **Row-1 headers match `HEADERS` in `Code.gs` exactly:**
-   - Required: `Email Address`, `First Name`, `Applicant ID`, `Status`, `Sync Status`.
+   - Required: `Email Address`, `First Name`, `Applicant ID`, `Sync Status`.
    - Optional: `Last Name`, `Dietary Restrictions`, `LinkedIn URL`.
 
    If your questions are worded differently, edit the values in `HEADERS` rather than renaming columns. Google's built-in "Collect email addresses" setting already produces `Email Address`.
-3. **Status** is Accepted, Waitlisted, Rejected or Withdrawn. Blank means undecided.
+3. **Status** is ignored and optional; organizers may keep it for notes.
 4. **Settings:**
    - `ENDPOINT`: app URL + `/api/ingest/sheet`
    - `EVENT_SLUG`: an event that exists **right now** (after a reset, only `demo`, and only once you've re-seeded)
@@ -181,7 +184,7 @@ For a Sheet to connect:
 5. **Exactly one pair of triggers** (On form submit, On edit). Check at [script.google.com/home/triggers](https://script.google.com/home/triggers). Leftover triggers from an older script keep calling old addresses; delete them.
 6. **One event per Sheet.**
 
-To re-send a row after fixing something, change its Status to **Waitlisted** and back to **Accepted**; the new result appears in `Sync Status`.
+The script syncs each new form submission and edits to any data column except `Sync Status`. Re-paste the updated `apps-script/Code.gs` into the Sheet's Apps Script editor. To sync a row again, edit any cell in it or use **Sync now**.
 
 A college Google Workspace account may block Apps Script from contacting outside servers (every sync shows `ERROR`). If so, use the club's personal Google account.
 
@@ -225,15 +228,17 @@ Keep `NEXT_PUBLIC_APP_ORIGIN=http://localhost:3000`. QR codes then match the lap
 
 | It says | Meaning | Fix |
 |---------|---------|-----|
-| `PASS_QUEUED …` | Worked. The QR appears in `.mail/qr/` within seconds | — |
-| `UNCHANGED …` | Already accepted earlier, so no new email | Participants tab → **Resend** |
+| `CREATED …` | New pending applicant imported | — |
+| `UPDATED …` | Applicant details updated | — |
+| `UNCHANGED …` | Applicant details have not changed | — |
+| `PASS_QUEUED …` | An accepted person's email changed; their pass is being re-sent | — |
 | `ERROR HTTP 502` | The tunnel is up but the app isn't answering | Start `pnpm dev` |
 | `ERROR HTTP 401` | Secret mismatch, or your Mac's clock is off by more than 5 minutes | Compare `INGEST_SECRET` with `grep SHEET_INGEST_SECRET .env.local`; run `updateEndpoint` |
 | `ERROR HTTP 404` | `EVENT_SLUG` names an event that doesn't exist | Run `showEndpoint`; then either `pnpm seed`, or fix `CONFIG` and run `updateEndpoint` |
 | `ERROR … DNS error: …trycloudflare.com` | The Sheet uses an old tunnel address | New address into `CONFIG`, run `updateEndpoint` |
 | `ERROR … Address unavailable` | Google can't reach that address (seen with Tailscale Funnel) | Use a Cloudflare tunnel |
 | `INVALID:external_id` | The row has no Applicant ID | Run `backfillApplicantIds` |
-| `INVALID:<field>` | That cell is missing or malformed | Fix the cell, toggle Status |
+| `INVALID:<field>` | That cell is missing or malformed | Fix the cell, edit the row or use **Sync now** |
 | No change at all | The trigger didn't run | Apps Script → **Executions**; check [your triggers](https://script.google.com/home/triggers) |
 
 `ERROR` results end with a timestamp (UTC), so you can tell a fresh error from an old one.
@@ -242,8 +247,8 @@ Keep `NEXT_PUBLIC_APP_ORIGIN=http://localhost:3000`. QR codes then match the lap
 
 | Problem | Fix |
 |---------|-----|
-| "Organizer access only" | Sign in again as the right account (in that window, via Mailpit). Invites are picked up at every sign-in. If it persists, grant the role in Studio (`http://127.0.0.1:54323`), SQL editor, with the query below. |
-| No `.mail/qr` folder after accepting someone | Check `Sync Status` first. If `.mail/` has `.eml` files but no `qr/` folder, restart `pnpm dev`. |
+| "Organizer access only" | Sign in again as the right account. Invites are picked up at every sign-in. If it persists, grant the role in Studio (`http://127.0.0.1:54323`), SQL editor, with the query below. |
+| No `.mail/qr` folder after someone answers Yes to an RSVP | Check that the RSVP was accepted and the pass email was sent. If `.mail/` has `.eml` files but no `qr/` folder, restart `pnpm dev`. |
 | Every scan says "Not a Passline code" | `NEXT_PUBLIC_APP_ORIGIN` must be exactly `http://localhost:3000` with no trailing slash, and you must scan from `localhost:3000`. Restart `pnpm dev` after changing it. |
 | Every scan says "Unknown code" | The QR image is from before the last `pnpm db:reset`. Use fresh images. |
 | "Checkpoint closed" | Open it on the Checkpoints tab. |

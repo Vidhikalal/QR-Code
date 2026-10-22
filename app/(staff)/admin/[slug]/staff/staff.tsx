@@ -11,7 +11,7 @@ interface StaffData {
 }
 type Pending = { kind: 'remove'; userId: string; name: string } | { kind: 'cancel'; email: string } | null;
 
-// F9: invite by email + role; the invite is consumed on first sign-in.
+// F9: invite by email + role. New addresses get an email to set a password; the invite is consumed on sign-in.
 export function Staff({ slug }: { slug: string }) {
   const api = useApi();
   const [data, setData] = useState<StaffData | null>(null);
@@ -29,9 +29,15 @@ export function Staff({ slug }: { slug: string }) {
   useLoad(load);
 
   async function invite() {
-    const r = await api<{ code: string }>(adminUrl(slug, '/staff/invites'), { method: 'POST', body: { email, role } });
+    const r = await api<{ code: string; emailed?: boolean }>(adminUrl(slug, '/staff/invites'), { method: 'POST', body: { email, role } });
     if (r.ok) {
-      setMessage(r.data.code === 'ADDED' ? `✓ They already have an account and are now staff.` : `✓ Invited. They get access when they sign in with that email.`);
+      setMessage(
+        r.data.code === 'ADDED'
+          ? `✓ They already have an account and are now staff.`
+          : r.data.emailed
+            ? `✓ Invited. We emailed them a link to set their password.`
+            : `✓ Invited. They can set a password with "Forgot or never set your password?" on the sign-in page.`,
+      );
       setEmail('');
     } else setMessage(r.status === 400 ? '✕ Enter a valid email.' : `✕ ${errorText(r)}`);
     await load();

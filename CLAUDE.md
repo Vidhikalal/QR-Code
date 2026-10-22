@@ -9,7 +9,7 @@ Passline emails QR passes to accepted event applicants and scans them for door c
 - Supabase (Postgres, Auth, Storage) with the local stack via Docker
 - zod · sharp · qrcode
 - Vitest (unit + integration) · Playwright (e2e)
-- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in dev and test.
+- Email is behind `lib/email/provider.ts`. `EMAIL_PROVIDER=console` in test (always) and by default in dev; dev may opt in to `resend` in `.env.local`.
 
 ## Commands
 | Task | Command |
@@ -47,7 +47,7 @@ lib/
   db/         server-only Supabase client, typed queries, generated types
   auth/       requireStaff(eventId, role?) and session helpers
   email/      provider interface, console + resend impls, templates
-  scanner/    QrScanner interface + implementation
+  scanner/    QrScanner interface + implementation, Web NFC reader (nfc.ts)
 supabase/migrations/  SQL migrations (never edit applied ones)
 apps-script/Code.gs   Google Sheet bridge (SPEC Appendix A)
 tests/unit | tests/int | tests/e2e | tests/fixtures | tests/assets (QR .y4m videos, EXIF images)
@@ -120,6 +120,7 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
   - the email provider,
   - the clock (`vi.useFakeTimers` or an injected `now()`),
   - the camera (Playwright fake device),
+  - Web NFC (a fake `window.NDEFReader` installed with `addInitScript`),
   - Google APIs.
 - **Isolation.** Each test file creates its own event through `tests/fixtures/standard.ts` with a unique slug. Never depend on another file's data or on execution order.
 - **Concurrency tests use genuinely parallel connections.** Use a `pg.Pool` sized ≥ N plus `Promise.all`, calling `select record_scan(...)` directly. Sequential `await`s in a loop do not test concurrency. The retry race in T-CONC-02 only shows up about 5% of the time, so the nightly loop (T-CONC-07) matters.
@@ -157,7 +158,7 @@ Commit after each green step with a message like `S1: record_scan capacity lock 
 ## Things you must not do
 - Do not run anything against a remote or production Supabase project (`supabase db push`, `supabase link`, remote SQL). Local only.
 - Do not `git push`, deploy, or change CI secrets.
-- Do not call a real email provider from dev or tests.
+- Do not call a real email provider from tests. In dev, only when `.env.local` sets `EMAIL_PROVIDER=resend` on purpose, and only to addresses you control (never the seed's `@example.test` people: bounces hurt the sending domain).
 - Do not scrape LinkedIn or fetch LinkedIn URLs. `linkedin_url` is stored text only.
 - Do not add offline scanning, Wallet passes, or anything in SPEC §1 non-goals.
 - Do not "simplify" `record_scan()` step order, remove the capacity lock, or drop the replay checks. Each exists because of a specific race (see SPEC §8 and T-CONC-02/06).

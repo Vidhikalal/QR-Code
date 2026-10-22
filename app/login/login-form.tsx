@@ -1,42 +1,56 @@
 'use client';
 
-import { createBrowserClient } from '@supabase/ssr';
-import { useState } from 'react';
+import { useActionState, useState } from 'react';
+import { sendPasswordLink, signIn } from './actions';
 import styles from './login.module.css';
 
 export function LoginForm({ next }: { next: string }) {
-  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [forgot, setForgot] = useState(false);
+  // Kept here, not in the action state, so a failed sign-in doesn't clear it.
+  const [email, setEmail] = useState('');
+  const [signInState, signInAction, signingIn] = useActionState(signIn, null);
+  const [linkState, linkAction, sending] = useActionState(sendPasswordLink, null);
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const email = String(new FormData(e.currentTarget).get('email') ?? '').trim();
-    setState('sending');
-    const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '');
-    const redirect = new URL('/auth/callback', window.location.origin);
-    redirect.searchParams.set('next', next);
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirect.toString() } });
-    setState(error ? 'error' : 'sent');
-  }
-
-  if (state === 'sent') {
+  if (forgot && linkState && 'sent' in linkState) {
     return (
       <p role="status" className={styles.ok}>
-        ✓ Check your email for a sign-in link. You can close this tab.
+        ✓ Check your email. If that address can use Passline, we sent a link to set your password.
       </p>
     );
   }
+  if (forgot) {
+    return (
+      <form className={styles.form} action={linkAction}>
+        <input type="hidden" name="next" value={next} />
+        <label htmlFor="email">Email</label>
+        <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={styles.input} />
+        <button type="submit" disabled={sending}>
+          {sending ? 'Sending…' : 'Email me a link to set my password'}
+        </button>
+        <button type="button" className={styles.linkButton} onClick={() => setForgot(false)}>
+          Back to sign-in
+        </button>
+      </form>
+    );
+  }
   return (
-    <form className={styles.form} onSubmit={onSubmit}>
+    <form className={styles.form} action={signInAction}>
+      <input type="hidden" name="next" value={next} />
       <label htmlFor="email">Email</label>
-      <input id="email" name="email" type="email" autoComplete="email" required className={styles.input} />
-      <button type="submit" disabled={state === 'sending'}>
-        {state === 'sending' ? 'Sending…' : 'Email me a sign-in link'}
-      </button>
-      {state === 'error' && (
+      <input id="email" name="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={styles.input} />
+      <label htmlFor="password">Password</label>
+      <input id="password" name="password" type="password" autoComplete="current-password" required className={styles.input} />
+      {signInState && 'error' in signInState && (
         <p role="alert" className={styles.error}>
-          ✕ Couldn&apos;t send the link. Wait a moment and try again.
+          ✕ Wrong email or password.
         </p>
       )}
+      <button type="submit" disabled={signingIn}>
+        {signingIn ? 'Signing in…' : 'Sign in'}
+      </button>
+      <button type="button" className={styles.linkButton} onClick={() => setForgot(true)}>
+        Forgot or never set your password?
+      </button>
     </form>
   );
 }

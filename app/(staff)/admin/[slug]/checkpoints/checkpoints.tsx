@@ -1,10 +1,10 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatEventDateTime, zonedToUtc } from '@/lib/domain/event-time';
 import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
-import { ConfirmDialog, Modal } from '../dialog';
+import { ConfirmDialog, Modal, VoidDialog } from '../dialog';
 
 type Kind = 'door' | 'meal' | 'session' | 'custom';
 interface Checkpoint {
@@ -31,6 +31,9 @@ export function Checkpoints({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState<Checkpoint | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Checkpoint | null>(null);
+  // `opened` re-keys the panel, so pressing People again reloads the list.
+  const [people, setPeople] = useState<{ checkpoint: Checkpoint; opened: number } | null>(null);
+  const peopleButtons = useRef(new Map<string, HTMLButtonElement>());
 
   const load = useCallback(async () => {
     const [r, e] = await Promise.all([api<{ checkpoints: Checkpoint[] }>(adminUrl(slug, '/checkpoints')), api<{ timezone: string }>(adminUrl(slug, '/event'))]);
@@ -101,6 +104,9 @@ export function Checkpoints({ slug }: { slug: string }) {
                       <button type="button" className={styles.small} aria-label={`${c.isOpen ? 'Close' : 'Open'} ${c.name}`} onClick={() => void toggle(c)}>
                         {c.isOpen ? 'Close' : 'Open'}
                       </button>
+                      <button type="button" className={`${styles.secondary} ${styles.small}`} aria-label={`People at ${c.name}`} ref={(el) => void (el ? peopleButtons.current.set(c.id, el) : peopleButtons.current.delete(c.id))} onClick={() => setPeople((p) => ({ checkpoint: c, opened: (p?.opened ?? 0) + 1 }))}>
+                        People
+                      </button>
                       <button type="button" className={`${styles.secondary} ${styles.small}`} aria-label={`Edit ${c.name}`} onClick={() => setEditing(c)}>
                         Edit
                       </button>
@@ -114,6 +120,19 @@ export function Checkpoints({ slug }: { slug: string }) {
             </tbody>
           </table>
         </div>
+      )}
+      {people && (
+        <CheckpointPeople
+          key={`${people.checkpoint.id}-${people.opened}`}
+          slug={slug}
+          checkpoint={people.checkpoint}
+          timezone={timezone}
+          onClose={() => {
+            const id = people.checkpoint.id;
+            setPeople(null);
+            requestAnimationFrame(() => peopleButtons.current.get(id)?.focus());
+          }}
+        />
       )}
       {editing && (
         <CheckpointForm
@@ -232,3 +251,118 @@ function CheckpointForm(props: { slug: string; timezone: string; initial: Checkp
     </Modal>
   );
 }
+
+interface ScanRow {
+  id: string;
+  displayName: string;
+  isTest: boolean;
+  scannedAt: string;
+  method: 'qr' | 'manual' | 'nfc';
+  scannedByName: string | null;
+  canRemove: boolean;
+}
+
+const HOW: Record<ScanRow['method'], string> = { qr: 'QR', nfc: 'Badge', manual: 'Manual' };
+
+// SPEC §11 (v0.8): who was scanned at a checkpoint, newest first. Remove voids the scan (F11, I-9): it stays
+// in the history but stops counting, and the person can be scanned again.
+function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezone: string; onClose: () => void }) {
+  const api = useApi();
+  const { slug, checkpoint } = props;
+  const [rows, setRows] = useState<ScanRow[] | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [voiding, setVoiding] = useState<ScanRow | null>(null);
+  const [removing, setRemoving] = useState(false); // one removal (and its refresh) at a time
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => heading.current?.focus(), []); // the panel opens below the table: bring it into view
+
+  const load = useCallback(async () => {
+    const r = await api<{ scans: ScanRow[] }>(`/api/events/${encodeURIComponent(slug)}/checkpoints/${checkpoint.id}/scans`);
+    if (r.ok) setRows(r.data.scans);
+    else setMessage(`✕ ${errorText(r)}`);
+  }, [api, slug, checkpoint.id]);
+
+  useLoad(load);
+
+  async function remove(row: ScanRow, reason: string) {
+    setVoiding(null);
+    setRemoving(true);
+    const r = await api<{ code: string }>(`/api/scans/${row.id}/void`, { method: 'POST', body: { reason } });
+    const done = r.ok && (r.data.code === 'VOIDED' || r.data.code === 'ALREADY_VOIDED');
+    setMessage(done ? `✓ Removed ${row.displayName} from ${checkpoint.name}.` : `✕ ${r.ok ? `Couldn’t remove (${r.data.code}).` : errorText(r)}`);
+    await load();
+    setRemoving(false);
+    heading.current?.focus(); // the row (and its button) is gone: keep keyboard focus on the panel
+  }
+
+  const headingId = `people-${checkpoint.id}`;
+  return (
+    <section aria-labelledby={headingId}>
+      <div className={styles.toolbar}>
+        <h2 id={headingId} ref={heading} tabIndex={-1}>
+          People at {checkpoint.name}
+        </h2>
+        <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={props.onClose}>
+          Close
+        </button>
+      </div>
+      {message && (
+        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
+          {message}
+        </p>
+      )}
+      {rows === null ? (
+        <p>Loading…</p>
+      ) : (
+        <>
+          <p className={styles.muted}>
+            {rows.length} {rows.length === 1 ? 'person' : 'people'}
+          </p>
+          {rows.length > 0 && (
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Scanned</th>
+                    <th>By</th>
+                    <th>How</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td>
+                        {r.displayName}
+                        {r.isTest && <span className={styles.muted}> (test)</span>}
+                      </td>
+                      <td>{formatEventDateTime(r.scannedAt, props.timezone)}</td>
+                      <td>{r.scannedByName ?? '—'}</td>
+                      <td>{HOW[r.method]}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className={`${styles.danger} ${styles.small}`}
+                          aria-label={`Remove ${r.displayName}`}
+                          disabled={removing}
+                          onClick={() => setVoiding(r)}
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      {voiding && (
+        <VoidDialog what={`${voiding.displayName}’s ${checkpoint.name} scan`} onSubmit={(reason) => void remove(voiding, reason)} onCancel={() => setVoiding(null)} />
+      )}
+    </section>
+  );
+}
+

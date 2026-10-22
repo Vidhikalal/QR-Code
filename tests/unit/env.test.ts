@@ -8,6 +8,7 @@ const valid = {
   SUPABASE_SERVICE_ROLE_KEY: 'service',
   SHEET_INGEST_SECRET: 'x'.repeat(32),
   DRAIN_SECRET: 'y'.repeat(32),
+  PASS_TOKEN_SECRET: 'z'.repeat(32),
   EMAIL_PROVIDER: 'console',
 };
 
@@ -33,11 +34,23 @@ describe('lib/env (S0 smoke)', () => {
     expect(() => parseServerEnv({ ...valid, DRAIN_SECRET: '' })).toThrow(/DRAIN_SECRET/);
   });
 
+  it('T-AUTH-06: ADMIN_EMAILS is a normalized comma list, empty when unset', () => {
+    expect(parseServerEnv({ ...valid, ADMIN_EMAILS: ' Yves@X.com, b@y.com ,' }).ADMIN_EMAILS).toEqual(['yves@x.com', 'b@y.com']);
+    expect(parseServerEnv(valid).ADMIN_EMAILS).toEqual([]);
+  });
+
   it('requires RESEND_API_KEY and EMAIL_FROM when EMAIL_PROVIDER=resend', () => {
     expect(() => parseServerEnv({ ...valid, EMAIL_PROVIDER: 'resend' })).toThrow(/RESEND_API_KEY[\s\S]*EMAIL_FROM/);
   });
 
   it('rejects an app origin with a path or trailing slash', () => {
     expect(() => parseServerEnv({ ...valid, NEXT_PUBLIC_APP_ORIGIN: 'http://localhost:3000/' })).toThrow(/APP_ORIGIN/);
+  });
+
+  it('T-NFC-15: BADGE_ORIGIN is optional and, when set, a bare origin like the app origin', () => {
+    expect(parseServerEnv(valid).BADGE_ORIGIN).toBeUndefined();
+    expect(parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com' }).BADGE_ORIGIN).toBe('https://nfc.yvesdonato.com');
+    expect(() => parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com/' })).toThrow(/BADGE_ORIGIN/);
+    expect(() => parseServerEnv({ ...valid, BADGE_ORIGIN: 'https://nfc.yvesdonato.com/profile' })).toThrow(/BADGE_ORIGIN/);
   });
 });

@@ -30,7 +30,7 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     expect(res.body).toEqual({ error: 'NOT_CONFIGURED' });
   });
 
-  it('T-ING-25 (route): link a Sheet by URL, dry-run shows the diff without writing, apply writes and schedules the drain', async () => {
+  it('T-ING-25 (route): link a Sheet by URL, dry-run shows the diff without writing, apply writes and sends no email', async () => {
     const link = await c.call('updateEvent', org, { slug: f.slug }, {
       method: 'PATCH',
       body: { sheet: 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789/edit#gid=0' },
@@ -43,13 +43,14 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from participants where event_id = $1', [f.e1.id]);
     const dry = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true } });
     expect(requestedSheet).toBe('1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789');
-    expect(dry.body).toMatchObject({ dryRun: true, total: 1, counts: { PASS_QUEUED: 1 } });
+    expect(dry.body).toMatchObject({ dryRun: true, total: 1, counts: { CREATED: 1 } });
     const mid = await f.pool.query<{ n: number }>('select count(*)::int as n from participants where event_id = $1', [f.e1.id]);
     expect(mid.rows[0]?.n).toBe(before.rows[0]?.n);
 
     const applied = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: false } });
-    expect(applied.body).toMatchObject({ dryRun: false, counts: { PASS_QUEUED: 1 } });
-    expect(c.scheduled.length).toBe(1);
+    expect(applied.body).toMatchObject({ dryRun: false, counts: { CREATED: 1 } });
+    // v0.4: importing never emails anyone; organizers send RSVPs (F13).
+    expect(c.scheduled.length).toBe(0);
     const { rows } = await f.pool.query<{ actor_kind: string }>(`select actor_kind from audit_log where action = 'sheet.sync' and event_id = $1`, [f.e1.id]);
     expect(rows).toEqual([{ actor_kind: 'staff' }]);
   });
@@ -64,5 +65,30 @@ describe('Sync now (SPEC F10) through the admin API', () => {
 
   it('F10: an invalid Sheet link is 400', async () => {
     expect((await c.call('updateEvent', org, { slug: f.slug }, { method: 'PATCH', body: { sheet: 'not a sheet' } })).status).toBe(400);
+  });
+});
+
+describe('event info for hackers (SPEC §11 Info, v0.6)', () => {
+  const patch = (body: unknown) => c.call('updateEvent', org, { slug: f.slug }, { method: 'PATCH', body });
+
+  it('T-ADM-08: organizers save the schedule and emergency info; over-long text and an empty body are refused', async () => {
+    const info = { schedule: 'Doors 9:00\nLunch 12:00', emergencyInfo: 'Call Ade: 555-0100' };
+    const res = await patch(info);
+    expect(res).toMatchObject({ status: 200, body: info });
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject(info);
+
+    // One field at a time leaves the other alone.
+    expect((await patch({ schedule: '' })).status).toBe(200);
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ schedule: '', emergencyInfo: info.emergencyInfo });
+
+    for (const body of [{ schedule: 's'.repeat(5001) }, { emergencyInfo: 'e'.repeat(2001) }, {}, { schedule: 1 }, { schedule: '', extra: 1 }]) {
+      expect((await patch(body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
+    }
+    expect((await patch({ schedule: 's'.repeat(5000), emergencyInfo: 'e'.repeat(2000) })).status).toBe(200);
+    // The Sheet link still answers as before.
+    expect((await patch({ sheet: null })).body).toEqual({ sheetId: null });
+
+    const { rows } = await f.pool.query<{ detail: unknown }>(`select detail from audit_log where action = 'event.info' and event_id = $1`, [f.e1.id]);
+    expect(rows).toEqual([{ detail: {} }, { detail: {} }, { detail: {} }]);
   });
 });

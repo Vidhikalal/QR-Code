@@ -7,7 +7,7 @@ import { PHOTO_BUCKET, photoPath } from '@/lib/storage/photos';
 import { requireEnv } from '../fixtures/db';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
-// SPEC §15 retention: photos and dietary notes are deleted 30 days after the event ends.
+// SPEC §15 retention: photos, dietary notes and emergency contacts are deleted 30 days after the event ends.
 const DAY = 86_400_000;
 const db = createClient<Database>(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'), {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -33,6 +33,8 @@ beforeAll(async () => {
     if (error) throw error;
     await f.pool.query(`update participants set photo_path = $2, photo_updated_at = now(), dietary_notes = 'Nut allergy' where id = $1`, [pid, path]);
   }
+  // v0.6: B in E1 has only an emergency contact.
+  await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent' where id = $1`, [f.p.B]);
 });
 afterAll(async () => {
   await f.close();
@@ -55,13 +57,15 @@ describe('retention (SPEC §15)', () => {
     expect((await person(f.p.A))?.dietary_notes).toBe('Nut allergy');
   });
 
-  it('T-PRIV-01: at ends_at + 30 d, photos are deleted from storage and photo_path/dietary_notes are nulled; younger events untouched', async () => {
+  it('T-PRIV-01: at ends_at + 30 d, photos are deleted from storage and photo_path/dietary_notes/emergency contacts are nulled; younger events untouched', async () => {
     const res = await call(`Bearer ${requireEnv('DRAIN_SECRET')}`);
     expect(res.status).toBe(200);
 
     const a = await person(f.p.A);
     expect(a).toMatchObject({ photo_path: null, photo_updated_at: null, dietary_notes: null, first_name: 'Ada' });
     expect(await objectExists(f.e1.id, f.p.A)).toBe(false);
+    const { rows: contact } = await f.pool.query('select emergency_name, emergency_phone, emergency_relation from participants where id = $1', [f.p.B]);
+    expect(contact).toEqual([{ emergency_name: null, emergency_phone: null, emergency_relation: null }]);
 
     const x = await person(f.p.X);
     expect(x?.photo_path).toBe(photoPath(f.e2.id, f.p.X));
@@ -72,7 +76,7 @@ describe('retention (SPEC §15)', () => {
       `select actor_kind, detail from audit_log where event_id = $1 and action = 'privacy.retention'`,
       [f.e1.id],
     );
-    expect(rows).toEqual([{ actor_kind: 'system', detail: { participants: 1, photos: 1 } }]);
+    expect(rows).toEqual([{ actor_kind: 'system', detail: { participants: 2, photos: 1 } }]);
   });
 
   it('T-PRIV-02: running it again changes nothing and writes no second audit row', async () => {

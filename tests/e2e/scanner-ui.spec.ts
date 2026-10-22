@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
-import { authStatePath, chooseCheckpoint, fakeCameraArgs, saveSignedInState, signInViaMagicLink, warmDevServer } from '../fixtures/e2e';
+import { authStatePath, chooseCheckpoint, fakeCameraArgs, saveSignedInState, signIn, warmDevServer } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // UI states driven by stubbed /api/scan responses (CLAUDE.md: route interception for UI-state tests).
@@ -175,7 +175,7 @@ test('T-SCUI-10: an expired session mid-shift goes to login, then back to the sa
   await recordAda(page);
   await page.waitForURL(`**/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
   await page.unroute('**/api/scan');
-  await signInViaMagicLink(page, f.staffEmail.vol1, `/scan/${f.slug}`);
+  await signIn(page, f.staffEmail.vol1, `/scan/${f.slug}`);
   await expect(page.getByTestId('checkpoint-banner')).toContainText('Lunch');
 });
 
@@ -210,3 +210,21 @@ test('T-SRCH-07: manual search shows who already has a live scan at the selected
   // Volunteers see masked emails (§10.4).
   await expect(ada).toContainText(/p\*\*\*@/);
 });
+
+test('T-SCUI-14: Scanned here lists who was scanned at this checkpoint; a volunteer can remove only their own fresh scan', async ({ page }) => {
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.N });
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol2, token: f.token.Rv });
+  await openScanner(page, 'Raffle');
+  await page.getByRole('button', { name: 'Scanned here' }).click();
+  const list = page.getByRole('region', { name: 'Scanned here' });
+  await expect(list.getByText('Nia Fixture')).toBeVisible();
+  await expect(list.getByText('Rae Fixture')).toBeVisible();
+  await expect(list.getByRole('button', { name: 'Remove Rae Fixture' })).toHaveCount(0); // vol2's scan
+  await list.getByRole('button', { name: 'Remove Nia Fixture' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Test scan' }).click();
+  // The confirmation names Nia too, so check the list items.
+  await expect(list.getByRole('status')).toContainText('Removed Nia Fixture');
+  await expect(list.getByRole('listitem').filter({ hasText: 'Nia Fixture' })).toHaveCount(0);
+  await expect(list.getByRole('listitem').filter({ hasText: 'Rae Fixture' })).toBeVisible();
+});
+

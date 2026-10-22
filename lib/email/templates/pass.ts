@@ -42,7 +42,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
 </ul>
 <p><a href="${e.url}">Add a photo for faster check-in</a> (optional).</p>
 <p>Questions? Just reply to this email.</p>
-<p style="font-size:12px;color:#555555">We use your details only to run ${e.event}: admission, meals and attendance. Photos and dietary notes are deleted 30 days after the event.</p>
+<p style="font-size:12px;color:#555555">We use your details only to run ${e.event}: admission, meals and attendance. Photos, dietary notes and emergency contacts are deleted 30 days after the event.</p>
 </body></html>`;
 
   const text = [
@@ -61,7 +61,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     '',
     'Questions? Just reply to this email.',
     '',
-    `We use your details only to run ${input.event.name}: admission, meals and attendance. Photos and dietary notes are deleted 30 days after the event.`,
+    `We use your details only to run ${input.event.name}: admission, meals and attendance. Photos, dietary notes and emergency contacts are deleted 30 days after the event.`,
   ].join('\n');
 
   return {

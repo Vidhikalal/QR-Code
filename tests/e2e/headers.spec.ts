@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 // T-SEC-06 (served half): the headers actually reach the browser on pages and API routes.
 // HSTS is production-only and is covered by tests/unit/security-headers.test.ts.
-for (const path of ['/', '/p', '/login', '/scan/demo', '/api/pass']) {
+for (const path of ['/', '/p', '/login', '/scan/demo', '/api/pass', '/profile/04a1b2c3d4e5f6']) {
   test(`T-SEC-06: ${path} carries CSP, frame-ancestors 'none' and camera=(self)`, async ({ request }) => {
     const res = path.startsWith('/api') ? await request.post(path, { data: {} }) : await request.get(path, { maxRedirects: 0 });
     const h = res.headers();

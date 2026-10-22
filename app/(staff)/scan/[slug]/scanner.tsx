@@ -3,10 +3,12 @@
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { normalizeUid } from '@/lib/domain/badge';
 import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper } from '@/lib/scanner/dedupe';
-import { playFeedback, unlockAudio } from '@/lib/scanner/feedback';
+import { playFeedback, unlockAudio, useNeedsTap, vibrateRead } from '@/lib/scanner/feedback';
+import { nfcSupported, useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
 import { submitScan } from '@/lib/scanner/submit';
@@ -15,8 +17,9 @@ import { keepScreenAwake } from '@/lib/scanner/wake-lock';
 import { CheckpointPicker } from './checkpoint-picker';
 import { ManualSearch } from './manual-search';
 import { ResultScreen } from './result-screen';
+import { ScannedHere } from './scanned-here';
 import styles from './scanner.module.css';
-import { CAMERA_KEY, checkpointKey, KIND_LABEL, readPref, writePref, type Checkpoint } from './types';
+import { CAMERA_KEY, checkpointKey, INPUT_KEY, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint, type InputMode } from './types';
 import { UndoDialog } from './undo-dialog';
 
 type CameraState = 'starting' | 'ready' | CameraFailure;
@@ -29,6 +32,21 @@ const subscribeOnline = (cb: () => void) => {
     window.removeEventListener('offline', cb);
   };
 };
+
+// Camera or NFC badges, one at a time (§10.1, v0.8.1): on a real Android phone a running camera stopped NFC
+// reads. Saved per device like the checkpoint (kept in memory too, for private mode); NFC only with Web NFC.
+let chosenInput: InputMode | null = null;
+const inputListeners = new Set<() => void>();
+const subscribeInput = (cb: () => void) => {
+  inputListeners.add(cb);
+  return () => void inputListeners.delete(cb);
+};
+const currentInput = (): InputMode => ((chosenInput ?? readPref(INPUT_KEY)) === 'nfc' && nfcSupported() ? 'nfc' : 'camera');
+function saveInput(mode: InputMode): void {
+  chosenInput = mode;
+  writePref(INPUT_KEY, mode);
+  for (const cb of inputListeners) cb();
+}
 
 const CAMERA_HELP: Record<CameraFailure, string> = {
   denied: 'Camera access is blocked. Allow the camera for this site in your browser settings, then reload. You can still use Manual search.',
@@ -43,6 +61,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [pickerOpen, setPickerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [undoOpen, setUndoOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const peopleButton = useRef<HTMLButtonElement>(null);
   const [result, setResult] = useState<{ view: ResultView; id: number; shownAt: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [networkDown, setNetworkDown] = useState(false);
@@ -52,6 +72,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const [lastOwn, setLastOwn] = useState<{ at: number; scanId: string } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState<string | null>(null);
+  const mode = useSyncExternalStore(subscribeInput, currentInput, () => null); // null until hydrated
 
   const online = useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
   const offline = !online || networkDown;
@@ -104,8 +125,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     return () => window.removeEventListener('online', clear);
   }, [networkDown]);
 
-  const show = useCallback((outcome: Outcome, cp: Checkpoint) => {
-    const view = viewFor(outcome, { checkpointKind: cp.kind, checkpointName: cp.name, timezone, now: new Date() });
+  const show = useCallback((outcome: Outcome, cp: Checkpoint, method?: ScanRequest['method']) => {
+    const view = viewFor(outcome, { checkpointKind: cp.kind, checkpointName: cp.name, timezone, now: new Date(), method });
     const id = ++resultSeq.current;
     setResult({ view, id, shownAt: performance.now() });
     playFeedback(view.sound);
@@ -115,7 +136,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }, [timezone]);
 
   const record = useCallback(
-    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId'>) => {
+    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'badgeUid'>) => {
       if (!checkpoint) return;
       setBusy(true);
       setNotice(null);
@@ -130,21 +151,22 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       if (outcome.kind === 'unauthorized') return toLogin();
       if (outcome.kind === 'offline') {
         setNetworkDown(true);
-        return show({ kind: 'network' }, checkpoint);
+        return show({ kind: 'network' }, checkpoint, part.method);
       }
       if (outcome.kind === 'response') {
-        if (outcome.data.code === 'ACCEPTED' && outcome.data.scanId && !outcome.data.voided) {
-          setLastOwn({ at: Date.now(), scanId: outcome.data.scanId });
+        const { data } = outcome;
+        if (data.code === 'ACCEPTED' && data.scanId && !data.voided) {
+          setLastOwn({ at: Date.now(), scanId: data.scanId });
           setNow(Date.now());
         }
-        return show({ kind: 'server', data: outcome.data }, checkpoint);
+        return show({ kind: 'server', data }, checkpoint, part.method);
       }
-      show({ kind: outcome.kind }, checkpoint);
+      show({ kind: outcome.kind }, checkpoint, part.method);
     },
     [checkpoint, show, toLogin],
   );
 
-  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || !checkpoint;
+  const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || peopleOpen || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);
   useEffect(() => {
     onDecode.current = (text: string) => {
@@ -157,8 +179,45 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     };
   }, [scanningPaused, checkpoint, appOrigin, record, show]);
 
-  // Camera: started once; decoding pauses while anything else is on screen (§10.2).
+  // NFC taps follow the QR rules: dedupe, pause while anything is on screen, MALFORMED without a request.
+  const onTag = useRef<(tag: NfcTag) => void>(() => undefined);
+  const onUnreadable = useRef<() => void>(() => undefined);
   useEffect(() => {
+    onTag.current = ({ serial }) => {
+      if (scanningPaused || !checkpoint) return;
+      if (!deduper.current.shouldHandle(`nfc:${serial}`, Date.now())) return;
+      try {
+        vibrateRead();
+        const uid = normalizeUid(serial);
+        if (!uid) return show({ kind: 'malformed' }, checkpoint);
+        void record({ method: 'nfc', badgeUid: uid });
+      } catch (err) {
+        // Never fail silently on a badge tap (the volunteer would think nothing was read).
+        console.error(JSON.stringify({ level: 'error', where: 'scanner.onTag', error: String(err).slice(0, 200) }));
+        setNotice('✕ Couldn’t handle that badge. Reload the page and try again.');
+      }
+    };
+    // A tag sensed but not read: amber feedback, unless reads are being ignored anyway (same guard as onTag).
+    onUnreadable.current = () => {
+      if (scanningPaused || !checkpoint) return;
+      playFeedback('double');
+      setNotice('✕ Couldn’t read that badge. Hold it still and try again.');
+    };
+  }, [scanningPaused, checkpoint, record, show]);
+
+  // Only in NFC mode; kept running while a result is shown (taps are ignored above) so Android doesn't
+  // open the tag's URL.
+  const nfc = useNfcReader({
+    prefKey: NFC_KEY,
+    autoStart: mode === 'nfc',
+    onTag: (tag) => onTag.current(tag),
+    onUnreadable: () => onUnreadable.current(),
+  });
+  const needsTap = useNeedsTap();
+
+  // Camera: runs only in Camera mode; decoding pauses while anything else is on screen (§10.2).
+  useEffect(() => {
+    if (mode !== 'camera') return;
     const video = videoRef.current;
     if (!video) return;
     const scanner = createBarcodeScanner({ deviceId: readPref(CAMERA_KEY) });
@@ -179,15 +238,30 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       });
     return () => {
       cancelled = true;
-      void scanner.stop();
+      void scanner.stop(); // releases the camera (its tracks), not just the decoder
+      if (scannerRef.current === scanner) scannerRef.current = null;
     };
-  }, []);
+  }, [mode]);
 
+  function chooseInput(next: InputMode) {
+    if (next === mode) return;
+    if (next === 'nfc') {
+      void nfc.start(); // this tap is the user gesture Chrome needs to start NFC
+    } else {
+      nfc.stop();
+      setCamera('starting');
+      setCameraReadyAt(null);
+    }
+    saveInput(next);
+  }
+
+  // Also on a mode change: a camera started after NFC mode must not decode while a dialog is open.
   useEffect(() => {
     scannerRef.current?.setPaused(scanningPaused);
-  }, [scanningPaused]);
+  }, [scanningPaused, mode]);
 
-  useEffect(() => (camera === 'ready' ? keepScreenAwake() : undefined), [camera]);
+  const awake = mode === 'nfc' ? nfc.state === 'on' : camera === 'ready';
+  useEffect(() => (awake ? keepScreenAwake() : undefined), [awake]);
 
   // Tick while an undo is possible so the button hides at 120 s (§10.3).
   useEffect(() => {
@@ -209,6 +283,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     setCheckpointSetAt(performance.now());
     setPickerOpen(false);
     setLastOwn(null);
+    // A deliberate switch makes the same code a new scan here (e.g. the badge just scanned at the door).
+    deduper.current = createDeduper();
   }
 
   async function undo(reason: string) {
@@ -239,7 +315,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     <main
       className={styles.root}
       onPointerDown={unlockAudio}
-      data-camera={camera}
+      data-camera={mode === 'nfc' ? 'off' : camera}
       data-scanning={scanningPaused ? 'paused' : 'on'}
       data-active-at={activeAt ?? undefined}
     >
@@ -262,14 +338,40 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       )}
 
       <div className={styles.viewport}>
-        <video ref={videoRef} className={styles.video} playsInline muted aria-label="Camera view" />
-        {camera !== 'starting' && camera !== 'ready' && (
-          <div className={styles.viewportMessage} role="alert">
-            <p>📷 {CAMERA_HELP[camera]}</p>
+        <video ref={videoRef} className={styles.video} style={mode === 'nfc' ? { display: 'none' } : undefined} playsInline muted aria-label="Camera view" />
+        {mode === 'nfc' ? (
+          <div className={styles.viewportMessage}>
+            <p>📶 NFC badges: the camera is off. Hold a badge flat against the back of the phone.</p>
+            {nfc.state === 'off' && (
+              <button type="button" onClick={() => void nfc.start()}>
+                Start badge reader
+              </button>
+            )}
           </div>
+        ) : (
+          camera !== 'starting' &&
+          camera !== 'ready' && (
+            <div className={styles.viewportMessage} role="alert">
+              <p>📷 {CAMERA_HELP[camera]}</p>
+            </div>
+          )
         )}
         <div className={styles.status} aria-live="polite">
-          {busy ? 'Checking…' : camera === 'starting' ? 'Starting camera…' : camera === 'ready' && checkpoint ? 'Ready to scan' : ''}
+          {busy
+            ? 'Checking…'
+            : mode === 'nfc'
+              ? nfc.state === 'on'
+                ? checkpoint
+                  ? 'Ready: tap a badge on the back of the phone'
+                  : ''
+                : nfc.state === 'starting'
+                  ? 'Starting badge reader…'
+                  : 'Badge reader is off'
+              : camera === 'starting'
+                ? 'Starting camera…'
+                : camera === 'ready' && checkpoint
+                  ? 'Ready to scan'
+                  : ''}
         </div>
       </div>
 
@@ -277,12 +379,31 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         <button type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
           Manual search
         </button>
+        <button ref={peopleButton} type="button" className={styles.secondary} onClick={() => setPeopleOpen(true)} disabled={offline || !checkpoint}>
+          Scanned here
+        </button>
         {showUndo && (
           <button type="button" className={styles.secondary} onClick={() => setUndoOpen(true)}>
             Undo last
           </button>
         )}
+        {nfc.supported && mode && (
+          <div className={styles.inputSwitch} role="group" aria-label="Scan with">
+            <button type="button" className={mode === 'camera' ? undefined : styles.secondary} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
+              Camera
+            </button>
+            <button type="button" className={mode === 'nfc' ? undefined : styles.secondary} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
+              NFC badges
+            </button>
+          </div>
+        )}
       </div>
+      {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate on each scan.</p>}
+      {mode === 'nfc' && nfc.error && (
+        <p className={styles.notice} role="alert">
+          ✕ {nfc.error}
+        </p>
+      )}
       {notice && (
         <p className={styles.notice} role="status">
           {notice}
@@ -303,6 +424,20 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
             setSearchOpen(false);
             void record({ method: 'manual', participantId });
           }}
+        />
+      )}
+      {peopleOpen && checkpoint && (
+        <ScannedHere
+          slug={slug}
+          checkpoint={checkpoint}
+          timezone={timezone}
+          disabled={offline}
+          onUnauthorized={toLogin}
+          onClose={() => {
+            setPeopleOpen(false);
+            requestAnimationFrame(() => peopleButton.current?.focus());
+          }}
+          onRemoved={(scanId) => setLastOwn((l) => (l?.scanId === scanId ? null : l))}
         />
       )}
       {undoOpen && <UndoDialog onSubmit={(r) => void undo(r)} onCancel={() => setUndoOpen(false)} />}

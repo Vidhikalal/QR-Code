@@ -44,7 +44,8 @@ function setupTestForm() {
   const sheet = waitForResponseSheet_(ss.getId(), 6); // Timestamp + 5 questions
   if (sheet.getName() !== SHEET_NAME) sheet.setName(SHEET_NAME); // SHEET_NAME comes from Code.gs
 
-  // 3. The three organizer columns, with a dropdown on Status (blank = pending).
+  // 3. The three organizer columns, with a dropdown on Status (blank = pending). Since SPEC v0.4
+  //    Passline ignores Status (acceptance comes from the RSVP); keep it for your own notes.
   const lastCol = sheet.getLastColumn();
   sheet.getRange(1, lastCol + 1, 1, 3).setValues([['Applicant ID', 'Status', 'Sync Status']]);
   const statusRule = SpreadsheetApp.newDataValidation()

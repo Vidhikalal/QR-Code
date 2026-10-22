@@ -64,10 +64,24 @@ export interface StandardFixture {
   voidScan(scanId: string, staff: string, reason?: string): Promise<VoidResult>;
   addParticipant(eventId: string, opts?: { status?: string; withPass?: boolean }): Promise<{ id: string; token?: string }>;
   checkIn(participantId: string, token?: string): Promise<void>;
+  /** link_badge() in the participant's own event (SPEC §6.5); a random UID unless given. */
+  linkBadge(participantId: string, opts?: LinkBadgeOpts): Promise<{ uid: string; code: string }>;
+  /** record_badge_scan() (SPEC §8, NFC). */
+  badgeScan(args: { cp: string; staff: string; uid: string; clientScanId?: string; db?: pg.Pool | pg.PoolClient }): Promise<ScanResult>;
   close(): Promise<void>;
 }
 
-async function createStaffUser(email: string): Promise<string> {
+export interface LinkBadgeOpts {
+  uid?: string;
+  actor?: string;
+  move?: boolean;
+  db?: pg.Pool | pg.PoolClient;
+}
+
+export const randomUid = () => randomBytes(7).toString('hex');
+
+// A confirmed account with a password (staff, or an attendee who answered an RSVP).
+export async function createAccount(email: string): Promise<string> {
   const admin = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'), {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -174,10 +188,10 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     vol3: `vol3@${slug}.test`,
   };
   const staff = {
-    org1: await createStaffUser(staffEmail.org1),
-    vol1: await createStaffUser(staffEmail.vol1),
-    vol2: await createStaffUser(staffEmail.vol2),
-    vol3: await createStaffUser(staffEmail.vol3),
+    org1: await createAccount(staffEmail.org1),
+    vol1: await createAccount(staffEmail.vol1),
+    vol2: await createAccount(staffEmail.vol2),
+    vol3: await createAccount(staffEmail.vol3),
   };
   const staffRows: Array<[string, string, string, string]> = [
     [e1.id, staff.org1, 'organizer', 'Org One'],
@@ -228,6 +242,30 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     if (r.code !== 'ACCEPTED') throw new Error(`fixture check-in failed: ${r.code}`);
   };
 
+  const linkBadge = async (participantId: string, o: LinkBadgeOpts = {}) => {
+    const uid = o.uid ?? randomUid();
+    const { rows } = await (o.db ?? pool).query<{ code: string }>(
+      `select link_badge(pa.event_id, pa.id, $2, $3, $4) as code from participants pa where pa.id = $1`,
+      [participantId, uid, o.actor ?? staff.org1, o.move ?? false],
+    );
+    const code = rows[0]?.code;
+    if (!code) throw new Error('link_badge returned nothing');
+    return { uid, code };
+  };
+
+  const badgeScan = async (args: { cp: string; staff: string; uid: string; clientScanId?: string; db?: pg.Pool | pg.PoolClient }) => {
+    const { rows } = await (args.db ?? pool).query<{ r: ScanResult }>('select record_badge_scan($1, $2, $3, $4, $5) as r', [
+      args.cp,
+      args.staff,
+      args.uid,
+      args.clientScanId ?? randomUUID(),
+      new Date().toISOString(),
+    ]);
+    const r = rows[0]?.r;
+    if (!r) throw new Error('record_badge_scan returned nothing');
+    return r;
+  };
+
   return {
     slug,
     e1,
@@ -244,6 +282,8 @@ export async function createStandardFixture(opts: { poolSize?: number } = {}): P
     voidScan,
     addParticipant,
     checkIn,
+    linkBadge,
+    badgeScan,
     close: () => pool.end(),
   };
 }

@@ -45,9 +45,10 @@ describe('security headers (SPEC §14.12)', () => {
     expect(get(prod, 'Content-Security-Policy')).not.toContain('ws:');
   });
 
-  it('T-SEC-06: nosniff, DENY framing and no referrer', () => {
+  it('T-SEC-06: nosniff, DENY framing and no referrer to other sites', () => {
     expect(get(prod, 'X-Content-Type-Options')).toBe('nosniff');
     expect(get(prod, 'X-Frame-Options')).toBe('DENY');
-    expect(get(prod, 'Referrer-Policy')).toBe('no-referrer');
+    // same-origin, not no-referrer: forms posted before hydration need a real Origin (T-AUTH-01).
+    expect(get(prod, 'Referrer-Policy')).toBe('same-origin');
   });
 });

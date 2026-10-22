@@ -20,6 +20,7 @@ export const POST = route(async (request) => {
     db: db(),
     provider: getProvider(),
     appOrigin: env().NEXT_PUBLIC_APP_ORIGIN,
+    passSecret: env().PASS_TOKEN_SECRET,
     from: emailFrom(),
   });
   return Response.json(result);

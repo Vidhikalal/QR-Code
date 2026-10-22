@@ -26,13 +26,13 @@ describe('Sync now (SPEC F10)', () => {
   it('T-ING-25: dry run returns the diff and writes nothing; apply produces the same results', async () => {
     const c = ingestClient();
     const existing = sheetRow(f.slug);
-    const toWithdraw = sheetRow(f.slug);
-    await c.ingest(f.slug, [existing, toWithdraw]);
+    const renamed = sheetRow(f.slug);
+    await c.ingest(f.slug, [existing, renamed]);
 
     const newcomer = sheetRow(f.slug, { first_name: 'Zoë' });
     const header = ['Timestamp', 'Email Address', 'First Name', 'Last Name', 'Dietary Restrictions', 'LinkedIn URL', 'Applicant ID', 'Status', 'Sync Status'];
     const asCells = (r: ReturnType<typeof sheetRow>) => ['1/1', r.email, r.first_name, r.last_name, r.dietary_notes, r.linkedin_url, r.external_id, r.status, ''];
-    const sheet = [header, asCells(existing), asCells({ ...toWithdraw, status: 'Withdrawn' }), asCells(newcomer), ['1/2', '', 'Nobody', '', '', '', 'id-x', '', '']];
+    const sheet = [header, asCells(existing), asCells({ ...renamed, first_name: 'Renamed', status: 'Withdrawn' }), asCells(newcomer), ['1/2', '', 'Nobody', '', '', '', 'id-x', '', '']];
     const readSheet = async () => sheet;
 
     const before = await allTableCounts();
@@ -41,10 +41,11 @@ describe('Sync now (SPEC F10)', () => {
     expect(dry).toEqual({
       dryRun: true,
       total: 4,
-      counts: { UNCHANGED: 1, REVOKED: 1, PASS_QUEUED: 1, 'INVALID:email': 1 },
+      // v0.4: Status is ignored (Withdrawn changes nothing); only the new first name is an update.
+      counts: { UNCHANGED: 1, UPDATED: 1, CREATED: 1, 'INVALID:email': 1 },
       changes: [
-        { external_id: toWithdraw.external_id, result: 'REVOKED' },
-        { external_id: newcomer.external_id, result: 'PASS_QUEUED' },
+        { external_id: renamed.external_id, result: 'UPDATED' },
+        { external_id: newcomer.external_id, result: 'CREATED' },
         { external_id: 'id-x', result: 'INVALID:email' },
       ],
     });

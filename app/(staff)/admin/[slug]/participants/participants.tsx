@@ -19,6 +19,7 @@ export interface Row {
   passState: 'active' | 'revoked' | 'none';
   liveScans: number;
   checkedIn: boolean;
+  rsvpSentAt: string | null;
 }
 
 type Pending = { kind: 'resend' | 'revoke' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
@@ -43,6 +44,10 @@ export function Participants({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // F13: who gets an RSVP. Accepted people can't be picked (they're already in).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
+  const picked = invitable.filter((r) => selected.has(r.id));
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
@@ -65,6 +70,22 @@ export function Participants({ slug }: { slug: string }) {
     const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' ? 'DELETE' : 'POST' });
     setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : `✕ ${errorText(r)}`);
     if (kind === 'delete' && openId === row.id) setOpenId(null);
+    await load();
+  }
+
+  function pick(id: string, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function sendRsvps() {
+    const r = await api<{ queued: number }>(adminUrl(slug, '/participants/rsvp'), { method: 'POST', body: { ids: picked.map((p) => p.id) } });
+    setMessage(r.ok ? `✓ RSVP emails queued for ${r.data.queued} ${r.data.queued === 1 ? 'person' : 'people'}.` : `✕ ${errorText(r)}`);
+    if (r.ok) setSelected(new Set());
     await load();
   }
 
@@ -97,7 +118,10 @@ export function Participants({ slug }: { slug: string }) {
           <input type="checkbox" checked={noShow} onChange={(e) => setNoShow(e.target.checked)} /> Not arrived only
         </label>
         <button type="button" onClick={() => setPending({ kind: 'walk-in' })}>
-          Add walk-in
+          Add attendee
+        </button>
+        <button type="button" disabled={picked.length === 0} onClick={() => void sendRsvps()}>
+          Send RSVP ({picked.length})
         </button>
       </div>
       {message && (
@@ -117,6 +141,16 @@ export function Participants({ slug }: { slug: string }) {
           <table className={styles.table}>
             <thead>
               <tr>
+                <th>
+                  <label className={styles.pick}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select everyone shown who isn't accepted yet"
+                      checked={invitable.length > 0 && picked.length === invitable.length}
+                      onChange={(e) => setSelected(new Set(e.target.checked ? invitable.map((r) => r.id) : []))}
+                    />
+                  </label>
+                </th>
                 <th>Name</th>
                 <th>Email</th>
                 <th>Status</th>
@@ -130,6 +164,13 @@ export function Participants({ slug }: { slug: string }) {
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td>
+                    {r.status !== 'accepted' && (
+                      <label className={styles.pick}>
+                        <input type="checkbox" aria-label={`Select ${fullName(r)}`} checked={selected.has(r.id)} onChange={(e) => pick(r.id, e.target.checked)} />
+                      </label>
+                    )}
+                  </td>
+                  <td>
                     {fullName(r)}
                     {r.isTest && <span className={styles.badge}> TEST</span>}
                     {r.hasPhoto && <span className={styles.muted}> · 📷</span>}
@@ -137,6 +178,7 @@ export function Participants({ slug }: { slug: string }) {
                   <td>{r.email}</td>
                   <td>
                     <span className={`${styles.badge} ${r.status === 'accepted' ? styles.badgeOk : r.status === 'withdrawn' || r.status === 'rejected' ? styles.badgeBad : ''}`}>{r.status}</span>
+                    {r.status === 'pending' && r.rsvpSentAt && <span className={styles.muted}> · RSVP sent</span>}
                   </td>
                   <td>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</td>
                   <td>{r.checkedIn ? '✓ Checked in' : '—'}</td>
@@ -216,7 +258,8 @@ export function Participants({ slug }: { slug: string }) {
   );
 }
 
-// F12. "Check in now" records a manual door scan through record_scan().
+// F12. "Check in now" records a manual door scan through record_scan(). "Not RSVPed yet" adds a pending
+// applicant instead (v0.7.1): nothing is sent until an organizer presses Send RSVP.
 function WalkInDialog(props: { slug: string; onDone: (message: string) => void; onCancel: () => void }) {
   const api = useApi();
   const [firstName, setFirstName] = useState('');
@@ -224,6 +267,7 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
   const [email, setEmail] = useState('');
   const [checkInNow, setCheckInNow] = useState(true);
   const [sendPass, setSendPass] = useState(false);
+  const [notRsvped, setNotRsvped] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -231,7 +275,7 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
     setBusy(true);
     const r = await api<{ code: string; scan?: { code?: string } }>(adminUrl(props.slug, '/participants'), {
       method: 'POST',
-      body: { firstName, lastName, email, checkInNow, sendPass },
+      body: notRsvped ? { firstName, lastName, email, notRsvped } : { firstName, lastName, email, checkInNow, sendPass },
     });
     setBusy(false);
     if (!r.ok) {
@@ -241,14 +285,16 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
     }
     const scanCode = r.data.scan?.code;
     props.onDone(
-      !checkInNow || scanCode === 'ACCEPTED'
+      notRsvped
+        ? `✓ Added ${firstName} as not RSVPed yet. Tick them and press Send RSVP to email the invitation.`
+        : !checkInNow || scanCode === 'ACCEPTED'
         ? `✓ Added ${firstName}${checkInNow ? ' and checked them in' : ''}.`
         : `! Added ${firstName}, but check-in failed (${scanCode ?? 'unknown'}). Is the door open?`,
     );
   }
 
   return (
-    <Modal title="Add walk-in" onCancel={props.onCancel}>
+    <Modal title="Add attendee" onCancel={props.onCancel}>
       <form
         className={styles.dialogForm}
         onSubmit={(e) => {
@@ -269,11 +315,20 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
           <input className={styles.input} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </label>
         <label className={styles.check}>
-          <input type="checkbox" checked={checkInNow} onChange={(e) => setCheckInNow(e.target.checked)} /> Check in now
+          <input type="checkbox" checked={notRsvped} onChange={(e) => setNotRsvped(e.target.checked)} /> Not RSVPed yet
         </label>
-        <label className={styles.check}>
-          <input type="checkbox" checked={sendPass} onChange={(e) => setSendPass(e.target.checked)} /> Email them a pass
-        </label>
+        {notRsvped ? (
+          <p className={styles.muted}>They’re added as an applicant and sent nothing. Send their RSVP from the list when you’re ready.</p>
+        ) : (
+          <>
+            <label className={styles.check}>
+              <input type="checkbox" checked={checkInNow} onChange={(e) => setCheckInNow(e.target.checked)} /> Check in now
+            </label>
+            <label className={styles.check}>
+              <input type="checkbox" checked={sendPass} onChange={(e) => setSendPass(e.target.checked)} /> Email them a pass
+            </label>
+          </>
+        )}
         {error && (
           <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
             ✕ {error}
@@ -284,7 +339,7 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
             Cancel
           </button>
           <button type="submit" disabled={busy}>
-            Add walk-in
+            Add attendee
           </button>
         </div>
       </form>

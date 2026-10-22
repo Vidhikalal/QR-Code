@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { authStatePath, E2E_ORIGIN, saveSignedInState } from '../fixtures/e2e';
+import { authStatePath, consoleMailText, E2E_ORIGIN, saveSignedInState } from '../fixtures/e2e';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
 // SPEC §11 organizer UI. Pages are gated server-side (403), and every number comes from /api/admin.
 const ORG = authStatePath('admin-org');
 const VOL = authStatePath('admin-vol');
 const OTHER_ORG = authStatePath('admin-other-org');
-const PAGES = ['', '/participants', '/checkpoints', '/staff', '/sync', '/export'];
+const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/sync', '/info', '/export', '/tools'];
 
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: ORG });
@@ -23,6 +23,36 @@ test.beforeAll(async ({ browser }) => {
 });
 test.afterAll(async () => {
   await f.close();
+});
+
+test('T-ME-02: /me links staff to their events: Admin and Scanner for an organizer, Scanner only for a volunteer', async ({ page, browser }) => {
+  await page.goto('/me');
+  const staff = page.getByRole('region', { name: 'Staff' });
+  await expect(staff.getByRole('link', { name: `Admin: ${f.e1.name}` })).toHaveAttribute('href', `/admin/${f.slug}`);
+  await expect(staff.getByRole('link', { name: `Scanner: ${f.e1.name}` })).toHaveAttribute('href', `/scan/${f.slug}`);
+
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: VOL });
+  const vol = await context.newPage();
+  await vol.goto('/me');
+  const volStaff = vol.getByRole('region', { name: 'Staff' });
+  await expect(volStaff.getByRole('link', { name: `Scanner: ${f.e1.name}` })).toHaveAttribute('href', `/scan/${f.slug}`);
+  await expect(volStaff.getByRole('link', { name: /^Admin/ })).toHaveCount(0);
+  await context.close();
+});
+
+test('T-ME-02: /admin opens the newest event you organize; someone who organizes none goes to /me', async ({ page, browser }) => {
+  await page.goto('/admin');
+  await expect(page).toHaveURL(`/admin/${f.slug}`);
+  for (const [state, to] of [
+    [OTHER_ORG, `/admin/${f.slug}-2`],
+    [VOL, '/me'],
+  ] as const) {
+    const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: state });
+    const other = await context.newPage();
+    await other.goto('/admin');
+    await expect(other).toHaveURL(to);
+    await context.close();
+  }
 });
 
 test('T-ADM-01 (pages): a volunteer, and an organizer of another event, get 403 on every /admin page', async ({ browser }) => {
@@ -75,13 +105,13 @@ test('T-ADM-06: door closed 20 min before starts_at shows a warning; opening the
 
 test('Admin smoke: walk-in with check-in shows as checked in; void a scan; exports are CSV', async ({ page }) => {
   await page.goto(`/admin/${f.slug}/participants`);
-  await page.getByRole('button', { name: 'Add walk-in' }).click();
+  await page.getByRole('button', { name: 'Add attendee' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('First name').fill('Wanda');
   await dialog.getByLabel('Last name').fill('Walkin');
   await dialog.getByLabel('Email', { exact: true }).fill(`wanda@${f.slug}.test`);
   await dialog.getByLabel('Check in now').check();
-  await dialog.getByRole('button', { name: 'Add walk-in' }).click();
+  await dialog.getByRole('button', { name: 'Add attendee' }).click();
 
   const row = page.getByRole('row', { name: /Wanda Walkin/ });
   await expect(row).toContainText('Checked in');
@@ -107,6 +137,51 @@ test('Admin smoke: walk-in with check-in shows as checked in; void a scan; expor
     expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toContain('text/csv');
   }
+});
+
+test('T-ADM-09: Add attendee with "Not RSVPed yet" adds a pending applicant; Send RSVP then emails them', async ({ page }) => {
+  const email = `nora-${f.slug}@example.test`;
+  await page.goto(`/admin/${f.slug}/participants`);
+  await page.getByRole('button', { name: 'Add attendee' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('First name').fill('Nora');
+  await dialog.getByLabel('Last name').fill('Notyet');
+  await dialog.getByLabel('Email', { exact: true }).fill(email);
+  await dialog.getByLabel('Not RSVPed yet').check();
+  await expect(dialog.getByLabel('Check in now')).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Add attendee' }).click();
+  await expect(page.getByRole('status')).toContainText('Added Nora as not RSVPed yet');
+
+  const row = page.getByRole('row', { name: /Nora Notyet/ });
+  await expect(row).toContainText('pending');
+  await expect(row).not.toContainText('RSVP sent');
+  await page.getByLabel('Select Nora Notyet').check();
+  await page.getByRole('button', { name: 'Send RSVP (1)' }).click();
+  await expect(page.getByRole('status')).toHaveText('✓ RSVP emails queued for 1 person.');
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole('row', { name: /Nora Notyet/ })).toContainText('RSVP sent', { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  expect(await consoleMailText(email, '/rsvp#')).toMatch(/\/rsvp#[A-Za-z0-9_-]{32}/);
+});
+
+test('T-ADM-10: Checkpoints → People lists who was scanned there; Remove voids one, and they can be scanned again', async ({ page }) => {
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.A });
+  await f.scan({ cp: f.cp.R, staff: f.staff.vol2, token: f.token.B });
+  await page.goto(`/admin/${f.slug}/checkpoints`);
+  await page.getByRole('button', { name: 'People at Raffle' }).click();
+  const people = page.getByRole('region', { name: 'People at Raffle' });
+  await expect(people.getByText('Ada Fixture')).toBeVisible();
+  await expect(people.getByText('Ben Fixture')).toBeVisible();
+  await expect(people).toContainText('2 people');
+  await people.getByRole('button', { name: 'Remove Ada Fixture' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Test scan' }).click();
+  // The confirmation names Ada too, so check the table rows.
+  await expect(people.getByRole('status')).toContainText('Removed Ada Fixture');
+  await expect(people.getByRole('row', { name: /Ada Fixture/ })).toHaveCount(0);
+  await expect(people.getByRole('row', { name: /Ben Fixture/ })).toBeVisible();
+  await expect(people).toContainText('1 person');
+  expect((await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.A })).code).toBe('ACCEPTED');
 });
 
 test('Admin: Sync page explains when no Sheet is linked', async ({ page }) => {

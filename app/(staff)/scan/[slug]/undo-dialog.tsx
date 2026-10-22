@@ -6,7 +6,7 @@ import styles from './scanner.module.css';
 const QUICK = ['Wrong checkpoint', 'Wrong person', 'Test scan'] as const;
 
 // SPEC §10.3: a reason is required (3–200 chars); quick picks or "Other".
-export function UndoDialog(props: { onSubmit: (reason: string) => void; onCancel: () => void }) {
+export function UndoDialog(props: { title?: string; onSubmit: (reason: string) => void; onCancel: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [other, setOther] = useState<string | null>(null);
 
@@ -28,7 +28,7 @@ export function UndoDialog(props: { onSubmit: (reason: string) => void; onCancel
         props.onCancel();
       }}
     >
-      <h2 id="undo-title">Undo last scan</h2>
+      <h2 id="undo-title">{props.title ?? 'Undo last scan'}</h2>
       <p>Why are you undoing it?</p>
       <div className={styles.choiceList}>
         {QUICK.map((r) => (

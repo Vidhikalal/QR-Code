@@ -13,6 +13,6 @@ export const POST = route((request) =>
     secret: env().SHEET_INGEST_SECRET,
     scheduleDrain: (task) => after(task),
     drain: () =>
-      drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom() }),
+      drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom(), passSecret: env().PASS_TOKEN_SECRET }),
   })(request),
 );

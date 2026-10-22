@@ -19,7 +19,6 @@ interface DashboardData {
   arrivals: ArrivalBucket[];
   outbox: { pending: number; failed: number };
   alerts: { doorClosed: boolean; notFound: Array<{ staffUserId: string; displayName: string | null; count: number }> };
-  scanProblems: Array<{ checkpointId: string | null; code: string; count: number }>;
 }
 
 const POLL_MS = 10_000; // SPEC §11
@@ -54,7 +53,6 @@ export function Dashboard({ slug }: { slug: string }) {
 
   if (!data) return <p>{error ? `✕ ${error}` : 'Loading dashboard…'}</p>;
   const tz = data.event.timezone;
-  const cpName = new Map(data.checkpoints.map((c) => [c.id, c.name]));
 
   return (
     <>
@@ -149,31 +147,6 @@ export function Dashboard({ slug }: { slug: string }) {
         </>
       )}
 
-      <h2>Scan problems</h2>
-      {data.scanProblems.length === 0 ? (
-        <p className={styles.muted}>None so far.</p>
-      ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Checkpoint</th>
-                <th>Result</th>
-                <th className={styles.num}>Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.scanProblems.map((p) => (
-                <tr key={`${p.checkpointId ?? ''}-${p.code}`}>
-                  <td>{(p.checkpointId && cpName.get(p.checkpointId)) ?? '—'}</td>
-                  <td>{p.code}</td>
-                  <td className={styles.num}>{p.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
       <p className={styles.muted}>Updated {formatEventDateTime(data.generatedAt, tz)} · refreshes every 10 s</p>
     </>
   );

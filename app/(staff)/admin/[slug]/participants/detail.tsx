@@ -18,6 +18,7 @@ interface Detail {
     applicantId: string | null;
     dietaryNotes: string | null;
     linkedinUrl: string | null;
+    emergency: { name: string; phone: string; relation: string | null } | null;
     photoUrl: string | null;
     photoUpdatedAt: string | null;
   };
@@ -92,6 +93,15 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
             <>
               <dt className={styles.muted}>Dietary notes</dt>
               <dd>{p.dietaryNotes}</dd>
+            </>
+          )}
+          {p.emergency && (
+            <>
+              <dt className={styles.muted}>Emergency contact</dt>
+              <dd>
+                {p.emergency.name}
+                {p.emergency.relation && ` (${p.emergency.relation})`} · <a href={`tel:${p.emergency.phone.replace(/[^0-9+]/g, '')}`}>{p.emergency.phone}</a>
+              </dd>
             </>
           )}
           {p.photoUpdatedAt && (

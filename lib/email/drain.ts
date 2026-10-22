@@ -1,11 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
-import { generateToken, sha256hex } from '@/lib/domain/token';
+import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
 import { ProviderError, type EmailProvider } from './provider';
-import { renderPassEmail } from './templates/pass';
+import { renderPassEmail, type RenderedEmail } from './templates/pass';
+import { renderRsvpEmail } from './templates/rsvp';
+import { renderTeamInviteEmail } from './templates/team-invite';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -16,6 +19,8 @@ export interface DrainOptions {
   provider: EmailProvider;
   appOrigin: string;
   from: string;
+  /** PASS_TOKEN_SECRET (§6.1). */
+  passSecret: string;
   limit?: number;
   now?: () => Date;
 }
@@ -56,34 +61,58 @@ async function finish(db: Db, args: FinishArgs): Promise<void> {
 async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<keyof DrainResult, 'claimed'>> {
   let providerId: string;
   try {
-    // 1. Reload the participant; stop if they are no longer accepted or were deleted.
+    // 1. Reload the participant; stop if they were deleted, or (for a pass) are no longer accepted,
+    // or (for an RSVP, F13) already are.
     const { data: p, error } = await opts.db
       .from('participants')
       .select('first_name, email, status, deleted_at, events(name, venue, starts_at, timezone)')
       .eq('id', row.participant_id)
       .single();
     if (error) throw new Error(`participant load failed (${error.code})`);
-    if (p.status !== 'accepted' || p.deleted_at !== null) {
+    const accepted = p.status === 'accepted';
+    if (p.deleted_at !== null || (row.kind === 'rsvp' ? accepted : !accepted)) {
       await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
       return 'cancelled';
     }
+    const event = { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
 
-    // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
-    const token = generateToken();
-    const { error: issueError } = await opts.db.rpc('issue_pass', {
-      p_participant_id: row.participant_id,
-      p_token_hash: sha256hex(token),
-    });
-    if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
+    let email: RenderedEmail;
+    if (row.kind === 'rsvp') {
+      // 2. A fresh RSVP token, stored (hash only) BEFORE the send, like a pass (I-10); older links stop working.
+      // Only while this job is still ours: an answer that cancelled it since the claim stops the resend.
+      const token = generateToken();
+      const { data: stillOurs, error: rsvpError } = await opts.db.rpc('set_rsvp_token', { p_outbox_id: row.id, p_token_hash: sha256hex(token) });
+      if (rsvpError) throw new Error(`set_rsvp_token failed (${rsvpError.code})`);
+      if (!stillOurs) {
+        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+        return 'cancelled';
+      }
+      email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}` });
+    } else if (row.kind === 'team_invite') {
+      const { data: invite, error: inviteError } = await opts.db.from('team_invites')
+        .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
+        .eq('participant_id', row.participant_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
+      if (!invite) {
+        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+        return 'cancelled';
+      }
+      email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
+    } else {
+      // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
+      const passId = randomUUID();
+      const token = passToken(opts.passSecret, passId);
+      const { error: issueError } = await opts.db.rpc('issue_pass', {
+        p_participant_id: row.participant_id,
+        p_token_hash: sha256hex(token),
+        p_pass_id: passId,
+      });
+      if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
+      const passUrl = `${opts.appOrigin}/p#${token}`;
+      email = renderPassEmail({ firstName: p.first_name, event, passUrl, qrPng: await renderQrPng(passUrl) });
+    }
 
-    // 3. Render and send.
-    const passUrl = `${opts.appOrigin}/p#${token}`;
-    const email = renderPassEmail({
-      firstName: p.first_name,
-      event: { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone },
-      passUrl,
-      qrPng: await renderQrPng(passUrl),
-    });
+    // 3. Send.
     ({ id: providerId } = await opts.provider.send({
       to: p.email,
       from: opts.from,

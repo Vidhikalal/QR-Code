@@ -27,6 +27,8 @@ const lookupSchema = z.object({
     deleted: z.boolean(),
     photoPath: z.string().nullable(),
     photoUpdatedAt: z.string().nullable(),
+    profilePublic: z.boolean(),
+    hasLinkedin: z.boolean(),
   }),
   event: z.object({ name: z.string(), venue: z.string(), startsAt: z.string(), timezone: z.string() }),
   checkedIn: z.boolean(),
@@ -39,24 +41,27 @@ async function lookupToken(db: Db, token: string): Promise<PassLookup | null> {
   return data === null ? null : lookupSchema.parse(data);
 }
 
-async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
+export async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
   const { data, error } = await db.rpc('rate_limit_hit', { p_key: key, p_window_seconds: windowSeconds, p_limit: limit });
   if (error) throw new Error(`rate_limit_hit failed (${error.code})`);
   return data;
 }
 
 // The IP is only used hashed, so no raw address is stored (I-11).
-function ipKey(request: Request): string {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-  return `pass:ip:${sha256hex(ip).slice(0, 32)}`;
+export function ipKey(headers: Headers, scope = 'pass'): string {
+  const ip = headers.get('x-forwarded-for')?.split(',')[0]?.trim() || headers.get('x-real-ip') || 'unknown';
+  return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
 }
+
+// Per email only: a whole venue can share one IP. Keys hold hashes only (I-11).
+export const emailKey = (scope: string, email: string) => `${scope}:email:${sha256hex(email).slice(0, 32)}`;
 
 const passBody = z.object({ token: z.string().max(512) }).strict();
 
 // POST /api/pass (SPEC F5, §9.3): token in the body only, never in a URL (I-3).
 export function createPassHandler(deps: { db: Db }) {
   return async (request: Request): Promise<Response> => {
-    if (!(await withinLimit(deps.db, ipKey(request), 60, 30))) return json({ error: 'rate_limited' }, 429);
+    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
 
     let raw: unknown;
     try {
@@ -82,7 +87,37 @@ export function createPassHandler(deps: { db: Db }) {
         updatedAt: participant.photoUpdatedAt,
       },
       photoLocked: found.checkedIn,
+      profile: { public: participant.profilePublic, hasLinkedin: participant.hasLinkedin },
     });
+  };
+}
+
+const profileBody = z.object({ token: z.string().max(512), profilePublic: z.boolean() }).strict();
+
+// PATCH /api/pass (SPEC §6.5, §9.3): the pass holder opts in or out of the badge profile.
+// Same token-in-body auth and per-IP limit as POST; only an active pass may change it.
+export function createPassProfileHandler(deps: { db: Db }) {
+  return async (request: Request): Promise<Response> => {
+    if (!(await withinLimit(deps.db, ipKey(request.headers), 60, 30))) return json({ error: 'rate_limited' }, 429);
+
+    let raw: unknown;
+    try {
+      raw = await request.json();
+    } catch {
+      return json({ error: 'invalid_body' }, 400);
+    }
+    const body = profileBody.safeParse(raw);
+    if (!body.success) return json({ error: 'invalid_body' }, 400);
+
+    const found = await lookupToken(deps.db, body.data.token);
+    if (!found || passState(found) !== 'active') return json({ state: 'not_found' }, 404);
+
+    const { error } = await deps.db.rpc('set_profile_public', {
+      p_participant_id: found.participant.id,
+      p_public: body.data.profilePublic,
+    });
+    if (error) throw new Error(`set_profile_public failed (${error.code})`);
+    return json({ profile: { public: body.data.profilePublic, hasLinkedin: found.participant.hasLinkedin } });
   };
 }
 

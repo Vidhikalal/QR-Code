@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.1 · **Owner:** Ade · **Last updated:** 2026-09-23
+> **Status:** Draft v0.8.1 · **Owner:** Ade · **Last updated:** 2026-10-20
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -19,11 +19,12 @@ The club runs tech and networking events. People apply through a Google Form, wh
 
 | ID | Goal | Measure |
 |----|------|---------|
-| G1 | An accepted applicant gets a personal QR pass by email automatically | ≤ 5 min from `Status = Accepted` in the Sheet to the email being sent (p95) |
+| G1 | An applicant who answers Yes to their RSVP gets a personal QR pass by email automatically | ≤ 5 min from the RSVP Yes to the email being sent (p95) |
 | G2 | Fast, duplicate-proof door check-in | ≤ 3 s per person, from the code entering the frame to the result on screen |
 | G3 | At most one serving per participant per meal | 0 duplicate live meal scans, enforced by the database |
 | G4 | Workshop/session attendance recorded | Every session scan attributable to a participant and a time |
 | G5 | Organizers see live counts and post-event analytics | Dashboard refresh ≤ 10 s; CSV export |
+| G6 | A linked NFC badge works wherever a QR pass works, and opens an opt-in profile when tapped | Same rules and result codes as QR; the profile shows only opted-in fields (§6.5) |
 
 ### Non-goals (v1)
 
@@ -39,7 +40,7 @@ The following are out of scope for v1:
 ### v2 candidates (do not build yet)
 
 - A Wallet pass (`.pkpass`).
-- "Contact swap", where a participant scans another participant's pass to save their opted-in LinkedIn URL.
+- "Contact swap": saving another participant's opted-in profile to your own list. (The opt-in badge profile itself shipped in v0.3, §6.5.)
 - Co-attendance analytics UI.
 - Offline queue with sync.
 - Unlimited-scan checkpoints (booth visit counters).
@@ -52,6 +53,8 @@ The following are out of scope for v1:
 |------|---------|
 | **Event** | One dated occurrence (e.g. `hackday-2026`). All data is scoped to an event. |
 | **Participant** | An applicant row imported from the Sheet (or a walk-in), with a `status`. |
+| **RSVP** | An invitation an organizer emails to chosen applicants. Yes accepts them, No withdraws them (F13). |
+| **Account** | A Supabase Auth user, signed in with email + password. Staff get one from an invite email, attendees from their RSVP Yes (F9, F13). |
 | **Pass** | A credential issued to an accepted participant. At most one is **active** at a time. |
 | **Token** | The secret random string inside a pass's QR code. It is never stored raw; only `sha256(token)` is stored. |
 | **Checkpoint** | A place where scans happen: `door`, `meal`, `session`, or `custom` (swag, raffle, booth). |
@@ -60,6 +63,11 @@ The following are out of scope for v1:
 | **Staff** | An authenticated user with a role on an event: `organizer` or `volunteer`. |
 | **Door check-in** | A live scan at the event's single `door` checkpoint. |
 | **Outbox** | A queue table of emails to send. Emails are never sent inline in a request. |
+| **Badge** | An NFC tag whose UID is linked to one participant for one event, normally by its holder ("This is my badge", v0.5). Its NDEF payload is `${BADGE_ORIGIN}/profile/<uid>?tap` (§6.5). |
+| **Badge profile** | The page `/profile/<uid>`, for signed-in attendees and staff of the badge's event. It shows a name and LinkedIn only if the participant opted in. |
+| **Hacker menu** | `/me` (v0.6; no event slug since v0.6.1): an attendee's own page for their event, with **Hacker profile**, **Team** (v0.7), **Schedule**, **Emergency contact** and **My pass**. Tapping your own badge opens it (F14). |
+| **Team** | Up to 4 accepted attendees of one event, with a name, a join code and at most one track (F15, v0.7). |
+| **Track** | A prize category of an event that a team enters (e.g. "Best AI/ML Project"). Organizers type them; placing prizes (1st, 2nd, 3rd) are not tracks. |
 
 ---
 
@@ -73,11 +81,26 @@ The following are out of scope for v1:
 | Manual search + manual scan | — | — | ✅ (masked email) | ✅ (full email) |
 | Void own scan ≤ 120 s old | — | — | ✅ | ✅ |
 | Void any scan | — | — | — | ✅ |
+| See who was scanned at a checkpoint and remove a scan from that list (= void, rows above; v0.8) | — | — | ✅ (own event) | ✅ |
 | Open/close checkpoints, CRUD checkpoints | — | — | — | ✅ |
-| Resend/revoke pass, add walk-in, delete participant | — | — | — | ✅ |
+| Resend/revoke pass, add attendee (walk-in or not RSVPed yet), delete participant | — | — | — | ✅ |
 | Invite/remove staff | — | — | — | ✅ |
+| Organizer on every event without an invite | — | — | — | ✅ only an account whose email is in `ADMIN_EMAILS` (F9) |
 | Dashboard, analytics, CSV export | — | — | — | ✅ |
 | Sheet ingest endpoint | HMAC-signed Apps Script only | | | |
+| Answer an RSVP (`/rsvp#token`), and set a first password | RSVP link holder only | | | |
+| Send RSVPs to chosen applicants | — | — | — | ✅ |
+| See own passes (`/me`) | — | ✅ signed in with their registered email | — | — |
+| Link a badge (v0.5) | — | ✅ to themselves, signed in with their registered email (only an unlinked badge) | ✅ only an unlinked badge, through the link API (no UI since v0.5) | ✅ to anyone in their event, on the Tools page (can move a linked badge) |
+| View a badge profile (`/profile/<uid>`, opted-in fields only) | — (sign in first) | ✅ signed in with their registered email (same event) | ✅ (own event) | ✅ (own event) |
+| Opt in/out of the badge profile | — | ✅ | — | — |
+| Set own LinkedIn (`/me/profile`, v0.5) | — | ✅ signed in with their registered email | — | — |
+| Open own hacker menu; set own dietary notes and emergency contact (F14, v0.6) | — | ✅ signed in with their registered email | — | — |
+| Write the event's schedule and emergency info (Info page, v0.6) | — | — | — | ✅ |
+| Create, join (with a code) or leave a team while forming is open; pick its track once released (F15, v0.7) | — | ✅ signed in with their registered email | — | — |
+| Open team forming, release tracks, edit tracks and any team at any time (§11 Teams, v0.7) | — | — | — | ✅ |
+| See an attendee's emergency contact (v0.6) | — | — | — | ✅ |
+| Write badge tags (Tools page) | — | — | — | ✅ |
 
 Authorization is always checked **server-side**. Hiding a button is not authorization.
 
@@ -306,9 +329,79 @@ end $$;
 - **Cross-event scans are impossible**, enforced by the composite foreign keys (T-SCAN-22).
 - **Exactly one door checkpoint per event** is enforced by `checkpoints_one_door`.
 - **Never hard-delete scans.** Void them instead.
-- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Scans remain, so aggregate counts stay correct.
+- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, emergency contact (v0.6) and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct. The tombstone also takes them out of their team (v0.7).
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
+
+### 5.2 Badges (v0.3)
+
+```sql
+alter type scan_method add value 'nfc';   -- its own migration: a new enum value can't be used in the same transaction
+
+create table badges (
+  uid            text not null check (uid ~ '^([0-9a-f]{2}){4,10}$'),
+  event_id       uuid not null references events on delete cascade,
+  participant_id uuid not null unique,                        -- one badge per participant
+  linked_at      timestamptz not null default now(),
+  primary key (uid, event_id),                                -- links are per event
+  foreign key (participant_id, event_id) references participants (id, event_id) on delete cascade
+);
+
+alter table participants add column profile_public boolean not null default false;  -- badge profile opt-in
+alter table participants add column linkedin_set_at timestamptz;  -- v0.5: the attendee set their own LinkedIn (§6.5, F3)
+```
+`badges` follows the deny-all rules above. Who linked a badge is recorded in `audit_log` (`badge.link`), not on the row.
+
+### 5.3 RSVP (v0.4)
+
+```sql
+alter table participants
+  add column rsvp_token_hash text unique check (rsvp_token_hash ~ '^[0-9a-f]{64}$'),  -- sha256 hex, rotated per RSVP email
+  add column rsvp_sent_at timestamptz;
+-- email_outbox.kind gains 'rsvp'.
+```
+
+### 5.4 Hacker menu (v0.6)
+
+```sql
+alter table participants
+  add column emergency_name     text check (length(emergency_name) between 1 and 100),
+  add column emergency_phone    text check (emergency_phone ~ '^[0-9+() .-]{3,30}$'),
+  add column emergency_relation text check (length(emergency_relation) <= 60),
+  add column dietary_set_at     timestamptz,  -- the attendee set their own dietary notes (F3)
+  add constraint participants_emergency_pair check ((emergency_name is null) = (emergency_phone is null));
+
+alter table events
+  add column schedule       text not null default '' check (length(schedule) <= 5000),  -- plain text (§11 Info)
+  add column emergency_info text not null default '' check (length(emergency_info) <= 2000);
+```
+The emergency contact is personal data: organizers only (§11), never in logs or `audit_log.detail` (I-11), not in any CSV, deleted by the tombstone (§5.1) and by retention (§15). `save_hacker_profile()` and `rsvp_respond()` write the attendee's fields through one internal helper (`_set_hacker_profile`, no grants); `linkedin_set_at` and `dietary_set_at` move only when the value actually changes.
+
+### 5.5 Teams (v0.7)
+
+```sql
+alter table events
+  add column teams_open boolean not null default false,       -- organizers open team forming (F15)
+  add column tracks_released boolean not null default false;  -- and release the tracks
+
+create table tracks (id uuid primary key, event_id uuid not null references events on delete cascade,
+  name text not null check (length(name) between 1 and 100), created_at timestamptz not null default clock_timestamp(),
+  unique (id, event_id));                                        -- + unique (event_id, lower(name))
+create table teams (id uuid primary key, event_id uuid not null references events on delete cascade,
+  name text not null check (length(name) between 1 and 60),
+  join_code text not null check (join_code ~ '^[A-HJ-NP-Z2-9]{8}$'), track_id uuid,
+  unique (id, event_id), unique (event_id, join_code),        -- + unique (event_id, lower(name))
+  foreign key (track_id, event_id) references tracks (id, event_id) on delete set null (track_id));
+alter table participants
+  add column team_id uuid, add column looking_for_team boolean not null default false,
+  add foreign key (team_id, event_id) references teams (id, event_id) on delete set null (team_id);
+create table team_invites (team_id uuid not null, participant_id uuid not null, event_id uuid not null,
+  invited_by uuid references participants on delete set null, created_at timestamptz not null default now(),
+  primary key (team_id, participant_id),
+  foreign key (team_id, event_id) references teams (id, event_id) on delete cascade,
+  foreign key (participant_id, event_id) references participants (id, event_id) on delete cascade);
+```
+Composite foreign keys keep a team's track and members in its own event. A trigger (`_participant_team`) locks the team row and refuses a 5th member (`check_violation`), however the member is added, and takes a new member out of the teammate directory (`looking_for_team = false`) and deletes all their pending invites. The tombstone also deletes their invites. `team_invites` has an index on `participant_id` and deny-all RLS. Deleting a track leaves its teams without one; deleting a team moves its members out.
 
 ---
 
@@ -316,14 +409,16 @@ end $$;
 
 ### 6.1 Token
 
-- Generate with `crypto.randomBytes(24).toString('base64url')`. This gives 32 characters, charset `[A-Za-z0-9_-]`, 192 bits of entropy.
+- **DECISION (v0.4): derived, not random.** `token = base64url(HMAC-SHA256(PASS_TOKEN_SECRET, pass_id)[0:24])`: 32 characters, charset `[A-Za-z0-9_-]`, 192 bits. The pass id is a random uuid chosen when the pass is issued (§6.3). The server can recompute the token to show a signed-in owner their pass on `/me`, without ever storing it. Someone holding both the database and `PASS_TOKEN_SECRET` could compute live tokens; the service-role key already lets its holder issue passes, so this adds little. Passes issued before v0.4 have random tokens (`crypto.randomBytes(24)`) and aren't shown on `/me`. Changing the secret has the same effect on older passes; scanning is unaffected.
+- RSVP tokens (F13) are random (`crypto.randomBytes(24)`), stored only as `sha256` in `participants.rsvp_token_hash`, and carried only in `/rsvp#token` and the `POST /api/rsvp` body.
 - Store `sha256(token)` as lowercase hex in `passes.token_hash`. The raw token MUST NOT be written to the DB, logs, analytics, error trackers, URLs' path or query string, or `audit_log`.
 - The token exists in plaintext only in these places:
   - in memory during email rendering,
   - inside the email,
   - inside the QR code,
   - in the pass page's URL **fragment**,
-  - in POST bodies to `/api/scan` and `/api/pass*`.
+  - in POST bodies to `/api/scan` and `/api/pass*`, and the `PATCH /api/pass` body (badge profile opt-in, §6.5),
+  - in the `/p#token` link on the signed-in owner's `/me` page (v0.4).
 
 ### 6.2 QR payload
 
@@ -356,6 +451,8 @@ revoke all on function public.issue_pass(uuid, text) from public, anon, authenti
 grant execute on function public.issue_pass(uuid, text) to service_role;
 ```
 
+**v0.4:** `issue_pass(p_participant_id, p_token_hash, p_pass_id uuid default gen_random_uuid())`. The drainer chooses the id so it can derive the token from it (§6.1); everything else is unchanged.
+
 **DECISION: rotate on every send.** Because only hashes are stored, a pass cannot be "resent". Every send, including an organizer's Resend, issues a new token and revokes the old one. Scanning an old token returns `REVOKED` with `reissued = true`, and the UI tells the volunteer to ask for the latest email.
 
 ### 6.4 Parsing scanned text (client and server)
@@ -366,6 +463,16 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 3. Else if `raw` matches `^[A-Za-z0-9_-]{32}$`, return it (manual paste or printed fallback).
 4. Anything else returns `MALFORMED`. This includes other origins, `http:` in production, extra query or fragment parameters, Wi-Fi QR codes, vCards, and strings over 2 KB. `MALFORMED` MUST NOT trigger a network request, and parsing MUST NOT throw.
 
+### 6.5 NFC badges (v0.3)
+
+- **UID:** the Web NFC `serialNumber` (e.g. `04:A1:B2:C3:D4:E5:F6`), normalized by `normalizeUid()` (`lib/domain/badge.ts`) to lowercase hex without separators, 4–10 bytes: `^([0-9a-f]{2}){4,10}$`. Anything else is `MALFORMED` on the client and `400` on the server.
+- **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
+- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works once it is linked (by its holder signed in as an accepted attendee, or by an organizer), and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
+- **DECISION (v0.5): attendees link their own badge** (as in the datathon-badges app, but tied to their account). Tapping an unlinked badge opens `/profile/<uid>`; a signed-in, accepted, undeleted attendee of an event that ended at most 30 days ago (matched by verified email) presses **This is my badge** (one button per such event). `claim_badge(uid, event_id, email, user_id)` returns `LINKED` (claiming another badge frees their old one), `BADGE_TAKEN` (linked to someone else) or `NOT_FOUND`, takes the same lock as `link_badge()`, and audits `badge.claim` with ids only. Then their Hacker profile page (`/me/profile`, F14) asks for their LinkedIn and sharing. An unlinked badge's UID is in its URL, so someone could claim a badge they don't hold; the holder sees "belongs to someone else" and an organizer moves it on the Tools page (§11). The scanner no longer links badges (§10.5).
+- **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` (organizers, Tools page) returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
+- **Profile:** viewing needs a signed-in Supabase account (DECISION, v0.3: networking is between people at the event, not anyone holding a phone near a badge). `proxy.ts` sends signed-out visitors to `/login?next=/profile/<uid>…` and back. `badge_profile(uid, viewer_id, viewer_email)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null). If the viewer is neither an accepted attendee of that event (matched by their verified email) nor staff of it, it returns only `{ allowed: false }`; otherwise `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl }`. Attendees get an account from their RSVP Yes (F13), or with "Forgot or never set your password?" if they were accepted another way (F9). It never returns email, dietary notes, status or photo. **v0.6:** when the viewer's email is the linked participant's own, it also returns `self: true` and the event `slug`, and the page sends them to their hacker menu `/me` (F14) instead of their own profile. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet until the attendee sets their own (v0.5: `normalizeLinkedIn()` turns `linkedin.com/in/x` and similar into `https://www.linkedin.com/in/x`; blank clears it), on their Hacker profile page or the RSVP Yes form (v0.6). `save_hacker_profile()` (v0.6; `save_badge_profile()` is kept for now but unused by the app) changes only the signed-in person's own accepted row, sets `linkedin_set_at` when the LinkedIn actually changes, and audits `profile.update` without PII; from then on the Sheet no longer changes their LinkedIn (F3).
+- **Browsers:** Web NFC exists only in Chrome on Android. Every NFC control is **hidden** where `NDEFReader` is absent (no fallback text). iPhones still open the profile page by reading the URL record natively.
+
 ---
 
 ## 7. Flows
@@ -373,43 +480,42 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 ### F1 — Application intake (no code)
 
 1. Participants apply through the Google Form, which writes to the Sheet.
-2. The Sheet has three extra columns added by organizers: `Applicant ID`, `Status` and `Sync Status`.
-3. `Status` MUST use data validation limited to these values: *(blank)*, `Accepted`, `Waitlisted`, `Rejected`, `Withdrawn`.
+2. The Sheet has two extra columns: `Applicant ID` and `Sync Status`. A `Status` column may stay for the organizers' own notes; since v0.4 Passline ignores it.
 
 ### F2 — Applicant ID assignment
 
 The installable `onFormSubmit` trigger writes `Utilities.getUuid()` into `Applicant ID` for the new row (Appendix A). **Row identity is Applicant ID, never the row number or email.** People sort sheets, and people change emails.
 
-### F3 — Acceptance sync
+### F3 — Applicant import (v0.4)
 
-1. An organizer edits `Status` (one cell or a multi-row paste).
-2. The installable `onEdit` trigger fires. If the edited range intersects the `Status` column, the script reads **every row in the edited range** and POSTs them in one signed request (§9.2).
-3. The server upserts each row using the transition table below and returns per-row results **in request order**.
-4. Apps Script writes each result into `Sync Status` (e.g. `PASS_QUEUED 2026-10-03T14:02:11Z`, or `ERROR HTTP 500`).
-5. If the trigger was missed or failed, an organizer uses **Sync now** (F10) to reconcile.
+**DECISION (v0.4): the Sheet only imports applicants.** Acceptance happens in Passline: organizers send RSVPs (F13) and a Yes accepts. Editing `Status` in the Sheet never accepts, emails or revokes anyone.
 
-**Status normalization:** trim and lowercase. Blank maps to `pending`. The accepted values are `accepted`, `waitlisted`, `rejected` and `withdrawn`. Anything else returns `INVALID:status` for that row.
+1. A form submission, or an edit to any data cell except `Sync Status`, fires the installable trigger. The script reads **every row in the edited range** and POSTs them in one signed request (§9.2).
+2. The server upserts each row using the table below and returns per-row results **in request order**.
+3. Apps Script writes each result into `Sync Status` (e.g. `CREATED 2026-10-03T14:02:11Z`, or `ERROR HTTP 500`).
+4. If the trigger was missed or failed, an organizer uses **Sync now** (F10) to reconcile.
 
 **Transition table** (per row, keyed by `(event_id, external_id)`):
 
-| Existing | Incoming | Action | Row result |
-|----------|----------|--------|-----------|
-| none | pending / waitlisted / rejected / withdrawn | insert participant | `CREATED` |
-| none | accepted | insert, enqueue `pass_issued` | `PASS_QUEUED` |
-| not accepted | accepted | update status, enqueue `pass_issued` | `PASS_QUEUED` |
-| accepted | accepted, same email | update name/dietary if changed | `UNCHANGED` or `UPDATED` |
-| accepted | accepted, **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
-| accepted | waitlisted / rejected / withdrawn | update status, revoke active pass (`status_change`), cancel in-flight outbox | `REVOKED` |
-| accepted | pending (cell cleared) | **no change** (DECISION: accidental deletes must not kill passes) | `IGNORED_CLEAR` |
+| Existing | Row | Action | Row result |
+|----------|-----|--------|-----------|
+| none | valid | insert participant as `pending` | `CREATED` |
+| any (not deleted) | nothing changed | nothing | `UNCHANGED` |
+| not accepted | name, dietary notes, LinkedIn or email changed | update | `UPDATED` |
+| accepted | name, dietary notes or LinkedIn changed | update | `UPDATED` |
+| accepted | **different email** | update email, enqueue `pass_reissued` (rotation revokes old) | `PASS_QUEUED` |
+
+Any email change also clears the RSVP token (F13): that link was sent to the old address. A LinkedIn the attendee set themselves (`linkedin_set_at`, v0.5), or dietary notes they set themselves (`dietary_set_at`, v0.6), are never overwritten or compared: only the other fields count.
+| deleted (tombstone) | anything | nothing | `UNCHANGED` |
 | any | invalid row | nothing | `INVALID:<field,field>` |
-| none, but email already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
+| none, or an email change, where the email is already used by another `external_id` in this event | — | nothing | `CONFLICT_DUPLICATE_EMAIL` |
 
 Rows are processed independently, so one bad row never fails the batch. The whole request MUST be idempotent: replaying an identical request produces no new participants, passes or emails.
 
 ### F4 — Pass email (outbox drain)
 
 Draining is triggered by three things:
-- (a) Next.js `after()` following an ingest or resend,
+- (a) Next.js `after()` following an RSVP send, an RSVP Yes, an ingest or a resend,
 - (b) the admin **Send pending** button,
 - (c) a scheduled job every minute (Supabase `pg_cron` + `pg_net` POSTing to `/api/email/drain` with `DRAIN_SECRET`; §17 A5).
 
@@ -428,8 +534,8 @@ returning o.*;
 ```
 
 **Per claimed row, in this order:**
-1. Reload the participant. If it is not `accepted` or is deleted, set the row to `cancelled` and stop.
-2. Generate the token. Call `issue_pass(participant_id, sha256hex(token))`. **This commits before sending** (I-10). The emailed token must already be valid when it lands.
+1. Reload the participant. If it is deleted, or (for `pass_*` rows) not `accepted`, or (for `rsvp` rows, F13) already `accepted`, set the row to `cancelled` and stop.
+2. For a pass: choose the pass id, derive the token (§6.1), and call `issue_pass(participant_id, sha256hex(token), pass_id)`. For an RSVP: generate a random token and store its hash in `rsvp_token_hash` (with `rsvp_sent_at`). **This commits before sending** (I-10). The emailed link must already work when it lands.
 3. Render the email (§12) and send it through the provider. Use the provider's idempotency key (`outbox.id:attempts`) if supported (§17 A1).
 4. On success: set `status = 'sent'`, `sent_at`, and `provider_message_id`.
 5. On failure: set `status = 'pending'`, `next_attempt_at = now() + backoff[attempts]` (1 min, 5 min, 25 min, 2 h), and `last_error` (truncated, no PII). After 5 attempts, set `status = 'failed'`, which surfaces on the dashboard. On a 429, honor `Retry-After`.
@@ -471,12 +577,17 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 - **Sessions:** `kind = session`, with optional `capacity`. This feeds attendance analytics.
 - **Custom:** swag pickup, raffle entry, sponsor booth. These are once per participant in v1. `requires_checkin` is configurable (e.g. a raffle desk outside the venue sets it to false).
 
-### F9 — Staff onboarding
+### F9 — Staff onboarding and sign-in (v0.4)
 
-1. An organizer enters an email and role on `/admin/<slug>/staff`, which creates a `staff_invites` row.
-2. The staff member signs in with a Supabase Auth magic link (or Google OAuth). The first time, they set `display_name`.
-3. The auth callback consumes every invite matching their verified, lowercased email: it inserts `event_staff` rows and deletes the invites.
-4. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
+1. An organizer enters an email and role on `/admin/<slug>/staff`. An existing account becomes staff at once (and any pending invite for that address is dropped, so an older role can't come back). Otherwise a `staff_invites` row is created and Supabase Auth emails an **invite** link to set a password.
+2. Everyone signs in at `/login` with **email + password**. The first time, staff set `display_name`. Only staff get this step; attendees go straight on (to `/me` by default, or back to the badge, §6.5).
+3. On every sign-in, and after setting a password, every invite matching their verified, lowercased email is consumed: it becomes an `event_staff` row and the invite is deleted.
+4. **"Forgot or never set your password?"** emails a **reset** link for an existing account, an **invite** link (first password) to an accepted participant or invited staff member without an account, and nothing to anyone else. The page shows the same message every time, so it can't be used to find out who has an account.
+5. Invite and reset links open `/auth/confirm` with the token in the **fragment** (never sent to a server, like I-3). It is used only when the person presses **Continue** (a POST), so mail scanners that open links can't spend it. Then `/set-password` (8–72 characters).
+6. An account's email can't be changed without confirming the new address (Supabase "secure email change" stays on), because `/me`, badge profiles and invites trust the account's email.
+7. **Admin emails (v0.4.1).** An account whose verified email is in `ADMIN_EMAILS` becomes organizer on every event at each sign-in (`grant_admin_roles()`: real `event_staff` rows, so every check in §3 and §8 applies unchanged). Without an account, step 4 sends such an address an invite. Events created later are granted at the next sign-in; removing an address from `ADMIN_EMAILS` doesn't remove roles already granted (remove them on the Staff page). `/me` lists a signed-in staff member's events with **Admin** (organizers) and **Scanner** links, and `/` redirects to `/me`.
+8. **DECISION (v0.4): no public sign-up.** Accounts are created only by an RSVP Yes (F13), a staff invite, or step 4.
+9. Removing a staff member deletes the `event_staff` row. Their **next** scan returns `FORBIDDEN`, with no caching of roles.
 
 ### F10 — Sync now (reconcile)
 
@@ -494,7 +605,40 @@ Same as F6 at a `meal` checkpoint with `requires_checkin = true`. The response i
 
 ### F12 — Walk-ins
 
-An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional.
+An organizer adds a walk-in with name and email (source `walk_in`, status `accepted`). An optional "check in now" performs a manual door scan. Sending a pass email is optional. A walk-in who wants an account uses "Forgot or never set your password?" (F9).
+
+**v0.7.1:** the dialog is **Add attendee**. With **Not RSVPed yet** ticked, the person is added as a pending applicant instead (source `walk_in`, audit `participant.applicant`) and sent nothing; an organizer sends their RSVP like anyone else's (F13), e.g. to see the RSVP email. Check-in and a pass can't be combined with it (400). They have no Applicant ID, so the Sheet never updates them.
+
+### F13 — RSVP (v0.4)
+
+1. On the Participants page an organizer ticks applicants who aren't accepted yet and presses **Send RSVP**. `queue_rsvps()` queues one `rsvp` outbox row each; accepted, deleted and other events' people are skipped. Audit `rsvp.send` records the count only.
+2. The drainer emails the invitation (§12) with a link `${APP_ORIGIN}/rsvp#<token>`. Each send rotates the token, so only the newest link works; the token is stored only while the drainer still holds the job (`set_rsvp_token`). An email change in the Sheet (F3) clears it: the link went to the old address.
+3. `/rsvp` reads the fragment and POSTs `{ token }` to `/api/rsvp`. It shows the event and **Yes** / **No**.
+4. **Yes** (v0.6) opens one form: the **emergency contact** (name and phone required, relationship optional), **dietary notes** and the optional **networking profile** (LinkedIn and badge sharing), both prefilled from the Sheet (`rsvp_lookup` returns them, never the emergency contact), an optional "I'm looking for a team: list me in the teammate directory (name only)" checkbox (S11b), and a **password, always required** (v0.7.2): a new one (8–72 characters) without an account, their own with one. The directory flag is stored with the Yes. The server checks it all with `parseProfileInput()` before anything changes (400 `invalid_profile` with the field; no account is made), and `rsvp_respond()` stores the fields in the same transaction as the answer. It then sets `accepted` and, when that accepts them, queues `pass_issued`, unless a pass is already active or an organizer revoked their last pass (only an organizer's Resend issues a new one). An RSVP still waiting in the outbox is cancelled first. Without an account the server creates a confirmed account with the chosen password (the emailed link proved the address). With an account the password is checked like a sign-in, with its own per-email limit (§15: only the token holder gets here, so burning someone's `/login` tries can't block their Yes); a wrong one, or one past the limit, is 400 `wrong_password` and nothing changes, and so is an account made since the lookup (a double tap). A sign-in failure that isn't a wrong password (GoTrue rate limit, 5xx) is a 500, never shown as a wrong password. A Yes without a password is 400 `password_required`. Either way the server signs them in, with the same steps as `/login` (admin roles, staff invites, and the display-name step for staff who need it, F9), and the page goes where those steps say, normally `/me`. A new account whose sign-in fails after its answer is recorded keeps the answer and is asked to sign in (`signedIn: false`). The body must be JSON (400 otherwise): a cross-site form can't send it, so no other site can sign a visitor into someone else's account. An RSVP never changes an existing account's password (a forgotten one is reset on `/login`).
+5. **No:** `withdrawn`; any active pass is revoked (`status_change`), in-flight email cancelled and the badge link removed.
+6. Answers can change until the event ends; after that the link returns not found. Audit `rsvp.yes` / `rsvp.no`, with no personal data.
+
+### F14 — Hacker menu (v0.6)
+
+1. **Opening it.** An attendee taps their own badge (§6.5: `badge_profile` returns `self`), or signs in: both open `/me` (v0.6.1: no event slug in the URL). `/me` also keeps the staff links (F9 step 7).
+2. **Who and which event.** A signed-in, accepted, undeleted attendee, matched by verified email, up to 30 days after the event ends (`myEvent()`). With more than one such event, `/me` shows the next one that hasn't ended, else the most recent (DECISION, v0.6.1: one event at a time; an event picker can come later). Without one, `/me` shows only staff links or "No upcoming events yet", and the other menu pages are 404. `proxy.ts` sends signed-out visitors to `/login` and back.
+3. **Hacker profile** (`/me/profile`): name (read-only: the Sheet owns it), badge status, LinkedIn, badge sharing and dietary notes.
+4. **Schedule** (`/me/schedule`): the event's `schedule` text with its line breaks, or "not posted yet".
+5. **Emergency contact** (`/me/emergency`): the event's `emergency_info`, read-only, and the attendee's own contact (name and phone required, relationship optional). The phone input carries the same rule as an HTML `pattern`, so a typo is caught before the form is sent.
+6. **My pass:** the `/p#token` link, or "In your email", "On its way by email" or "The event is over".
+7. Saves go through `save_hacker_profile()` (own row only, §6.5) and audit `profile.update` with at most the sharing flag.
+
+### F15 — Teams (v0.7)
+
+1. **Organizers set it up** on the admin **Teams** page (§11): they type the tracks, switch **Team forming open** on the morning of the hackathon (DECISION: an organizer switch, not a time), and **Tracks released** when the tracks are announced. They can edit tracks and any team at any time.
+2. **Team page** (`/me/team`, a **Team** item in the hacker menu, F14). Before forming opens it says "Teams open on hackathon day"; a team an organizer already made shows read-only.
+3. **Create** a team (a name, 1–60 characters, unique in the event in any case): the creator joins it and sees its **join code**, 8 characters without look-alikes (no I, O, 0, 1), shown as `ABCD-EFGH`. **DECISION: a join code is not a secret.** Teams share it on purpose; it only lets an accepted attendee of the same event join until the team is full, and a member can leave.
+4. **Join** with a code (case, spaces and dashes ignored): `BAD_CODE` for an unknown code or another event's, `TEAM_FULL` past 4 (**DECISION: at most 4**, enforced by the database), `IN_A_TEAM` if they already have one.
+5. **Leave**: the last member leaving deletes the team. The team row is locked first, so a join racing the last leaver either lands before (the team stays) or finds it gone (`BAD_CODE`).
+6. **Track**: once tracks are released, any member picks the team's one track until the event ends, even after forming closes.
+7. **Teammate directory** (S11b): an accepted hacker without a team can switch on **Looking for a team** on their Team page, or opt in on RSVP Yes. **DECISION: opt-in, names only.** It lists other accepted, undeleted hackers in the same event who have no team and are looking, sorted by name. While forming is open, a team with fewer than 4 members sees an **Invite** button per person. Hackers without a team see the directory read-only: "Create a team to invite them."
+8. **Invites** (S11b): **Invite** stores a pending invite and queues a `team_invite` email (§12). The invitee sees the team name and inviter's first name on their Team page, with **Accept** and **Decline**. Consent is required: only Accept joins, with the same rules as a code. Decline deletes the invite. Joining by any route clears all their invites and turns looking off. The outbox allows one in-flight email per person: a second invite is stored and shown on the Team page but not emailed while another email is pending. The drainer emails about the newest pending invite, or cancels if none remain; an invite never issues a pass.
+9. Team mutations use `team_create`, `team_join`, `team_leave`, `team_set_track` and `team_invite`: own accepted, undeleted row only (matched by verified email), event not ended, forming open (except the track). Directory preference and decline also check the caller's own accepted, undeleted row by email. Audit `team.*` with ids only: no team names or codes (I-11).
 
 ---
 
@@ -519,6 +663,8 @@ The **order matters**, and the tests pin it down. On every early return, nothing
 | 13 | Insert. On conflict with the arbiter index, re-read: same `client_scan_id` means replay, otherwise `ALREADY_SCANNED` | `ACCEPTED` |
 
 Why step 9 comes before step 10: without the lock, two simultaneous scans of the *same* person at a nearly full session could return `CAPACITY_REACHED` to the second scan instead of `ALREADY_SCANNED` (T-SCAN-11, T-CONC-06).
+
+**NFC scans (v0.3)** go through `record_badge_scan(p_checkpoint_id, p_staff_user_id, p_badge_uid, p_client_scan_id, p_client_scanned_at)`. It resolves the badge within the checkpoint's event to a participant id (or null) and calls `record_scan(…, 'nfc', null, <participant id>, …)` in the same transaction. Step 4 then resolves like `manual`; a null id returns `NOT_FOUND` after steps 1–3. Step 5 stays QR-only. A badge linked only in another event resolves to null, so NFC never returns `WRONG_EVENT`. `record_scan()` itself is unchanged.
 
 Reference implementation:
 
@@ -673,8 +819,9 @@ All request bodies are validated with zod, and unknown keys are rejected (`.stri
 
 ```ts
 // Request
-{ checkpointId: string /*uuid*/, method: 'qr' | 'manual',
+{ checkpointId: string /*uuid*/, method: 'qr' | 'manual' | 'nfc',
   token?: string /*^[A-Za-z0-9_-]{32}$, iff qr*/, participantId?: string /*uuid, iff manual*/,
+  badgeUid?: string /*normalized UID §6.5, iff nfc*/,
   clientScanId: string /*uuid v4*/, clientScannedAt: string /*ISO 8601*/ }
 
 // 200 Response
@@ -713,8 +860,9 @@ Verification:
   last_name?: string, dietary_notes?: string, linkedin_url?: string, status: string }> } // ≤ 500 rows
 // 200 Response — same length and order as rows
 { results: Array<{ external_id: string, result: 'CREATED'|'UPDATED'|'UNCHANGED'|'PASS_QUEUED'
-  |'REVOKED'|'IGNORED_CLEAR'|'CONFLICT_DUPLICATE_EMAIL'|`INVALID:${string}` }> }
+  |'CONFLICT_DUPLICATE_EMAIL'|`INVALID:${string}` }> }
 ```
+`status` is still accepted (older scripts send it) and ignored (F3, v0.4).
 Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to null) with the row still processed, and `INVALID` is **not** raised for it (DECISION: optional field).
 
 ### 9.3 Other endpoints
@@ -727,6 +875,18 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
 | `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
+| `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5); used by the Tools page (§11) |
+| `GET /api/events/:slug/checkpoints/:id/scans` | staff of the event | Who was scanned at that checkpoint (v0.8): live scans of undeleted people, newest first (at most 1000), `{ role, scans: [{ id, displayName, isTest, scannedAt, method, scannedByName, canRemove }] }`; names only, no emails or photos; 404 for another event's checkpoint. `canRemove` only decides whether to offer Remove; removing is `POST /api/scans/:id/void` (§10.6, §11) |
+| `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
+| `GET /profile/:uid` | signed-in attendee or staff of the badge's event | Badge profile page (§6.5); an unlinked badge offers **This is my badge** (server action, `claim_badge()`, v0.5) |
+| `POST /api/admin/:slug/participants/rsvp` | organizer | Queue RSVPs: `{ ids }` → `{ queued }` (F13) |
+| `POST /api/rsvp` | RSVP token in body; 30 req/min/IP | `{ token }` → invitation + `profile` prefill; `{ token, going, password, emergencyName, emergencyPhone, emergencyRelation?, dietaryNotes?, linkedin?, profilePublic?, lookingForTeam? }` → `{ code: 'GOING' \| 'NOT_GOING', signedIn, next? }` (F13; `next` is where to go once signed in; JSON bodies only; the emergency contact and a password are required on Yes: 400 `password_required`, `weak_password` or `wrong_password`) |
+| `GET /me` | signed in | The hacker menu for the signed-in person's event (F14, v0.6.1), with their pass (§6.1), and staff links |
+| `GET /me/profile`, `/me/schedule`, `/me/emergency` | signed-in accepted attendee | Hacker menu pages (F14); profile and emergency saves are server actions calling `save_hacker_profile()` |
+| `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo?, teamsOpen?, tracksReleased? }`, strict, at least one key; `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info, §11 Teams) |
+| `GET /api/admin/:slug/teams`, `POST …/teams` `{ name, trackId? }`, `PATCH`/`DELETE …/teams/:id`, `POST …/tracks` `{ text }`, `PATCH`/`DELETE …/tracks/:id`, `PATCH …/participants/:id` `{ teamId }` | organizer | Teams page (§11, v0.7): switches, tracks, teams with members, accepted people without a team; 409 `NAME_TAKEN` / `TEAM_FULL`, 404 for another event's team or track |
+| `GET /me/team` | signed-in accepted attendee | Team page (F15); its actions are server actions calling the `team_*` functions |
+| `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
 ---
 
@@ -736,6 +896,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 
 - A **checkpoint banner** is always visible at the top. It shows the checkpoint name and a kind color (door = blue, meal = orange, session = purple, custom = teal).
 - Changing the checkpoint requires a confirm dialog. The selection is saved to `localStorage` under `passline:checkpoint:<slug>`.
+- **Camera or NFC badges, one at a time (v0.8.1).** On a phone with Web NFC (§10.5) a **Camera | NFC badges** switch picks the input; elsewhere there is no switch and the camera is the input. The choice is saved per device under `passline:input`. DECISION: one at a time, because on a real Android phone a running camera stopped NFC reads; NFC mode releases the camera entirely (tracks stopped, preview hidden) and keeps the badge reader on.
 - The camera viewport takes about 60% of the height, below that are the **Manual search** and **Undo last** buttons.
 - The scanner abstraction:
   ```ts
@@ -743,7 +904,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
     stop(): Promise<void>; listCameras(): Promise<MediaDeviceInfo[]> }
   ```
 - Camera settings:
-  - prefer `facingMode: 'environment'` and remember the chosen `deviceId`,
+  - prefer `facingMode: 'environment'` and remember the chosen `deviceId` as a preference (`ideal`), never `exact`: Chrome can hand out new device ids (e.g. after a reload), and an exact id that no longer exists left the camera "unavailable" (v0.8.1),
   - decode at 10 fps or lower,
   - the `<video>` element MUST have `playsinline` and `muted`.
 - Request a Screen Wake Lock while scanning where supported, and re-acquire it on `visibilitychange` (§17 A4).
@@ -761,6 +922,7 @@ Every state needs an icon, a text label and a color, never color alone. Names ar
 | ALREADY_SCANNED, `scannedByMe` and < 60 s ago | amber ⟳ | "You scanned this 8 s ago" | tap |
 | ALREADY_SCANNED otherwise | red ✕ | "ALREADY SCANNED 12:03 PM by Maya": check the photo | tap |
 | NOT_FOUND | red ✕ | "UNKNOWN CODE": use manual search | tap |
+| NOT_FOUND via NFC | red ✕ | "UNKNOWN BADGE": scan their QR instead | tap |
 | REVOKED, reissued | amber ! | "OLD CODE": ask for their newest email | tap |
 | REVOKED, not reissued | red ✕ | "PASS CANCELLED": send to organizer | tap |
 | NOT_ACCEPTED | red ✕ | "NOT ACCEPTED (waitlisted)" | tap |
@@ -798,18 +960,37 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - Each row shows: name, photo, status badge, email (**masked for volunteers**: `a***@gmail.com`; full for organizers), and whether they already have a live scan at the selected checkpoint.
 - "Record scan" calls `/api/scan` with `method: 'manual'`.
 
+### 10.5 NFC badges (v0.3, Android Chrome only)
+
+- Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
+- **NFC badges mode (v0.8.1; replaces the on/off toggle):** choosing **NFC badges** turns the camera off and starts the reader from that tap (it triggers Chrome's permission prompt the first time); the reader then stays on, with no off switch, until **Camera** is chosen. Opening the scanner in NFC mode auto-starts the reader if the `nfc` permission is already granted; otherwise a **Start badge reader** button asks for the tap. The reader's own state is still saved under `passline:nfc`.
+- **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
+- **Keep the reader referenced (v0.7.4):** the page holds the active `NDEFReader` while scanning. On a real Android phone a reader reachable only through its own listeners was garbage-collected while Chrome kept the NFC session: Android no longer opened the tag's URL, and every tap went to nobody.
+- **Read feedback (v0.7.3):** as soon as a read passes the dedupe and pause checks, the phone taps twice (30 ms, 60 ms gap, 30 ms, where `navigator.vibrate` exists), before the server answers: unlike every result pattern, so it can't be felt as the green single pulse. The result's own pattern follows (§10.2). An unreadable tag gets the amber double pulse with its notice, unless reads are being ignored (a result on screen, offline, a dialog open). Chrome ignores vibration (and sound) until the page has been tapped once, so until then the scanner shows "Tap the screen once so the phone can vibrate on each scan." Vibration is a nicety, never relied on: the screen stays the source of truth.
+- **No Link badge in the scanner (v0.5).** Attendees link their own badge from their phone (§6.5); organizers link one on the Tools page (§11).
+- The reader keeps running while a result is shown (taps are ignored), so Android doesn't open the tag's URL in a new tab.
+
 ---
+
+### 10.6 Scanned here (v0.8)
+
+- A **Scanned here** button next to Manual search lists who was scanned at the current checkpoint: name (test people marked; deleted people left out, like every count), day and time in the event timezone, how (QR, badge, manual) and by whom, newest first. Scanning pauses while it is open, like Manual search.
+- **Remove** is the void (F11, I-9) with the Undo reasons: the scan stays in the history, stops counting, and the person drops off the list and can be scanned again. Volunteers see Remove only on their own scans from the last 120 s, organizers on every scan; `void_scan()` decides either way.
+- A repeat scan still answers **ALREADY_SCANNED** (§10.2); the list is how staff check who has been through.
 
 ## 11. Admin UI (`/admin/[slug]`, organizer only)
 
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
-| Participants | Search/filter by status, pass state, photo, scans. Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. |
-| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. |
+| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". **Add attendee**: a walk-in, or **Not RSVPed yet** for a pending applicant (F12, v0.7.1). Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6). |
+| Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. **People** (v0.8): who was scanned there, newest first, with **Remove** (a void with a reason, F11). |
 | Staff | Invite by email + role, list, remove. |
-| Sync | "Sync now" dry-run diff, then Apply. Last sync time. |
+| Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
+| Info (v0.6) | **Schedule** and **Emergency info** textareas (plain text, line breaks kept) that every accepted hacker sees in their menu (F14). Saved with `PATCH /api/admin/:slug/event`; audit `event.info` with `{}`. |
+| Teams (v0.7) | **Team forming open** and **Tracks released** switches. Tracks: "Add tracks, one per line" (repeats in any case are skipped), rename, delete (teams that chose it have none). Teams: create (name, track), rename, change the track, delete (members move out), each with its join code and members (status shown when not accepted); remove a member, or add an accepted person without a team (those looking for one are marked). The 4-member limit applies to organizers too. Audit `team.*`, `track.*`, `event.teams` with ids, counts and flags only. |
 | Export | CSVs: participants, scans (live only, with a voided toggle), per-checkpoint summary. |
+| Tools | Android only; the tab is hidden elsewhere. **Link a badge** (v0.5): search a participant by name, pick them, tap a badge → `POST /api/events/:slug/badges`; an organizer's link moves a badge linked to someone else. The reader runs only while waiting for that tap, and the outcome is a notice showing the UID (✓ linked / ✕), never a green screen. **Write tags:** writes `${BADGE_ORIGIN}/profile/<uid>?tap` onto blank tags, skipping tags that already hold that link. Writing is disabled unless `BADGE_ORIGIN` is `https://`, never starts without a tap, and a pending write is cancelled on Stop, on leaving the page, on a different tag, or after 5 s (Chrome would otherwise write it onto the next tag). |
 
 ---
 
@@ -827,11 +1008,14 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
   7. tips (turn brightness up; a screenshot is fine; this code is personal),
   8. an optional "Add a photo for faster check-in" link (same pass page),
   9. organizer contact,
-  10. privacy line.
+  10. privacy line (v0.6: photos, dietary notes and emergency contacts are deleted 30 days after the event).
 - **Plain-text part** includes the pass link and all the facts above.
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
 - **Disable open and click tracking.** Tracking rewrites links, which leaks fragments into redirect logs, and adds pixels.
+- **RSVP email (F13):** subject `You're invited: {Event name} — will you be there?`; greeting, event, local date and time, venue, one "Reply to the invitation" button to `/rsvp#token`, a line saying Yes asks for an emergency contact (and, optionally, LinkedIn), a password, then sends the pass email, organizer contact, privacy line (v0.6: mentions emergencies and the 30-day deletion). Same escaping and tracking rules.
+- **Team invite email (F15, S11b):** subject `{Inviter first name} invited you to join {Team} at {Event}`; greeting, one sentence, one "Open your Team page" button to `${APP_ORIGIN}/me/team`, plain-text part and organizer contact. No join code or token. Same escaping and tracking rules. Cancel if the invitee is deleted, not accepted or has no pending invite.
+- **Auth emails** (staff invite, password reset) are sent by Supabase Auth through the same SMTP domain, from the templates in `public/auth-email/` (fetched by URL by the hosted auth server).
 - **Dev/test:** `EMAIL_PROVIDER=console` writes `.eml`-style output to `./.mail/` and never calls the network. It also saves each QR image to `./.mail/qr/<Event>-<First>.png` (never overwriting: `-2`, `-3`… on repeats) so passes can be shown to a scanner without opening the email. The label travels as `EmailMessage.fileLabel`, which real providers never send.
 
 ---
@@ -850,7 +1034,7 @@ All metrics exclude voided scans, `is_test` participants and deleted participant
 | Session attendance | live scans per session; ranking by count desc, then name asc |
 | Session fill | live scans ÷ capacity (if set) |
 | Arrival curve | live door scans per 15-min bucket |
-| Scan problems | `scan_attempts` grouped by `result_code`, per checkpoint |
+| Scan problems | `scan_attempts` grouped by `result_code`, per checkpoint. For the post-event review (§16); not shown on the dashboard since v0.7.4 |
 
 ```sql
 create view v_checkpoint_counts with (security_invoker = true) as
@@ -918,9 +1102,10 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-TOK-04 | Parse another origin, `http:` in prod, `/p?t=`, `/pass#`, a 31/33-char token, `+` or `/` characters, an extra `&x=1` | `MALFORMED`, no throw | U |
 | T-TOK-05 | Parse `WIFI:S:x;;`, a vCard, an empty string, a 5 KB string, emoji | `MALFORMED`, no throw | U |
 | T-TOK-06 | `sha256hex` known vector (`"abc"` → `ba7816bf…15ad`) | matches | U |
-| T-TOK-07 | After a full ingest → email → scan flow, search every text column in every table for the raw token | not found anywhere | I |
+| T-TOK-07 | After a full ingest → RSVP → Yes → pass email → scan flow, search every text column in every table for the raw pass and RSVP tokens | not found anywhere | I |
 | T-TOK-08 | Render a QR PNG and decode it (zxing/jsQR in Node) | decodes to the exact URL; corner pixel opaque white; quiet zone ≥ 4 modules | U |
 | T-TOK-09 | Downscale the QR to 25%, re-encode as JPEG q40, decode | still decodes | U |
+| T-TOK-10 | `passToken(secret, passId)` | deterministic; 32 chars `^[A-Za-z0-9_-]{32}$`; changes with the pass id or the secret | U |
 
 ### 14.2 Sheet ingest — `T-ING`
 | ID | Scenario | Expected | L |
@@ -930,39 +1115,41 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ING-03 | Timestamp 301 s old; 301 s in the future | 401 | I |
 | T-ING-04 | Same signed request sent twice | Second response: every row `UNCHANGED`; no duplicate participants, passes or outbox rows | I |
 | T-ING-05 | Body with non-ASCII (`Zoë`, `李雷`, `محمد`), signed over the raw UTF-8 bytes | Verifies; names stored byte-exact | I |
-| T-ING-06 | New row, `Accepted` | participant accepted + exactly 1 pending outbox row | I |
-| T-ING-07 | New rows `Waitlisted` / `Rejected` / blank | participant with that status; no outbox | I |
-| T-ING-08 | Waitlisted → Accepted | `PASS_QUEUED` | I |
-| T-ING-09 | Accepted → Accepted, nothing changed | `UNCHANGED`; no outbox, no new pass | I |
-| T-ING-10 | Accepted → Withdrawn | `REVOKED`; active pass revoked (`status_change`); pending outbox → `cancelled`; existing scans untouched | I |
-| T-ING-11 | Withdrawn → Accepted again | new pass queued; old pass stays revoked | I |
+| T-ING-06 | New row, `Status = Accepted` (v0.4) | participant `pending`; no outbox row; no drain scheduled | I |
+| T-ING-07 | New rows `Waitlisted` / `Rejected` / blank (v0.4) | all `pending`; no outbox | I |
+| T-ING-08 | Status Waitlisted → Accepted in the Sheet (v0.4) | `UNCHANGED`; still `pending`; no outbox | I |
+| T-ING-09 | Accepted participant (via RSVP), row unchanged | `UNCHANGED`; no outbox, no new pass | I |
+| T-ING-10 | Accepted participant, Sheet says Withdrawn (v0.4) | `UNCHANGED`; still accepted; pass active; scans untouched | I |
+| T-ING-11 | Answered No (withdrawn), Sheet says Accepted (v0.4) | `UNCHANGED`; still withdrawn; no outbox | I |
 | T-ING-12 | Email `" Ade@Gmail.COM "` | stored `ade@gmail.com` | I |
-| T-ING-13 | Same `external_id`, new email | email updated, `pass_reissued` queued, `audit_log` row with no PII | I |
+| T-ING-13 | Same `external_id`, new email: accepted; not accepted | email updated, `pass_reissued` queued, `audit_log` row with no PII; `UPDATED`, no outbox, old RSVP link no longer found | I |
 | T-ING-14 | New `external_id` with an email already used in the event | `CONFLICT_DUPLICATE_EMAIL`; other rows in the batch still processed | I |
 | T-ING-15 | Same email in E1 and E2 | two participants (allowed) | I |
 | T-ING-16 | Missing email / first_name / external_id | `INVALID:email` etc.; batch continues | I |
-| T-ING-17 | Status `"ACCEPTED "`, `"accepted"`, `"Accepted"` | all normalize; `"Maybe"` → `INVALID:status` | U+I |
-| T-ING-18 | Accepted → blank | `IGNORED_CLEAR`; pass still active | I |
+| T-ING-17 | Status `"ACCEPTED "`, `"accepted"`, `"Maybe"`, blank, missing (v0.4) | all the same valid row; `CREATED` as `pending` | U+I |
+| T-ING-18 | Accepted participant, Status cleared (v0.4) | `UNCHANGED`; pass still active | I |
 | T-ING-19 | Unknown `event_slug` | 404 | I |
-| T-ING-20 | 500 rows, all accepted | < 10 s; 500 outbox rows; **zero provider calls during the request** | I |
+| T-ING-20 | 500 rows (v0.4) | < 10 s; 500 `pending` participants; 0 outbox rows; **zero provider calls**; no drain scheduled | I |
 | T-ING-21 | 501 rows; body > 1 MB | 400; 413 | I |
 | T-ING-22 | Names `O'Brien`, `<script>alert(1)</script>`, 100-char name, 101-char name | stored / stored (escaped on render) / stored / `INVALID:first_name` | I |
 | T-ING-23 | Invalid `linkedin_url` (`linkedin.com/company/x`, `javascript:`) | row processed, `linkedin_url` null | I |
-| T-ING-24 | Same row posted 5× concurrently | 1 participant, 1 in-flight outbox row | I |
+| T-ING-24 | Same row posted 5× concurrently | 1 participant (1 `CREATED`), no outbox row | I |
 | T-ING-25 | Sync-now dry run | returns diff; zero writes (row counts identical before/after) | I |
+| T-ING-26 | Accepted participant set their own LinkedIn on `/me` (v0.5); the Sheet row resent, then with another LinkedIn, then with a new first name and a blank LinkedIn | `UNCHANGED`; `UNCHANGED`; `UPDATED` with the new name and their own LinkedIn kept | I |
+| T-ING-27 | Accepted participant changed their own dietary notes (v0.6); the Sheet row resent, then with other notes, then with a new first name and blank notes | `UNCHANGED`; `UNCHANGED`; `UPDATED` with the new name and their own dietary notes kept | I |
 
 ### 14.3 Apps Script — `T-GAS` (manual, on a copy of the real Sheet)
 | ID | Scenario | Expected |
 |----|----------|----------|
 | T-GAS-01 | Submit the form | `Applicant ID` filled with a UUID within seconds |
-| T-GAS-02 | Set one Status to Accepted | `Sync Status` shows `PASS_QUEUED <time>`; email arrives within 5 min |
-| T-GAS-03 | Paste Accepted into 30 rows at once | one POST; 30 Sync Status cells filled |
-| T-GAS-04 | Edit a non-Status column | no POST (Sync Status unchanged) |
+| T-GAS-02 | Submit the form (v0.4) | `Sync Status` shows `CREATED <time>`; the applicant is on the Participants page as pending |
+| T-GAS-03 | Paste into a column across 30 rows at once | one POST; 30 Sync Status cells filled |
+| T-GAS-04 | Edit only the Sync Status column | no POST |
 | T-GAS-05 | Edit the header row | no POST |
-| T-GAS-06 | Sort the sheet by name, then change a Status | the correct participant changes (keyed by Applicant ID) |
-| T-GAS-07 | Insert a column left of Status; add a new form question | still works (header lookup) |
-| T-GAS-08 | Point `ENDPOINT` at a dead URL, edit a Status | `ERROR ...` in Sync Status; restore; Sync now reconciles |
-| T-GAS-09 | Clear an accepted Status | `IGNORED_CLEAR` |
+| T-GAS-06 | Sort the sheet by name, then change a first name | the correct participant changes (keyed by Applicant ID) |
+| T-GAS-07 | Insert a column left of Sync Status; add a new form question; delete the Status column | still works (header lookup) |
+| T-GAS-08 | Point `ENDPOINT` at a dead URL, edit a row | `ERROR ...` in Sync Status; restore; Sync now reconciles |
+| T-GAS-09 | Change the Status of someone accepted through their RSVP | `UNCHANGED`; still accepted |
 
 ### 14.4 Email & outbox — `T-MAIL`
 | ID | Scenario | Expected | L |
@@ -1028,6 +1215,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCAN-27 | Deleted participant: old token → ; manual by id → | `REVOKED` (`deleted`); `NOT_FOUND` |
 | T-SCAN-28 | Volunteer voids own scan at 119 s; at 121 s; voids vol2's scan | `VOIDED`; `FORBIDDEN`; `FORBIDDEN` (organizer: all `VOIDED`) |
 | T-SCAN-29 | Void without reason / reason "ok" (2 chars) | 400 / 400 |
+| T-SCAN-30 | `GET …/checkpoints/:id/scans` (v0.8): A (vol1, fresh), B (vol2), T (org1, manual), N (vol1, 5 min old) at R, as org1 and as vol1; Rv scanned, then tombstoned; vol3; no session; D2 through E1's slug; a bad id; then void A's scan and scan A again | newest first, names and who scanned, `isTest` for T, no email; org1 may remove all, vol1 only A; Rv listed, then left out; 403; 401; 404; 404; A drops off the list and scans `ACCEPTED` again |
 
 ### 14.7 Concurrency — `T-CONC` (MUST use truly parallel connections, e.g. a `pg.Pool` of size ≥ N with `Promise.all`; never sequential awaits)
 | ID | Scenario | Expected |
@@ -1055,6 +1243,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCUI-10 | Session expired mid-shift | redirect to login, then back to the same slug + checkpoint | E |
 | T-SCUI-11 | `<video>` has `playsinline` and `muted` | yes | E |
 | T-SCUI-12 | ALREADY_SCANNED with `scannedByMe` 8 s ago vs 90 s ago vs by vol2 | amber vs red vs red | E |
+| T-SCUI-14 | Scanned here at R after vol1 scanned N and vol2 scanned Rv (v0.8); Remove N with "Test scan" | both listed; Remove only on N; N drops off, Rv stays | E |
 | T-SCUI-13 | Device matrix (§14.13) | all pass | M |
 
 ### 14.9 Manual search — `T-SRCH`
@@ -1078,6 +1267,9 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-ADM-05 | Delete participant | tombstone per §5.1; counts unchanged; token → `REVOKED` | I |
 | T-ADM-06 | Door closed, now = `starts_at − 20 min` | dashboard warning visible | E |
 | T-ADM-07 | 31 `NOT_FOUND` from vol1 in 5 min | 429 for vol1; alert on dashboard | I |
+| T-ADM-08 | PATCH `{schedule, emergencyInfo}`; one field alone; 5001 / 2001 chars, `{}`, a wrong type or an extra key; `{sheet}`. Info tab in the browser; participant detail with and without a contact (v0.6) | saved, returned by GET, audit `event.info` with `{}`; the other field unchanged; 400; still `{sheetId}`. The text shows on the hacker Schedule page; the organizer sees the contact with a `tel:` link, or `emergency: null` | I+E |
+| T-ADM-09 | Add attendee with **Not RSVPed yet** (v0.7.1); then Send RSVP; with check-in or a pass as well; the same email again. In the browser: the dialog, the pending row, Send RSVP | 201, `pending`, source `walk_in`, no outbox row, no drain, no scan or pass, audit `participant.applicant` with `{}`; one RSVP email with a `/rsvp#` link; 400; 409. The check-in box disappears; the row shows "RSVP sent" | I+E |
+| T-ADM-10 | Checkpoints → People at R after A and B were scanned (v0.8); Remove A with "Test scan"; scan A again | both listed, "2 people"; A gone, "1 person"; `ACCEPTED` | E |
 
 ### 14.11 Analytics & export — `T-ANA`
 | ID | Scenario | Expected | L |
@@ -1095,14 +1287,14 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC-01 | For **every** table in `public` (enumerated from `pg_tables`): select/insert/update/delete with the anon key and with an authenticated user JWT | denied or 0 rows | I |
 | T-SEC-02 | `pg_tables.rowsecurity` for every public table | all true | I |
 | T-SEC-03 | After `next build`, grep `.next/static` for `SERVICE_ROLE` and the key's value | not found | CI |
-| T-SEC-04 | Enumerate every route handler file; call each unauthenticated | 401 (except `/api/pass*`, `/api/ingest/sheet`, `/api/email/drain` with their own auth) | I |
-| T-SEC-05 | Capture server logs during the full e2e flow | contain no token, no email, no participant name | E |
+| T-SEC-04 | Enumerate every route handler file; call each unauthenticated | 401 (except `/api/pass*`, `/api/rsvp`, `/api/ingest/sheet`, `/api/email/drain` with their own auth) | I |
+| T-SEC-05 | Capture server logs during the full e2e flow | contain no token, no email, no participant name, no emergency contact (v0.6) | E |
 | T-SEC-06 | Response headers | CSP present; `frame-ancestors 'none'`; `Permissions-Policy: camera=(self)`; HSTS in prod | E |
 | T-SEC-07 | Every view | `security_invoker = true`; no grant to anon/authenticated | I |
 | T-SEC-08 | Every `SECURITY DEFINER` function in `public` | `proconfig` contains `search_path`; no EXECUTE for anon/authenticated/PUBLIC | I |
-| T-PRIV-01 | Retention job at `ends_at + 30 d` | photos deleted from storage, `photo_path` null, `dietary_notes` null | I |
+| T-PRIV-01 | Retention job at `ends_at + 30 d` | photos deleted from storage, `photo_path` null, `dietary_notes` null, emergency contact null (v0.6) | I |
 | T-PRIV-02 | Retention job run twice | idempotent | I |
-| T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name or token | I |
+| T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name, emergency contact or token | I |
 
 ### 14.13 Device & venue matrix — `T-DEV` (manual, before every event)
 
@@ -1132,6 +1324,74 @@ Target: at least 95% of attempts under 3 s.
 | T-PERF-01 | Load test against a preview deployment: 5 virtual scanners, 300 scans in 10 min, seeded 500 participants | `/api/scan` p95 < 700 ms, 0 errors |
 | T-PERF-02 | Dashboard with 1,000 participants and 5,000 scans | first render < 2 s; poll query < 200 ms |
 
+### 14.15 NFC badges — `T-NFC` (e2e fakes `window.NDEFReader` via `addInitScript`)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-NFC-01 | `normalizeUid`: `04:A1:B2:C3:D4:E5:F6`; empty string; 3 or 11 bytes; odd length; non-hex | `04a1b2c3d4e5f6`; the rest invalid, no throw | U |
+| T-NFC-02 | Scan request shape | nfc requires a normalized `badgeUid` and forbids `token`/`participantId`; qr and manual reject `badgeUid` | U |
+| T-NFC-03 | A's badge at D; again; C's badge at D; B's badge at L before the door; A by QR at R, then A's badge at R | `ACCEPTED` (`method = nfc`, `pass_id` null); `ALREADY_SCANNED`; `NOT_ACCEPTED`; `NOT_CHECKED_IN`; `ALREADY_SCANNED` | I |
+| T-NFC-04 | Unknown badge at D; X's E2 badge at D; vol3 with A's badge at D | `NOT_FOUND` and no rows; `NOT_FOUND` with no `otherEvent`; `FORBIDDEN` | I |
+| T-NFC-05 | Link API: vol1 links A; A relinked to a new badge; vol1 links A's badge to B; org1 does the same; an E2 participant via the E1 slug; vol3; no session; uppercase UID | `LINKED` + audit row without UID or PII; old badge → `NOT_FOUND`; `BADGE_TAKEN`; `LINKED` (moved); `NOT_FOUND`; 403; 401; 400 | I |
+| T-NFC-06 | Delete (tombstone) a participant with a badge; revoke a participant's pass | link removed; the badge scans `NOT_FOUND` (both) | I |
+| T-NFC-07 | Raw SQL: bad UID; a second badge for one participant; X linked in E1 | check violation; unique violation; FK violation | I |
+| T-NFC-08 | 10 parallel `link_badge` (volunteer) with one UID and 10 participants, 20 rounds; two badges swapped in parallel, 30 rounds | exactly 1 `LINKED`, 9 `BADGE_TAKEN`, 1 row per round; swaps return only `LINKED`/`BADGE_TAKEN`, never an error (deadlock) | I |
+| T-NFC-09 | Result view: `NOT_FOUND` via NFC; every non-`ACCEPTED` code via NFC | red "UNKNOWN BADGE", tap to dismiss; never green (I-1) | U |
+| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial; a read while the answer is held back; the page before and after its first tap; an unreadable tag while a result is shown, then without one (v0.7.3); a tap after a forced garbage collection, with the fake holding readers weakly like Chrome (v0.7.4) | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests; the two-tap read pattern before any result, then the green pattern; the tap-once hint until the page is tapped; nothing, then the amber pulse and notice; green | E |
+| T-NFC-11 | Tools page (v0.5): search "ben" → Link a badge to Ben → tap; a second tap; that badge at R; stubbed `BADGE_TAKEN`; the scanner after a door ADMIT | "Badge … linked to Ben Fixture" notice; nothing more linked (reader stopped); `ACCEPTED`; red "linked to someone else" notice, no result screen; no Link badge button | E |
+| T-NFC-12 | `badge_profile` as an attendee of the event: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago. Viewers: other event's attendee, withdrawn or waitlisted attendee, other event's staff, a random account; this event's staff; email in another case | null; null; `{allowed,public:false}`; name + LinkedIn; newest link wins (and only its event's people may view); null; null vs shown. `{allowed:false}` only, for each non-eligible viewer; allowed for staff and case-insensitive email; never email, dietary, status or photo | I |
+| T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
+| T-NFC-14 | Signed out `/profile/<uid>?tap`; sign in (email + password) as an attendee of the event; each state; invalid UID; sign in as another event's attendee | 307 to `/login?next=…` with "Sign in to see this badge"; back on the badge after sign-in; correct state, no email or dietary notes in the HTML; 404; "Only people at this event…" | E |
+| T-NFC-15 | `badgeUrl(origin, uid)`; `badgeWritable` for `https://` vs `http://` origins; `BADGE_ORIGIN` env | exact string; only `https://` is writable; optional, bare origin like `NEXT_PUBLIC_APP_ORIGIN` | U |
+| T-NFC-16 | Tools page with the fake: blank tag; tag already holding the link; no `NDEFReader` | `write()` with exactly one URL record; no write; no Tools tab, no linker and no write control | E |
+| T-NFC-18 | Auth callback: staff with a display name; staff without one; an account with no staff role (attendee) | no onboarding; onboarding; no onboarding | I |
+| T-NFC-19 | `normalizeLinkedIn`: `linkedin.com/in/x`, `www.`, `http://`, query/fragment, country host, accented handle; blank, `/company/x`, `/in/`, `/in/a/b`, `javascript:`, other hosts, credentials, a port, `ftp:`, > 200 chars | `https://www.linkedin.com/in/x` (accents percent-encoded); the rest null, no throw | U |
+| T-NFC-20 | `claim_badge`: A claims an unlinked badge, then a second one; B claims A's badge; C (waitlisted), Wd, X (other event), a deleted participant, a staff-only email; an event that ended 31 vs 29 days ago; 10 attendees claim one badge in parallel (20 rounds) | `LINKED` (scans as A, audit `badge.claim` with `{}` detail), the first badge freed; `BADGE_TAKEN`, both badges unchanged; `NOT_FOUND`; `NOT_FOUND` vs `LINKED`; exactly 1 `LINKED` + 9 `BADGE_TAKEN` | I |
+| T-NFC-21 | A taps an unlinked badge signed out → signs in → This is my badge → Hacker profile (`/me/profile`, v0.6.1); saves `linkedin.com/company/x`, then `linkedin.com/in/ada-claimed` + sharing; B taps the badge; the badge at D; waitlisted C opens an unlinked badge | "Badge linked" on the Hacker profile; "Not saved", then saved as `https://www.linkedin.com/in/ada-claimed`; B sees Ada's name and that link, no claim button; `ACCEPTED`; no claim button, "sign in with the email you registered" | E |
+| T-NFC-22 | `badge_profile` viewed by the badge's holder (email in another case), shared and not; by another attendee, staff, another event's attendee. E: A taps their own badge; B taps it (v0.6) | `self: true` and the event `slug` added to the usual keys; never `self` or `slug` for anyone else. A lands on `/me`; B sees the badge profile | I+E |
+| T-NFC-23 | Scanner with the fake reader (v0.8.1): the default; NFC badges; reload; Start badge reader and a tap; Camera; a tap of another badge; reload. NFC badges while a slow camera start is still pending. With the `nfc` permission granted: NFC badges, then a reload | Camera pressed; every camera track ended, one reader, no reader off switch; still NFC mode with the camera off; a green result; the camera ready again and no reader; no `/api/scan` request; still Camera mode. The late camera stream is stopped at once (no live track). One reader after the tap (not replaced), and after the reload the reader is ready without a tap, still exactly one | E |
+| T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
+
+### 14.16 RSVP — `T-RSVP` (v0.4)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-RSVP-01 | Organizer queues RSVPs for C, a new pending applicant, accepted A, a deleted participant and E2's X; a volunteer tries; extra keys | `{ queued: 2 }` (C and the new one), drain scheduled; 403; 400. Audit `rsvp.send` detail is only the count | I |
+| T-RSVP-02 | Drain an `rsvp` row; one for a person accepted meanwhile; a claimed job cancelled by a No | the hash of the emailed `/rsvp#token` is already stored when the provider is called; the other row `cancelled`, no email; `set_rsvp_token` refuses, old token kept | I |
+| T-RSVP-03 | Also: Yes after an organizer's revoke, and No then Yes after it; No for someone with a badge; 20 RSVP sends racing 20 answers | no pass queued; badge link removed; no errors (no deadlock) | I |
+| T-RSVP-03 | `{token}`; Yes twice; No; unknown token; ended event; bad `going`; extra keys; 31 requests/min from one IP | invitation without email; `GOING` ×2 with exactly 1 `pass_issued` and a drain; `NOT_GOING`: withdrawn, outbox cancelled; 404 `{state:'not_found'}` (same as `/api/pass`); 404; 400; 400; 429. Audit `rsvp.yes`, `rsvp.no` | I |
+| T-RSVP-04 | Yes without a password, and with a 5-char one; Yes + password without an account; when an account exists (v0.7.2): no password, a wrong one, their own; their own past this limit; their own with `/login`'s limit used up; an account made since the lookup with another password; GoTrue failing; a `text/plain` body; staff who still need a display name; a new account whose sign-in fails after its answer. In the browser, someone with an account, and a volunteer without a display name | 400 `password_required`, 400 `weak_password`, nothing changed; confirmed account, `signedIn: true`; 400 `password_required`, 400 `wrong_password` and still pending, `GOING` with `signedIn: true` and the password unchanged; still `wrong_password`; `GOING` (separate buckets); `wrong_password` and still pending; a 500 and still pending; 400 `invalid_body`; `next` is the onboarding page; `GOING` with `signedIn: false`. The form asks for "Your Passline password", refuses a wrong one, then lands on `/me`; the volunteer lands on `/onboarding?next=%2Fme` | I+E |
+| T-RSVP-05 | Organizer ticks a row → Send RSVP → link from the email → Yes + emergency contact (v0.6) + password | "RSVP sent" on the row; lands on the menu at `/me`; the contact is stored; "My pass" links the same token as the pass email, which scans `ACCEPTED`; no token in any request URL; signed out `/me` → login → back | E |
+| T-RSVP-06 | Yes without an emergency contact; a name only; a bad phone; an invalid LinkedIn; 501 chars of dietary notes; a wrong type (v0.6) | 400 `invalid_profile` with the field (400 `invalid_body` for the type); still pending; no account created; No needs no form | I |
+| T-RSVP-07 | The lookup; Yes with every field; the lookup again; `rsvp_respond(hash, true)` in SQL; No sent with form fields | prefill of the Sheet's dietary notes and LinkedIn, no email or emergency contact; everything stored with the answer, `linkedin_set_at` set (changed), `dietary_set_at` not (unchanged); still no contact; profile untouched; withdrawn, profile untouched | I |
+
+### 14.17 Accounts — `T-AUTH`, `T-ME` (v0.4)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-AUTH-01 | Wrong password; right password; 10 wrong then the right one for another email; sign-in and set-password with JavaScript off | "Wrong email or password", no session; lands on `next`; refused with the same message; both work (forms posted before hydration carry a real Origin, so `Referrer-Policy` is `same-origin`) | E |
+| T-AUTH-02 | "Forgot or never set your password?" for an account; an accepted participant without one (4 times); a staff invite; waitlisted, withdrawn and unknown emails | reset email → set password → new password works, old fails; 3 emails, not 4; invite; nothing sent, same message (`password_link_kind`: reset / invite / invite / none) | I+E |
+| T-AUTH-03 | Organizer invites a new address; an existing account | `{ code: 'INVITED', emailed: true }`, invite email → Continue → set password → display name → `/admin/<slug>`, invite consumed; `ADDED`, no email | I+E |
+| T-AUTH-04 | `/auth/confirm` with a bad token; the same invite link twice; the emailed link | `/login?error=link` with the error text; the token is only in the fragment and never in a request URL | E |
+| T-AUTH-05 | A signed-in user changes their account email to an accepted participant's address | not applied (needs the new address confirmed) | I |
+| T-AUTH-03 | Also: invite as organizer, then re-invite the same (no password yet) address as volunteer | `ADDED`, pending invite gone, role stays volunteer after sign-in | I |
+| T-AUTH-06 | `isAdminEmail` with case and spaces, another address, an empty list, null; `ADMIN_EMAILS` parsing; sign-in landing for an admin account (one event as volunteer) and for another account | matches only the normalized address; a normalized list, empty when unset; organizer on every event (volunteer row upgraded), still sent to onboarding without a display name; no roles | U+I |
+| T-ME-01 | `/me` for A with an old random pass; with a derived pass; accepted with no pass yet; waitlisted, withdrawn, past event; signed out | "in your email"; `/p#<token>` whose hash matches; "on its way"; nothing; redirect to `/login?next=/me` | I+E |
+| T-ME-02 | `/me` as an organizer; as a volunteer | Admin and Scanner links to the event; Scanner only | E |
+| T-ME-04 | `parseProfileInput`: trimmed fields; blank vs missing; name 1/100/101; phones `+1 (416) 555-0100`, `416.555.0100` vs `abc`, `12`, `+() --`, 31 chars; name without phone; relation 61; dietary 501; LinkedIn `/in/` vs `/company/`; the RSVP's required contact (v0.6) | normalized values; missing = unchanged, blank = clear; the first invalid field named, no throw | U |
+| T-ME-05 | `saveBadgeProfile` as A (email in another case): blank dietary when there was none; dietary + contact; every field at its limit; relation cleared; a bad phone, a name only, 501 chars of dietary notes; B's id; Wd's own row; an event that ended 31 days ago (v0.6) | `dietary_set_at` unset; saved and set; accepted by the DB checks; null; `INVALID_CONTACT`/`INVALID_DIETARY`, nothing changed; `NOT_FOUND` ×3, nothing changed. Audit `profile.update` without name, phone or dietary text | I |
+| T-ME-06 | `myEvent` as A (email in another case); C; Wd; a deleted participant; 32 days after the event (v0.6). A also accepted at a later event: both upcoming; the first under way; the first over; both over; the first past the 30-day window (v0.6.1) | the event with its schedule and emergency info and A's own fields; null for each of the rest. The earlier event; the earlier; the later; the later (most recent); the later | I |
+| T-ME-07 | Signed out `/me/profile`; A taps their own badge → menu at `/me` (Hacker profile, Schedule, Emergency contact, My pass); edits dietary notes; reads the schedule; types a bad phone, then saves a contact; C opens `/me`, then `/me/profile` (v0.6.1) | login with `next`; the four items, "In your email"; saved; line breaks kept; the browser refuses the phone and keeps the typed name, then saved; "My events" without the menu, then 404 | E |
+| T-ME-03 | `saveBadgeProfile` as A (email in another case): `linkedin.com/in/ada-l` + share; `/company/x`; blank + hide; B's id; a malformed id. `myBadgeProfiles`: A, before and after a badge link; waitlisted C; 32 days after the event | saved normalized; `INVALID_LINKEDIN`, nothing changed; cleared; `NOT_FOUND`, B unchanged; `NOT_FOUND`. Audit `profile.update` rows without PII. One entry with event and `badge: false`, then `true`; none; none | I |
+
+### 14.18 Teams — `T-TEAM` (v0.7)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-TEAM-01 | 1,000 join codes; `normalizeJoinCode` with case, spaces, dashes, wrong length, `I`/`O`/`0`/`1`, a 2 KB string; `parseTeamName` (with a line break or tab); `parseTrackNames` with blank lines, repeats in another case, 100/101 chars, 21 lines | 8 chars without look-alikes, almost all distinct; normalized or null, no throw; trimmed 1–60, no control characters; trimmed, unique, in order, or null | U |
+| T-TEAM-02 | Forming closed; open: blank name; another's row; create; again; a taken name in another case; join with a lowercase dashed code; again; unknown, malformed and E2 codes; C, Wd; track before release, E2's track, without a team, after release with forming closed; leave while closed; leave (two members); last leaves; after the event ends | `CLOSED`; `INVALID_NAME`; `NOT_FOUND`; `CREATED` with a valid code; `IN_A_TEAM`; `NAME_TAKEN`; `JOINED`; `IN_A_TEAM`; `BAD_CODE` ×3; `NOT_FOUND` ×2; `NOT_RELEASED`, `NOT_FOUND` ×2, `SAVED`; `CLOSED`; `LEFT` (team stays); `LEFT` (team deleted); `NOT_FOUND`. Audit `team.*` without names, codes or emails | I |
+| T-TEAM-03 | 10 parallel joins into a 1-member team; a raw 5th-member update; the last member leaving while someone joins, 30 rounds | 3 `JOINED` + 7 `TEAM_FULL`, 4 members; check violation; never a `JOINED` member of a deleted team (`BAD_CODE` and no team instead) | I |
+| T-TEAM-04 | Admin API: GET; switches; add tracks with repeats, again with an existing one in another case, blank; rename to a taken name; create a team with a track, a taken name, a blank name; rename + change track; 4 members, a 5th, E2's participant, E2's team; another event's team through this slug; remove a member; delete a track; tombstone a member; delete the team, twice | the switches, tracks, teams and unassigned accepted people; saved and audited; 201, `{added: 1}`, 400; 409; 201 with a code, 409, 400; 200; 200 ×4, 409, 404, 404; 404; 200; the team's track null; the tombstone has no team; members moved out, 404. Audit without names or codes | I |
+| T-TEAM-05 | Directory opt-in; invite someone not looking, again, another event; drain; accept, decline, full team, no invite, closed forming; join by code or organizer; answer before drain; tombstone; RSVP Yes opt-in | Own accepted rows only, names only, same event; `NOT_LOOKING`, `INVITED`, `ALREADY_INVITED`; one invite email, no code or pass; consent, 4-member limit, invite cleanup; cancelled email after answer; flag stored with Yes. Audit without PII | I |
+| T-TEAM-06 | Invite template with HTML in team and inviter names | Escaped, exact `/me/team` link, plain text, no join code, HTML under 60 KB | U |
+| T-TEAM-07 | Organizer adds tracks; A opens Team before forming opens; organizer opens it; A creates a team; B joins with the code in lowercase; organizer releases tracks; A picks one; the admin page; N opts into the directory, A invites N, N reads the email and accepts | "Teams open on hackathon day", no forms; created, code shown, "Tracks are announced at the hackathon"; B sees the team and Ada; track saved; the team card shows Ada, Ben and the track; directory shows Nia, email links to `/me/team`, N accepts and both see the team | E |
+
 ---
 
 ## 15. Non-functional requirements
@@ -1145,8 +1405,12 @@ Target: at least 95% of attempts under 3 s.
   | Scans per staff | 120 / min |
   | `NOT_FOUND` per staff | 30 / 5 min → 429 + alert |
   | `/api/pass` per IP | 30 / min |
+  | `/api/rsvp` per IP | 30 / min |
+  | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
+  | RSVP Yes password checks per email (v0.7.2; its own bucket) | 10 / 15 min (then refused like a wrong password) |
+  | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
   | Photo uploads per pass | 10 / h |
-- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin.
+- **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, the Tools page) need Chrome on Android and are hidden elsewhere. Claiming a badge works on any phone: it only opens the badge's URL.
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
   - status never conveyed by color alone,
@@ -1155,12 +1419,13 @@ Target: at least 95% of attempts under 3 s.
 - **Privacy:**
   - The Google Form MUST include a collection notice covering what is collected, why (event admission, food, attendance analytics), who sees it (club organizers and volunteers), and retention.
   - Follow the college's student-organization data policies.
-  - Retention: photos and dietary notes are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
+  - Retention: photos, dietary notes and emergency contacts (v0.6) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
+  - The badge profile is opt-in and off by default; participants switch it on or off on their pass page or `/me`, where they can also set their LinkedIn (v0.5). It is only shown to signed-in attendees and staff of the same event.
 - **Logging:**
   - Structured JSON logs.
   - Allowed fields: `participant_id`, `event_id`, `checkpoint_id`, `result_code`, `latency_ms`.
-  - Never names, emails, tokens, dietary notes or photos.
+  - Never names, emails, tokens, dietary notes, emergency contacts or photos.
 
 ---
 
@@ -1173,8 +1438,10 @@ Target: at least 95% of attempts under 3 s.
 
 **T − 1 day**
 - Create checkpoints, all closed.
-- Invite staff; every volunteer signs in once on their own phone and runs a test scan.
+- Send RSVPs to the chosen applicants well before this (Participants page); check the outbox for failures.
+- Invite staff; every volunteer sets their password from the invite email on their own phone and runs a test scan.
 - Export and **print the accepted roster** (name, checkbox per checkpoint) as the offline fallback.
+- If using badges: write the tags on the Tools page (Android), and check one opens `/profile/<uid>` on an iPhone. Tell attendees to tap their badge with their phone and press **This is my badge**.
 - Check the dashboard: outbox has 0 failed and 0 pending.
 - Charge phones and bring battery packs.
 
@@ -1189,6 +1456,7 @@ Target: at least 95% of attempts under 3 s.
 |-----------|--------|
 | Code won't scan | Manual search → Record scan |
 | `NOT_FOUND` | Manual search by name; check for an email typo in the Sheet; organizer adds a walk-in if they're legit |
+| UNKNOWN BADGE | Scan their QR (or manual search). Ask them to tap the badge with their own phone and press "This is my badge"; without a phone, an organizer links it on the Tools page |
 | `REVOKED` + reissued | Ask them to open their **newest** email; organizer can resend on the spot |
 | `ALREADY_SCANNED` by someone else | Compare the photo; escalate to an organizer |
 | `WRONG_EVENT` | Organizer decides |
@@ -1216,6 +1484,8 @@ Target: at least 95% of attempts under 3 s.
 | A7 | Scanner library choice: compare html5-qrcode, nimiq `qr-scanner` and `@zxing/browser` on iOS reliability, bundle size and maintenance activity | Swap behind the `QrScanner` interface |
 | A8 | `Utilities.computeHmacSha256Signature(value, key, Utilities.Charset.UTF_8)` output matches Node's HMAC for non-ASCII bodies | T-ING-05 catches it; fix encoding on one side |
 | A9 | Supabase region near Toronto | Choose the nearest and co-locate the Vercel functions |
+| A10 | Chrome on Android gives a `serialNumber` for our tags (NTAG21x) and doesn't open the tag's URL while the page is scanning | Ask volunteers to keep the scanner tab in front; consider tags without a URL record for staff-only use **Checked on a real phone (2026-10-20):** the serial is there, but reads only arrived with the camera off, hence the one-input-at-a-time switch (§10.1). |
+| A11 | Web NFC needs no Permissions-Policy token (only the `nfc` permission) | Add `nfc=(self)` to `Permissions-Policy` and update T-SEC-06 |
 
 ---
 
@@ -1233,6 +1503,10 @@ Each slice ends with its tests green in CI and a short demo.
 | **S5** Scanner | staff auth + invites, `/scan`, result UI, manual search, undo | T-SCUI-*, T-SRCH-*, T-SEC-04 |
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
+| **S9** Accounts & RSVP | Password sign-in, invite and reset links, RSVP (F13), `/me` with derived tokens, import-only Sheet; admin emails and staff links on `/me` (v0.4.1) | T-AUTH-01..06, T-RSVP-01..05, T-ME-01..02, T-TOK-10, rewritten T-ING |
+| **S10** Hacker menu (v0.6) | `/me` menu (own badge tap; no slug since v0.6.1), Hacker profile with dietary notes, Schedule and Emergency contact pages, admin Info tab, emergency contact on the RSVP Yes form and participant detail; tombstone, retention, Sheet rule | T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08 |
+| **S11** Teams (v0.7) | S11a: tracks, teams, the forming and release switches, the hacker Team page (create, join by code, leave, pick a track) and the admin Teams page. S11b: teammate directory, invites with email, the RSVP opt-in | T-TEAM-01..04, T-TEAM-07 (S11a); T-TEAM-05..07 (S11b) |
+| **S8** NFC badges | N1 badges table + `record_badge_scan` + link API · N2 scanner NFC · N3 badge profile + opt-in · N4 tag writer · N5 (v0.5) self-claimed badges, LinkedIn on `/me`, Tools linker | T-NFC-01..21, T-ME-03, T-ING-26 (+ T-NFC-17 manual) |
 
 ---
 
@@ -1250,11 +1524,27 @@ Each slice ends with its tests green in CI and a short demo.
 | `EMAIL_PROVIDER` | server | `console` \| `resend` |
 | `DEV_PUBLIC_HOST` | `next.config.ts`, dev only | Optional stable tunnel host, added to `allowedDevOrigins` so a phone can open pages through it |
 | `RESEND_API_KEY`, `EMAIL_FROM` | server | |
+| `ADMIN_EMAILS` | server only | Optional, comma-separated. These accounts are organizer on every event (F9). Keep it short: whoever controls one of these mailboxes is organizer everywhere. |
+| `PASS_TOKEN_SECRET` | server only | ≥ 32 random bytes. Pass tokens are derived from it (§6.1). Changing it hides older passes on `/me`; scanning is unaffected. |
+| `BADGE_ORIGIN` | server | Optional. Origin written onto badge tags (§6.5); defaults to `NEXT_PUBLIC_APP_ORIGIN`. Must be `https://` for the writer to write. |
 
 ---
 
 ## 20. Changelog
 - **v0.1 (2026-09-23)** — Initial draft.
+- **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
+- **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.
+- **v0.5 (2026-10-19)** — Self-claimed badges, reversing a v0.3 DECISION: a signed-in attendee taps an unlinked badge and presses **This is my badge** (`claim_badge()`), then sets their LinkedIn and sharing on `/me` (`save_badge_profile()`, `normalizeLinkedIn()`); the Sheet stops overwriting a LinkedIn they set (`linkedin_set_at`, F3). The scanner's door "Link badge" is gone; organizers link badges on the admin **Tools** page (formerly Badges, which keeps the tag writer). §2, §3, §5.2, §6.5, F3, §9.3, §10.2, §10.5, §11, §15, §16, S8. New tests T-NFC-19..21, T-ME-03, T-ING-26; T-NFC-11 and T-NFC-16 rewritten for Tools.
+- **v0.6 (2026-10-19)** — Hacker menu (F14, S10). Tapping your own badge opens `/me/<slug>` (`badge_profile` adds `self`, `slug`): Hacker profile (LinkedIn, sharing, and now dietary notes), Schedule and Emergency contact (the event's info and your own contact), and My pass. The RSVP Yes form requires an emergency contact and offers the networking profile and dietary notes, prefilled from the Sheet, all stored with the answer (`rsvp_respond` gains optional fields; `rsvp_lookup` returns the prefill). Organizers write the schedule and emergency info on a new admin **Info** tab and see the emergency contact on the participant detail. The Sheet stops overwriting dietary notes the attendee set (`dietary_set_at`); set-at timestamps move only on a real change. The emergency contact is deleted by the tombstone and by retention, and never logged. §2, §3, §5.1, §5.4, §6.5, F3, F13, F14, §9.3, §11, §12, §15, §18. New tests T-ME-04..07, T-NFC-22, T-ING-27, T-RSVP-06..07, T-ADM-08; T-ADM-05, T-PRIV-01, T-RSVP-05, T-NFC-21 and T-SEC-05/T-PRIV-03 updated.
+- **v0.6.1 (2026-10-19)** — The hacker menu drops the event slug: `/me` is the menu for your event (the next one not yet over, else the most recent; DECISION), with `/me/profile`, `/me/schedule` and `/me/emergency`, and keeps the staff links. The pass list and its Menu button are gone (**My pass** replaces them). Your own badge and "This is my badge" open `/me` and `/me/profile`. §2, §3, §6.5, F14, §9.3; T-ME-06/07, T-NFC-21/22, T-RSVP-05 updated.
+- **v0.7 (2026-10-20)** — Teams and tracks (F15, S11a). Organizers type an event's tracks, open team forming and release the tracks on a new admin **Teams** page, and can edit any team. Accepted hackers create a team or join one with its join code (not a secret, DECISION) from a **Team** item in their menu, up to 4 per team (DECISION, enforced by a trigger), and pick one track once released. The tombstone takes people out of their team. §2, §3, §5.1, §5.5, F15, §9.3, §11, §14.18, §18. New tests T-TEAM-01..04, T-TEAM-07. S11b adds the opt-in name-only teammate directory, consent-based invites and their email, invite cleanup on joining or tombstoning, and the RSVP directory checkbox. §5.5, F13, F15, §9.3, §12, §14.18, §18. New tests T-TEAM-05..06; T-TEAM-07 extended.
+- **v0.7.1 (2026-10-20)** — The Participants page's **Add walk-in** becomes **Add attendee**, with a **Not RSVPed yet** box that adds a pending applicant (sent nothing) so organizers can send them an RSVP, e.g. to test the RSVP email (F12, §3, §11). `add_walk_in()` gains `p_not_rsvped` (default false). New test T-ADM-09.
+- **v0.7.2 (2026-10-20)** — The RSVP Yes form always requires a password: people without an account set one, people with an account enter theirs (checked like a sign-in with its own per-email limit; 400 `wrong_password`), and both end up signed in with `/login`'s post-sign-in steps. An RSVP still never changes an existing password. `/api/rsvp` takes JSON bodies only (no cross-site form posts). F13, §9.3, §15; T-RSVP-04 rewritten (I+E).
+- **v0.7.3 (2026-10-20)** — The scanner taps twice (a pattern no result uses) the moment it reads a badge, before the answer, so volunteers know the tap registered; unreadable tags get the amber pulse, and until the page has been tapped once (Chrome's rule for vibration) the scanner says so (§10.5). T-NFC-10 extended.
+- **v0.7.4 (2026-10-20)** — Fix: on a real Android phone, badge taps on the scanner did nothing. The page didn't hold its `NDEFReader`, so Chrome collected it while keeping the NFC session. The hook now keeps the active reader, and an exception in the read handler shows a notice instead of failing silently (§10.5). T-NFC-10 gains a garbage-collection case; the e2e fake now holds readers weakly. The dashboard no longer shows the Scan problems table (§13).
+- **v0.8 (2026-10-20)** — Who was scanned at each checkpoint: Admin → Checkpoints → **People**, and **Scanned here** in the scanner, with **Remove** (a void, F11: organizers any scan, volunteers their own within 120 s). New staff endpoint `GET /api/events/:slug/checkpoints/:id/scans` (§3, §9.3, §10.6, §11). New tests T-SCAN-30, T-SCUI-14, T-ADM-10.
+- **v0.8.1 (2026-10-20)** — The scanner takes one input at a time: a **Camera | NFC badges** switch (only where Web NFC exists). NFC mode releases the camera and keeps the badge reader on; on a real Android phone the running camera stopped NFC reads (§10.1, §10.5, A10). The saved camera is now a preference, not an exact requirement, which fixes a camera stuck as "unavailable" after Chrome changed its device id. The NFC hook no longer aborts a tap-started reader when auto-start settings change. New test T-NFC-23.
+- **v0.4.1 (2026-10-19)** — Admin emails: `ADMIN_EMAILS` accounts are organizer on every event, granted at sign-in by `grant_admin_roles()` (F9 step 7, §3, §19). `/me` links staff to their events' Admin and Scanner pages; `/` redirects to `/me`. New tests T-AUTH-06, T-ME-02.
 - **v0.2 (2026-09-24)** — Console provider saves QR images as `.mail/qr/<Event>-<First>.png` (T-MAIL-13/14); `pnpm seed` uses the same naming; optional `DEV_PUBLIC_HOST`; `apps-script/Setup.gs` (form setup, connect an existing Sheet, Applicant ID backfill).
 
 ---
@@ -1265,9 +1555,9 @@ Each slice ends with its tests green in CI and a short demo.
 1. In the Sheet, open **Extensions → Apps Script** and paste this file.
 2. Under **Project Settings → Script properties**, set `ENDPOINT`, `EVENT_SLUG` and `INGEST_SECRET`.
 3. Under **Triggers**, add:
-   - `onFormSubmitInstalled`: *From spreadsheet → On form submit*,
-   - `onEditInstalled`: *From spreadsheet → On edit*.
-4. Add the headers `Applicant ID`, `Status` and `Sync Status`. Put data validation on `Status`.
+   - `onFormSubmitInstalled`: *From spreadsheet → On form submit* (assigns the Applicant ID and imports the row),
+   - `onEditInstalled`: *From spreadsheet → On edit* (re-syncs edited rows).
+4. Add the headers `Applicant ID` and `Sync Status`. A `Status` column is optional and ignored (v0.4).
 
 ```javascript
 const SHEET_NAME = 'Form Responses 1';
@@ -1275,7 +1565,8 @@ const HEADERS = {
   id: 'Applicant ID', email: 'Email Address', first: 'First Name', last: 'Last Name',
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
 };
-const REQUIRED = ['id', 'email', 'first', 'status', 'sync'];
+// v0.4: Status is optional and ignored by Passline (acceptance comes from the RSVP, SPEC F13).
+const REQUIRED = ['id', 'email', 'first', 'sync'];
 
 function prop_(k) {
   const v = PropertiesService.getScriptProperties().getProperty(k);
@@ -1298,6 +1589,7 @@ function onFormSubmitInstalled(e) {
   const cols = headerMap_(sheet);
   const cell = sheet.getRange(e.range.getRow(), cols.id);
   if (!cell.getValue()) cell.setValue(Utilities.getUuid());
+  syncRows_(sheet, cols, e.range.getRow(), e.range.getRow()); // v0.4: import new applicants right away
 }
 
 function onEditInstalled(e) {
@@ -1305,7 +1597,7 @@ function onEditInstalled(e) {
   if (sheet.getName() !== SHEET_NAME) return;
   const cols = headerMap_(sheet);
   const r = e.range;
-  if (cols.status < r.getColumn() || cols.status > r.getLastColumn()) return;
+  if (r.getColumn() === cols.sync && r.getLastColumn() === cols.sync) return; // only Sync Status edited
   const first = Math.max(r.getRow(), 2);          // skip header row
   const last = r.getLastRow();
   if (last < first) return;

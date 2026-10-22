@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sha256hex } from '@/lib/domain/token';
 import { drainOutbox, drainUntilIdle, type DrainOptions } from '@/lib/email/drain';
 import { ProviderError, type EmailProvider } from '@/lib/email/provider';
+import { requireEnv } from '../fixtures/db';
 import { mockProvider, onlyEmailTo, sentTo, serviceClient, tokenFromEmail } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
 
@@ -16,7 +17,7 @@ afterEach(async () => {
 const db = serviceClient();
 // Until idle: rows other files left due would otherwise crowd this test's row out of a 20-row batch.
 const drain = (provider: EmailProvider, extra: Partial<DrainOptions> = {}) =>
-  drainUntilIdle({ db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>', ...extra });
+  drainUntilIdle({ db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET'), ...extra });
 
 async function enqueue(participantId: string, kind = 'pass_issued'): Promise<string> {
   const { rows } = await f.pool.query<{ id: string }>(
@@ -59,7 +60,7 @@ describe('outbox drain (SPEC F4)', () => {
     const people = await Promise.all(Array.from({ length: 50 }, () => f.addParticipant(f.e1.id, { withPass: false })));
     const ids = await Promise.all(people.map((p) => enqueue(p.id)));
     const { provider, sent } = mockProvider(() => new Promise((r) => setTimeout(r, 5)));
-    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>' };
+    const opts = { db, provider, appOrigin: 'http://localhost:3100', from: 'Passline <passes@localhost>', passSecret: requireEnv('PASS_TOKEN_SECRET') };
     const loop = async () => {
       for (;;) {
         const r = await drainOutbox(opts);

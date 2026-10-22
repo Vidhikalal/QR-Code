@@ -13,6 +13,15 @@ import { renderQrPng } from '@/lib/qr/render';
 const SLUG = 'demo';
 const EVENT_NAME = 'Demo Hack Day';
 const FIRST = ['Ada', 'Zoë', 'Liam', 'Priya', 'Mateo', 'Aisha', 'Kenji', 'Sofía', 'Noah', 'Chloé'];
+const TRACKS = [
+  '[Sponsored] Tangerine - Best Data Project',
+  '[Sponsored] IBM - Best Data Project',
+  '[Sponsored] ElevenLabs - Best Data Project',
+  '[Sheridan Datathon] Best Data Visualization & Storytelling Project',
+  '[Sheridan Datathon] Best Hardware Project',
+  '[Sheridan Datathon] Best Beginner Project',
+  '[Sheridan Datathon] Best AI/ML Project',
+];
 const LAST = ["O'Brien", 'Nguyen', 'Okafor', 'Smith', 'García', 'Kowalski', 'Haddad', 'Li', 'Martin', 'Adebayo'];
 
 function need(name: string): string {
@@ -42,6 +51,9 @@ async function main() {
       venue: 'Demo Hall',
       starts_at: startsAt.toISOString(),
       ends_at: new Date(startsAt.getTime() + 10 * 3600 * 1000).toISOString(),
+      // Placeholders for the hacker menu (F14); organizers replace them on the admin Info page.
+      schedule: '9:00  Check-in and breakfast\n10:00  Opening ceremony\n12:00  Lunch\n13:00  Workshops\n18:00  Dinner\n19:00  Demos and judging',
+      emergency_info: 'Find any organizer at the front desk.\nIn a life-threatening emergency, call 911.',
     })
     .select('id')
     .single();
@@ -56,7 +68,11 @@ async function main() {
   ], { defaultToNull: false });
   if (cps.error) throw cps.error;
 
-  // Dev staff: sign in at /login with these addresses; the links land in Mailpit (http://127.0.0.1:54324).
+  // F15 (v0.7): the datathon's tracks (the 1st/2nd/3rd place prizes aren't tracks). Created in this order.
+  const tracks = await db.from('tracks').insert(TRACKS.map((name) => ({ event_id: eventId, name })));
+  if (tracks.error) throw tracks.error;
+
+  // Dev staff: at /login use "Forgot or never set your password?" with these addresses; the link lands in Mailpit (http://127.0.0.1:54324).
   const invites = await db.from('staff_invites').insert([
     { event_id: eventId, email: normalizeEmail('organizer@example.test'), role: 'organizer' },
     { event_id: eventId, email: normalizeEmail('volunteer@example.test'), role: 'volunteer' },
@@ -93,7 +109,7 @@ async function main() {
     await writeUniqueFile(dir, toFileLabel(EVENT_NAME, first), '.png', await renderQrPng(`${origin}/p#${token}`));
   }
   console.log(`Seeded event "${SLUG}" with 4 checkpoints and 50 participants. QR codes: .seed/${toFileLabel(EVENT_NAME)}-<First>.png`);
-  console.log('Staff invites: organizer@example.test, volunteer@example.test (sign-in links arrive in Mailpit at http://127.0.0.1:54324).');
+  console.log('Staff invites: organizer@example.test, volunteer@example.test (set a password with "Forgot or never set your password?" at /login; the link arrives in Mailpit at http://127.0.0.1:54324).');
 }
 
 main().catch((err: unknown) => {

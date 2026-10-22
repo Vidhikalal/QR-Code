@@ -27,8 +27,10 @@ export function securityHeaders(opts: { production: boolean; supabaseUrl: string
     { key: 'Permissions-Policy', value: 'camera=(self), microphone=(), geolocation=()' },
     { key: 'X-Content-Type-Options', value: 'nosniff' },
     { key: 'X-Frame-Options', value: 'DENY' },
-    // Tokens only ever live in the fragment, which browsers never send; this is belt and braces.
-    { key: 'Referrer-Policy', value: 'no-referrer' },
+    // Tokens only ever live in the fragment, which browsers never send; this is belt and braces. Not
+    // 'no-referrer': that makes a form posted before hydration carry `Origin: null`, which the
+    // server-action CSRF check rejects. 'same-origin' still sends nothing to other sites.
+    { key: 'Referrer-Policy', value: 'same-origin' },
     ...(opts.production ? [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains' }] : []),
   ];
 }

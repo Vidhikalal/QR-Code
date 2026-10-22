@@ -13,6 +13,7 @@ interface ActivePass {
   event: { name: string; venue: string; startsAt: string; timezone: string };
   photo: { url: string | null; updatedAt: string | null };
   photoLocked: boolean;
+  profile: { public: boolean; hasLinkedin: boolean };
 }
 
 type View =
@@ -187,7 +188,57 @@ function ActiveView({ pass, token, onChanged }: { pass: ActivePass; token: strin
         <p className={styles.hint}>Show this at the door. Turn your screen brightness up. This code is personal.</p>
       </section>
       <PhotoSection pass={pass} token={token} onChanged={onChanged} />
+      {/* Keyed so another pass opened in this tab (hash change) never shows the previous pass's setting. */}
+      <ProfileSection key={`${token}:${pass.profile.public}`} pass={pass} token={token} />
     </>
+  );
+}
+
+// SPEC §6.5: opt-in, off by default. The token travels only in the PATCH body (I-3).
+function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
+  const [on, setOn] = useState(pass.profile.public);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const what = pass.profile.hasLinkedin ? 'name and LinkedIn' : 'name';
+
+  async function onToggle(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = e.target.checked;
+    setOn(next); // shown at once; put back if the save fails
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/pass', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, profilePublic: next }),
+      });
+      if (res.ok) {
+        setMessage({ tone: 'ok', text: next ? 'Your badge profile is shared.' : 'Your badge profile is hidden.' });
+      } else {
+        setOn(!next);
+        setMessage({ tone: 'bad', text: res.status === 429 ? 'Too many attempts. Please wait a minute.' : 'Couldn’t save. Please try again.' });
+      }
+    } catch {
+      setOn(!next);
+      setMessage({ tone: 'bad', text: 'Couldn’t save. Check your connection and try again.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.card} aria-labelledby="profile-heading">
+      <h2 id="profile-heading">Badge profile (optional)</h2>
+      <p>If you get an NFC badge at the event, other attendees can tap it with their phone.</p>
+      <label className={styles.check}>
+        <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
+        Show my {what} when someone taps my badge
+      </label>
+      {!pass.profile.hasLinkedin && <p className={styles.eyebrow}>We don’t have a LinkedIn URL for you, so only your name would show.</p>}
+      <p className={`${styles.message} ${message ? styles[message.tone] : ''}`} role="status" aria-live="polite">
+        {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
+      </p>
+    </section>
   );
 }
 

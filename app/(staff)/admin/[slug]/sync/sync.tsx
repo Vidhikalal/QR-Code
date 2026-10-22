@@ -63,7 +63,7 @@ export function Sync({ slug }: { slug: string }) {
     }
     setReport(dryRun ? r.data : null);
     if (!dryRun) {
-      setMessage(`✓ Applied ${r.data.total} rows. ${r.data.counts.PASS_QUEUED ?? 0} pass emails queued.`);
+      setMessage(`✓ Applied ${r.data.total} rows: ${r.data.counts.CREATED ?? 0} new applicants. Send them an RSVP from Participants.`);
       await load();
     }
   }

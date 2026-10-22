@@ -26,6 +26,6 @@ export default defineConfig({
     url: origin,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { NEXT_PUBLIC_APP_ORIGIN: origin },
+    env: { NEXT_PUBLIC_APP_ORIGIN: origin, BADGE_ORIGIN: 'https://badges.example.test' },
   },
 });

@@ -9,7 +9,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 ### Supabase (production project)
 - [ ] Create the project in the region closest to Toronto (§17 A9), e.g. `ca-central-1` or `us-east-1`.
 - [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket.
-- [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/callback**` to the redirect URLs.
+- [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/confirm**` to the redirect URLs. Point the invite and recovery email templates at `https://<your-domain>/auth-email/invite.html` and `recovery.html`, and turn off public sign-ups. Keep "Secure email change" on (Passline trusts an account's email for `/me` and invites).
 - [ ] Auth → SMTP: **set up custom SMTP** (e.g. Resend's SMTP). Supabase's built-in mailer only sends a few emails per hour, which isn't enough for volunteers signing in on event day.
 - [ ] Copy the project URL, anon key and service-role key for the Vercel env.
 
@@ -22,7 +22,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 - [ ] Import the repo. Set the function region to match Supabase (§15).
 - [ ] Environment variables (SPEC §19):
       `NEXT_PUBLIC_APP_ORIGIN`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-      `SHEET_INGEST_SECRET` and `DRAIN_SECRET` (`openssl rand -hex 32` each), `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
+      `SHEET_INGEST_SECRET`, `DRAIN_SECRET` and `PASS_TOKEN_SECRET` (`openssl rand -hex 32` each), `ADMIN_EMAILS` (your own address), `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`,
       `EMAIL_FROM`, and optionally `GOOGLE_SERVICE_ACCOUNT_JSON` for Sync now.
 - [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
 
