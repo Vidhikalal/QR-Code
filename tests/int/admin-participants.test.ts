@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { generateToken, sha256hex } from '@/lib/domain/token';
 import { adminClient, obj } from '../fixtures/admin-api';
 import { onlyEmailTo, tokenFromEmail } from '../fixtures/mail';
 import { signInAs } from '../fixtures/staff';
@@ -129,8 +130,9 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     // A fresh RSVP: queued, and a Yes to it issues a new pass (the old one wasn't revoked by hand).
     expect((await c.call('sendRsvps', org, { slug: f.slug }, { body: { ids: [id] } })).body).toEqual({ queued: 1 });
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [id]);
-    await f.pool.query(`update participants set rsvp_token_hash = repeat('b', 64), rsvp_sent_at = now() where id = $1`, [id]);
-    expect((await f.pool.query<{ r: string }>(`select rsvp_respond(repeat('b', 64), true) as r`)).rows[0]?.r).toBe('GOING');
+    const hash = sha256hex(generateToken()); // random: the local DB keeps rows between runs
+    await f.pool.query(`update participants set rsvp_token_hash = $2, rsvp_sent_at = now() where id = $1`, [id, hash]);
+    expect((await f.pool.query<{ r: string }>(`select rsvp_respond($1, true) as r`, [hash])).rows[0]?.r).toBe('GOING');
     expect((await f.pool.query(`select 1 from email_outbox where participant_id = $1 and kind = 'pass_issued' and status = 'pending'`, [id])).rows).toHaveLength(1);
     await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [id]);
   });

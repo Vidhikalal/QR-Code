@@ -308,6 +308,7 @@ export function createAdminApi(deps: AdminDeps) {
           applicantId: p.external_id,
           dietaryNotes: p.dietary_notes,
           hasPhoto: p.photo_path !== null,
+          hasBadge: p.has_badge,
           photoUpdatedAt: p.photo_updated_at,
           passState: p.pass_state,
           rsvpSentAt: p.rsvp_sent_at,
@@ -442,6 +443,18 @@ export function createAdminApi(deps: AdminDeps) {
       const { data, error } = await db.rpc('revoke_rsvp', { p_event_id: g.eventId, p_participant_id: id, p_actor: g.userId });
       if (error) throw new Error(`revoke_rsvp failed (${error.code})`);
       if (data === 'NOT_FOUND') return notFound();
+      return json({ code: data });
+    },
+
+    // DELETE /api/admin/[slug]/participants/[id]/badge
+    async unlinkBadge(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return json({ code: 'NOT_FOUND' }, 404);
+      const { data, error } = await db.rpc('unlink_badge', { p_event_id: g.eventId, p_participant_id: id, p_actor: g.userId });
+      if (error) throw new Error(`unlink_badge failed (${error.code})`);
+      if (data === 'NOT_FOUND') return json({ code: data }, 404);
       return json({ code: data });
     },
 

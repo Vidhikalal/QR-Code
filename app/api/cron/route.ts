@@ -23,3 +23,5 @@ export const POST = route(async (request) => {
   if (error) throw new Error(`run_rsvp_jobs failed (${error.code})`);
   return Response.json({ jobs, claimed });
 });
+// Vercel Cron calls GET with `Authorization: Bearer $CRON_SECRET`, set to the same value as DRAIN_SECRET (vercel.json).
+export const GET = POST;

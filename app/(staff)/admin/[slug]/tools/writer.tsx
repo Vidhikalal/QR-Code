@@ -9,7 +9,7 @@ const decoder = new TextDecoder();
 const WRITE_TIMEOUT_MS = 5000;
 
 // SPEC §11 / §6.5 tag writer, ported from datathon-badges. Writes the badge link onto each tag tapped;
-// attendees then link their own badge by tapping it (v0.5), or an organizer links it with BadgeLinker.
+// staff then link badges from Participants or the scanner’s Manual search (v0.10).
 export function BadgeWriter({ origin }: { origin: string }) {
   const writable = badgeWritable(origin);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -59,7 +59,7 @@ export function BadgeWriter({ origin }: { origin: string }) {
       <h2 id="write-heading">Write tags</h2>
       <p>
         Writes <code>{badgeUrl(origin, '<uid>')}</code> onto each tag you tap. After that, any phone (iPhone included)
-        opens the badge’s page, where its owner signs in and links it to themselves.
+        opens the badge’s page. Staff link badges from the Participants page or the scanner’s Manual search.
       </p>
       {!writable && (
         <p className={`${styles.alert} ${styles.alertWarn}`} role="alert">

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateToken } from '@/lib/domain/token';
+import { saveBadgeProfile } from '@/lib/me/profile';
+import { serviceClient } from '../fixtures/mail';
 import { passClient } from '../fixtures/pass';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
@@ -43,6 +45,8 @@ describe('badge_profile() (SPEC §6.5)', () => {
       firstName: 'Ada',
       lastName: 'Fixture',
       linkedinUrl: 'https://www.linkedin.com/in/ada-fixture',
+      discord: null,
+      websiteUrl: null,
     });
   });
 
@@ -147,6 +151,47 @@ describe('sharing on by default (SPEC §6.5, v0.9)', () => {
     const { rows } = await f.pool.query<{ id: string; profile_public: boolean }>('select id, profile_public from participants where id = any($1)', [ids]);
     const shared = Object.fromEntries(rows.map((r) => [r.id, r.profile_public]));
     expect(ids.map((pid) => shared[pid])).toEqual([true, false, false, false, false, false]);
+  });
+});
+
+describe('Discord and website on the badge profile (SPEC §6.5, v0.9.2)', () => {
+  it('T-NFC-26: saved normalized, shown only while shared, cleared by blank, refused when invalid, gone with the tombstone', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const { uid } = await f.linkBadge(id);
+    const { rows } = await f.pool.query<{ email: string }>('select email from participants where id = $1', [id]);
+    const user = { id: f.staff.vol1, email: rows[0]?.email ?? '' }; // any account; the email is what matches
+    const save = (input: Parameters<typeof saveBadgeProfile>[3]) => saveBadgeProfile(serviceClient(), user, id, input);
+    const stored = async () =>
+      (await f.pool.query('select discord_username, website_url from participants where id = $1', [id])).rows[0];
+
+    expect(await save({ discord: ' @Ada.Codes ', website: 'ada.dev', profilePublic: true })).toBe('SAVED');
+    expect(await stored()).toEqual({ discord_username: 'ada.codes', website_url: 'https://ada.dev/' });
+    expect(await profileOf(uid, null)).toMatchObject({ public: true, discord: 'ada.codes', websiteUrl: 'https://ada.dev/' });
+    const audit = await f.pool.query<{ detail: unknown }>(
+      `select detail from audit_log where subject_id = $1 and action = 'profile.update' order by id desc limit 1`,
+      [id],
+    );
+    expect(JSON.stringify(audit.rows[0]?.detail)).not.toMatch(/ada/); // I-11: at most the sharing flag
+
+    await setPrivate(id);
+    expect(await profileOf(uid, null)).toEqual({ allowed: true, public: false });
+
+    expect(await save({ discord: 'ada#1234' })).toBe('INVALID_DISCORD');
+    expect(await save({ website: 'javascript:alert(1)' })).toBe('INVALID_WEBSITE');
+    expect(await stored()).toEqual({ discord_username: 'ada.codes', website_url: 'https://ada.dev/' });
+    expect(await save({ linkedin: '' })).toBe('SAVED'); // a missing key leaves them as they are
+    expect(await stored()).toEqual({ discord_username: 'ada.codes', website_url: 'https://ada.dev/' });
+
+    expect(await save({ discord: '', website: ' ' })).toBe('SAVED');
+    expect(await stored()).toEqual({ discord_username: null, website_url: null });
+
+    // The database refuses what the parser would: integrity lives in the checks.
+    await expect(f.pool.query(`update participants set discord_username = 'Ada Codes' where id = $1`, [id])).rejects.toThrow(/check/);
+    await expect(f.pool.query(`update participants set website_url = 'javascript:alert(1)' where id = $1`, [id])).rejects.toThrow(/check/);
+
+    await save({ discord: 'ada.codes', website: 'ada.dev' });
+    await f.pool.query('select delete_participant($1, $2, $3)', [f.e1.id, id, f.staff.org1]);
+    expect(await stored()).toEqual({ discord_username: null, website_url: null });
   });
 });
 

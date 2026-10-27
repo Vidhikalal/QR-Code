@@ -1,10 +1,13 @@
-import { normalizeLinkedIn } from './badge';
+import { normalizeDiscord, normalizeLinkedIn, normalizeWebsite } from './badge';
 
 // SPEC F13/F14 (v0.6): what a hacker types on the RSVP Yes form and in their menu. A missing field is left
 // unchanged; a blank LinkedIn or dietary note clears it. The emergency contact is all-or-nothing.
 // v0.9: the profile setup answers (overnight, allergies with their severity, team status, accessibility).
+// v0.9.2: a Discord username and a website, cleared by a blank like LinkedIn.
 export interface ProfileInput {
   linkedin?: string;
+  discord?: string;
+  website?: string;
   profilePublic?: boolean;
   dietaryNotes?: string;
   emergencyName?: string;
@@ -23,6 +26,8 @@ export const TEAM_STATUS = ['team', 'looking', 'solo'] as const;
 
 export interface ProfileFields {
   linkedinUrl?: string; // normalized, or '' to clear
+  discordUsername?: string; // normalized, or '' to clear
+  websiteUrl?: string; // normalized, or '' to clear
   profilePublic?: boolean;
   dietaryNotes?: string; // '' clears
   emergency?: { name: string; phone: string; relation: string }; // relation '' = none
@@ -34,6 +39,8 @@ export interface ProfileFields {
 
 export type ProfileField =
   | 'linkedin'
+  | 'discord'
+  | 'website'
   | 'dietaryNotes'
   | 'emergencyName'
   | 'emergencyPhone'
@@ -61,6 +68,16 @@ export function parseProfileInput(
     const linkedin = raw.linkedin.trim() === '' ? '' : normalizeLinkedIn(raw.linkedin);
     if (linkedin === null) return { ok: false, field: 'linkedin' };
     value.linkedinUrl = linkedin;
+  }
+  if (raw.discord !== undefined) {
+    const discord = raw.discord.trim() === '' ? '' : normalizeDiscord(raw.discord);
+    if (discord === null) return { ok: false, field: 'discord' };
+    value.discordUsername = discord;
+  }
+  if (raw.website !== undefined) {
+    const website = raw.website.trim() === '' ? '' : normalizeWebsite(raw.website);
+    if (website === null) return { ok: false, field: 'website' };
+    value.websiteUrl = website;
   }
   if (raw.profilePublic !== undefined) value.profilePublic = raw.profilePublic;
   if (raw.dietaryNotes !== undefined) {

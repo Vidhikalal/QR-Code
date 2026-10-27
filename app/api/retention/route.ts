@@ -11,3 +11,5 @@ export const POST = route(async (request) => {
   }
   return Response.json(await runRetention(db(), new Date()));
 });
+// Vercel Cron calls GET with `Authorization: Bearer $CRON_SECRET`, set to the same value as DRAIN_SECRET (vercel.json).
+export const GET = POST;

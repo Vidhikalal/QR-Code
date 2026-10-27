@@ -49,7 +49,7 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
   // v0.8.2: dietary notes are the Sheet's, for organizers only; saving the profile must not clear them.
   await expect(page.getByLabel('Dietary notes')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Save LinkedIn' }).click();
+  await page.getByRole('button', { name: 'Save links' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
 
   await page.getByRole('link', { name: '← Menu' }).click();

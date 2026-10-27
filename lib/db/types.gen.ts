@@ -145,14 +145,14 @@ isOneToOne: false
                   ]
                 },"participants": {
                   Row: {
-                    "accessibility": string | null,"allergies": string | null,"allergy_severity": string | null,"created_at": string,"deleted_at": string | null,"dietary_notes": string | null,"dietary_set_at": string | null,"email": string,"emergency_name": string | null,"emergency_phone": string | null,"emergency_relation": string | null,"event_id": string,"external_id": string | null,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"linkedin_set_at": string | null,"linkedin_url": string | null,"looking_for_team": boolean,"overnight": string | null,"photo_path": string | null,"photo_updated_at": string | null,"profile_public": boolean,"rsvp_sent_at": string | null,"rsvp_token_hash": string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id": string | null,"team_status": string | null,"updated_at": string
+                    "accessibility": string | null,"allergies": string | null,"allergy_severity": string | null,"created_at": string,"deleted_at": string | null,"dietary_notes": string | null,"dietary_set_at": string | null,"discord_username": string | null,"email": string,"emergency_name": string | null,"emergency_phone": string | null,"emergency_relation": string | null,"event_id": string,"external_id": string | null,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"linkedin_set_at": string | null,"linkedin_url": string | null,"looking_for_team": boolean,"overnight": string | null,"photo_path": string | null,"photo_updated_at": string | null,"profile_public": boolean,"rsvp_sent_at": string | null,"rsvp_token_hash": string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id": string | null,"team_status": string | null,"updated_at": string,"website_url": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"email": string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id": string,"external_id"?: string | null,"first_name": string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string
+                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"discord_username"?: string | null,"email": string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id": string,"external_id"?: string | null,"first_name": string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
                   }
                   Update: {
-                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"email"?: string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id"?: string,"external_id"?: string | null,"first_name"?: string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text"?: string,"source"?: string,"status"?: Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string
+                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"discord_username"?: string | null,"email"?: string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id"?: string,"external_id"?: string | null,"first_name"?: string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text"?: string,"source"?: string,"status"?: Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
                   }
                   Relationships: [
                     {
@@ -432,7 +432,7 @@ isOneToOne: false
 { Args: { "p_deadline": string,"p_sent_at": string }; Returns: string
                            },
 "_set_hacker_profile":
-{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes": string,"p_emergency_name": string,"p_emergency_phone": string,"p_emergency_relation": string,"p_linkedin_url": string,"p_overnight"?: string,"p_participant_id": string,"p_public": boolean,"p_team_status"?: string }; Returns: undefined
+{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes": string,"p_discord"?: string,"p_emergency_name": string,"p_emergency_phone": string,"p_emergency_relation": string,"p_linkedin_url": string,"p_overnight"?: string,"p_participant_id": string,"p_public": boolean,"p_team_status"?: string,"p_website"?: string }; Returns: undefined
                            },
 "_who":
 { Args: { "k": Database["public"]['Enums']["checkpoint_kind"],"pa": Omit<Database["public"]['Tables']["participants"]['Row'], Database["public"]['Tables']["participants"]['ComputedFields']> }; Returns: Json
@@ -442,14 +442,11 @@ isOneToOne: false
                            },
 "admin_participants":
 { Args: { "p_event_id": string,"p_no_show"?: boolean,"p_query"?: string,"p_status"?: Database["public"]['Enums']["participant_status"] }; Returns: {
-              "allergies": string,"allergy_severity": string,"checked_in": boolean,"created_at": string,"dietary_notes": string,"email": string,"external_id": string,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"live_scans": number,"overnight": string,"pass_state": string,"photo_path": string,"photo_updated_at": string,"rsvp_sent_at": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_status": string
+              "allergies": string,"allergy_severity": string,"checked_in": boolean,"created_at": string,"dietary_notes": string,"email": string,"external_id": string,"first_name": string,"has_badge": boolean,"id": string,"is_test": boolean,"last_name": string,"live_scans": number,"overnight": string,"pass_state": string,"photo_path": string,"photo_updated_at": string,"rsvp_sent_at": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_status": string
             }[]
                            },
 "badge_profile":
 { Args: { "p_uid": string,"p_viewer_email"?: string,"p_viewer_id"?: string }; Returns: Json
-                           },
-"claim_badge":
-{ Args: { "p_email": string,"p_event_id": string,"p_uid": string,"p_user_id": string }; Returns: string
                            },
 "claim_outbox":
 { Args: { "p_limit"?: number }; Returns: {
@@ -544,7 +541,7 @@ isOneToOne: false
 { Args: { "p_email": string,"p_linkedin_url": string,"p_participant_id": string,"p_public": boolean,"p_user_id": string }; Returns: boolean
                            },
 "save_hacker_profile":
-{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string }; Returns: boolean
+{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes"?: string,"p_discord"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string,"p_website"?: string }; Returns: boolean
                            },
 "search_participants":
 { Args: { "p_checkpoint_id"?: string,"p_event_id": string,"p_query": string }; Returns: {
@@ -571,6 +568,9 @@ isOneToOne: false
                            },
 "team_set_track":
 { Args: { "p_email": string,"p_participant_id": string,"p_track_id": string,"p_user_id": string }; Returns: string
+                           },
+"unlink_badge":
+{ Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string
                            },
 "void_scan":
 { Args: { "p_reason": string,"p_scan_id": string,"p_staff_user_id": string }; Returns: Json

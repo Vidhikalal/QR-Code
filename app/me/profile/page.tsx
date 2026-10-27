@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
 import { PHONE_PATTERN } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import formStyles from '../../login/login.module.css';
@@ -15,6 +16,8 @@ export const metadata: Metadata = menuMetadata('Hacker profile');
 
 const ERRORS: Partial<Record<SaveProfileResult, string>> = {
   INVALID_LINKEDIN: '✕ Not saved. Use your LinkedIn profile link, like linkedin.com/in/yourname.',
+  INVALID_DISCORD: '✕ Not saved. Use your Discord username: 2–32 lowercase letters, numbers, _ or . (no # tag).',
+  INVALID_WEBSITE: '✕ Not saved. Use a website address under 200 characters, like yourname.dev.',
   INVALID_CONTACT: '✕ Not saved. Enter your emergency contact’s name and a phone number with at least 3 digits.',
   INVALID_OVERNIGHT: '✕ Not saved. Tell us whether you’re staying overnight.',
   INVALID_ALLERGY: '✕ Not saved. Pick how severe your allergy is (or clear the allergy field), in 300 characters or less.',
@@ -62,7 +65,7 @@ async function saveSetup(formData: FormData) {
   redirect(`/me/profile?${result === 'SAVED' ? 'saved=setup' : `error=${result}`}`);
 }
 
-// SPEC F14 / §6.5: the attendee's own LinkedIn and badge sharing. Dietary notes come from the Sheet and only
+// SPEC F14 / §6.5: the attendee's own LinkedIn, Discord username and website (v0.9.2), and badge sharing. Dietary notes come from the Sheet and only
 // organizers see them (v0.8.2): no key here, so the stored notes stay as they are.
 async function saveNetworking(formData: FormData) {
   'use server';
@@ -70,18 +73,20 @@ async function saveNetworking(formData: FormData) {
   if (!user) redirect('/login?next=/me/profile');
   const result = await saveBadgeProfile(db(), user, text(formData, 'participantId'), {
     linkedin: text(formData, 'linkedin'),
+    discord: text(formData, 'discord'),
+    website: text(formData, 'website'),
     profilePublic: formData.get('public') === 'on',
   });
   redirect(`/me/profile?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
 }
 
 export default async function HackerProfilePage(props: {
-  searchParams: Promise<{ badge?: string; saved?: string; error?: string; setup?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; setup?: string }>;
 }) {
   const notices = await props.searchParams;
   const { me: m } = await loadMyEvent('/me/profile');
   const error = ERRORS[notices.error as SaveProfileResult];
-  const networkingError = notices.error === 'INVALID_LINKEDIN';
+  const networkingError = ['INVALID_LINKEDIN', 'INVALID_DISCORD', 'INVALID_WEBSITE'].includes(notices.error ?? '');
 
   return (
     <main className={styles.page}>
@@ -92,11 +97,6 @@ export default async function HackerProfilePage(props: {
         <span className={styles.context}>{m.event.name}</span>
       </div>
       <h1>{m.profileDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {notices.badge === 'linked' && (
-        <p role="status" className={formStyles.ok}>
-          ✓ Badge linked. Add your LinkedIn and choose whether to share it.
-        </p>
-      )}
       {!m.profileDone && <p className={styles.meta}>A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
 
       <section aria-label="Profile setup" className={styles.card}>
@@ -175,22 +175,53 @@ export default async function HackerProfilePage(props: {
           <p className={me.label}>Name</p>
           <p className={styles.name}>{`${m.firstName} ${m.lastName}`.trim()}</p>
         </div>
-        {m.badge ? <p className={me.chip}>✓ Badge linked.</p> : <p className={styles.meta}>No badge yet. Tap your badge with your phone to link it to you.</p>}
+        {m.badge ? <p className={me.chip}>✓ Badge linked.</p> : <p className={styles.meta}>No badge yet. Staff link badges at the check-in desk.</p>}
         <form action={saveNetworking} className={formStyles.form}>
           <input type="hidden" name="participantId" value={m.participantId} />
-          <label htmlFor="linkedin">LinkedIn</label>
+          <label htmlFor="linkedin">LinkedIn (optional)</label>
           <input
             id="linkedin"
             name="linkedin"
             inputMode="url"
+            maxLength={200}
+            pattern={LINKEDIN_PATTERN}
+            title="Your LinkedIn profile link, like linkedin.com/in/yourname"
             autoComplete="url"
             placeholder="linkedin.com/in/yourname"
             defaultValue={m.linkedinUrl ?? ''}
             className={formStyles.input}
           />
+          <label htmlFor="discord">Discord username (optional)</label>
+          <input
+            id="discord"
+            name="discord"
+            maxLength={33}
+            pattern={DISCORD_PATTERN}
+            title="Your Discord username: 2–32 letters, numbers, _ or ."
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="yourname"
+            defaultValue={m.discordUsername ?? ''}
+            className={formStyles.input}
+          />
+          <label htmlFor="website">Website (optional)</label>
+          <input
+            id="website"
+            name="website"
+            inputMode="url"
+            maxLength={200}
+            pattern={WEBSITE_PATTERN}
+            title="A website address, like yourname.dev"
+            autoComplete="url"
+            placeholder="yourname.dev"
+            defaultValue={m.websiteUrl ?? ''}
+            className={formStyles.input}
+          />
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
             <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
-            Show my name and LinkedIn to anyone who taps my badge
+            Show my name and these links to anyone who taps my badge
           </label>
           {networkingError && (
             <p role="alert" className={formStyles.error}>
@@ -202,7 +233,7 @@ export default async function HackerProfilePage(props: {
               ✓ Saved.
             </p>
           )}
-          <button type="submit">Save LinkedIn</button>
+          <button type="submit">Save links</button>
         </form>
       </section>
     </main>

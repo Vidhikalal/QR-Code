@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { linkNotice, normalizeUid } from '@/lib/domain/badge';
+import { useNfcReader } from '@/lib/scanner/nfc';
 import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi } from '../api';
 import { ConfirmDialog, Modal } from '../dialog';
@@ -16,20 +18,23 @@ export interface Row {
   source: string;
   isTest: boolean;
   hasPhoto: boolean;
+  hasBadge: boolean;
   passState: 'active' | 'revoked' | 'none';
   liveScans: number;
   checkedIn: boolean;
   rsvpSentAt: string | null;
 }
 
-type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
+type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
 const STATUSES = ['accepted', 'pending', 'waitlisted', 'rejected', 'withdrawn'] as const;
 
+const ALREADY_UNLINKED = '! That badge was already unlinked.';
 const RESULT_TEXT: Record<string, string> = {
   QUEUED: '✓ New pass queued. Their old code has stopped working.',
   IN_FLIGHT: '! A pass email is already on its way.',
   NOT_ACCEPTED: '! Only accepted participants can get a pass.',
   REVOKED: '✓ Pass revoked.',
+  UNLINKED: '✓ Badge unlinked. It stops working until it’s linked again.',
   RESET: '✓ RSVP revoked. They’re back to not RSVPed yet.',
   NO_ACTIVE_PASS: '! They had no active pass.',
   DELETED: '✓ Participant deleted. Their scans still count in totals.',
@@ -45,6 +50,10 @@ export function Participants({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [badgeTarget, setBadgeTarget] = useState<Row | null>(null);
+  const [badgeError, setBadgeError] = useState<string | null>(null);
+  const [badgeBusy, setBadgeBusy] = useState(false);
+  const linking = useRef(false);
   // F13: who gets an RSVP. Accepted people can't be picked (they're already in).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
@@ -65,11 +74,55 @@ export function Participants({ slug }: { slug: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  async function act(kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'delete', row: Row) {
+  async function linkBadge(serial: string, row: Row) {
+    if (linking.current) return;
+    const uid = normalizeUid(serial);
+    if (!uid) return setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
+    linking.current = true; // Android can report one tap twice
+    setBadgeBusy(true);
+    nfc.stop();
+    const r = await api<{ code?: string }>(`/api/events/${encodeURIComponent(slug)}/badges`, {
+      method: 'POST',
+      body: { participantId: row.id, uid },
+    });
+    setBadgeTarget(null);
+    setBadgeBusy(false);
+    setMessage(linkNotice(r.ok ? r.data.code : undefined, uid, fullName(row)).text);
+    await load();
+  }
+
+  const nfc = useNfcReader({
+    prefKey: 'passline:linker',
+    defaultOn: false,
+    autoStart: false,
+    onTag: ({ serial }) => {
+      if (badgeTarget) void linkBadge(serial, badgeTarget);
+    },
+    onUnreadable: () => {
+      if (badgeTarget && !linking.current) setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
+    },
+  });
+
+  function startLink(row: Row) {
+    linking.current = false;
+    setBadgeTarget(row);
+    setBadgeError(null);
+    if (nfc.state === 'off') void nfc.start(); // this click is the user gesture Chrome needs
+  }
+
+  function cancelLink() {
+    linking.current = true;
+    nfc.stop();
+    setBadgeTarget(null);
+  }
+
+  async function act(kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete', row: Row) {
     setPending(null);
-    const path = `/participants/${row.id}${kind === 'delete' ? '' : `/${kind}`}`;
-    const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' ? 'DELETE' : 'POST' });
-    setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : `✕ ${errorText(r)}`);
+    const path = `/participants/${row.id}${kind === 'delete' ? '' : `/${kind === 'unlink' ? 'badge' : kind}`}`;
+    const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' || kind === 'unlink' ? 'DELETE' : 'POST' });
+    // Unlink answers 404 when the badge is already gone (moved, or the attendee said No): what was wanted anyway.
+    const gone = kind === 'unlink' && r.status === 404;
+    setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : gone ? ALREADY_UNLINKED : `✕ ${errorText(r)}`);
     if (kind === 'delete' && openId === row.id) setOpenId(null);
     await load();
   }
@@ -126,7 +179,7 @@ export function Participants({ slug }: { slug: string }) {
         </button>
       </div>
       {message && (
-        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
+        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : message.startsWith('✕') ? styles.alertBad : styles.alertWarn)} role="status">
           {message}
         </p>
       )}
@@ -175,6 +228,7 @@ export function Participants({ slug }: { slug: string }) {
                     {fullName(r)}
                     {r.isTest && <span className={styles.badge}> TEST</span>}
                     {r.hasPhoto && <span className={styles.muted}> · 📷</span>}
+                    {r.hasBadge && <> <span className={styles.badge}>Badge linked</span></>}
                   </td>
                   <td>{r.email}</td>
                   <td>
@@ -192,6 +246,28 @@ export function Participants({ slug }: { slug: string }) {
                       {r.status === 'accepted' && (
                         <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setPending({ kind: 'resend', row: r })}>
                           Resend pass
+                        </button>
+                      )}
+                      {r.status === 'accepted' && nfc.supported && (
+                        <button
+                          type="button"
+                          className={`${styles.secondary} ${styles.small}`}
+                          aria-label={`${r.hasBadge ? 'Replace' : 'Link'} badge for ${fullName(r)}`}
+                          disabled={badgeBusy}
+                          onClick={() => startLink(r)}
+                        >
+                          {r.hasBadge ? 'Replace badge' : 'Link badge'}
+                        </button>
+                      )}
+                      {r.hasBadge && (
+                        <button
+                          type="button"
+                          className={`${styles.secondary} ${styles.small}`}
+                          aria-label={`Unlink badge for ${fullName(r)}`}
+                          disabled={badgeBusy}
+                          onClick={() => setPending({ kind: 'unlink', row: r })}
+                        >
+                          Unlink badge
                         </button>
                       )}
                       {r.passState === 'active' && (
@@ -219,6 +295,35 @@ export function Participants({ slug }: { slug: string }) {
         </div>
       )}
 
+      {badgeTarget && (
+        <Modal title="Link a badge" onCancel={cancelLink}>
+          <p>Tap the badge to link it to {fullName(badgeTarget)}.</p>
+          <div aria-live="polite">
+            {badgeBusy ? <p>Linking badge…</p> : (badgeError || nfc.error) && <p className={`${styles.alert} ${styles.alertBad}`}>{badgeError ?? nfc.error}</p>}
+          </div>
+          <div className={styles.dialogActions}>
+            {/* After Chrome refused NFC (permission denied), this tap retries; the error names this button. */}
+            {nfc.state === 'off' && !badgeBusy && (
+              <button type="button" onClick={() => void nfc.start()}>
+                Start badge reader
+              </button>
+            )}
+            <button type="button" className={styles.secondary} onClick={cancelLink}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
+      )}
+      {pending?.kind === 'unlink' && (
+        <ConfirmDialog
+          title="Unlink this badge?"
+          body={<p>{fullName(pending.row)}’s badge stops working (scans and profile) until staff link it again. The chip itself doesn’t change.</p>}
+          confirmLabel="Unlink badge"
+          danger
+          onConfirm={() => void act('unlink', pending.row)}
+          onCancel={() => setPending(null)}
+        />
+      )}
       {pending?.kind === 'resend' && (
         <ConfirmDialog
           title={`Resend pass to ${fullName(pending.row)}?`}

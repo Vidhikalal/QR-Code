@@ -115,7 +115,7 @@ describe('security (SPEC §14.12)', () => {
           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')`,
     );
     const names = rows.map((r) => r.sig.split('(')[0]);
-    for (const expected of ['record_scan', 'issue_pass', 'void_scan', '_who', '_prior']) expect(names).toContain(expected);
+    for (const expected of ['record_scan', 'issue_pass', 'void_scan', 'unlink_badge', '_who', '_prior']) expect(names).toContain(expected);
     for (const fn of rows) {
       expect(fn, fn.sig).toMatchObject({ public_exec: false, anon: false, authed: false });
       if (fn.definer) {
@@ -125,7 +125,7 @@ describe('security (SPEC §14.12)', () => {
     const { rows: grants } = await f.pool.query<{ ok: boolean }>(
       `select bool_and(has_function_privilege('service_role', p.oid, 'execute')) as ok
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public' and p.proname in ('record_scan', 'issue_pass', 'void_scan')`,
+        where n.nspname = 'public' and p.proname in ('record_scan', 'issue_pass', 'void_scan', 'unlink_badge')`,
     );
     expect(grants[0]?.ok).toBe(true);
   });

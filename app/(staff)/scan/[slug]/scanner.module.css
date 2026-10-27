@@ -51,6 +51,7 @@
 .row { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .rowPhoto { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: var(--raised); flex: none; }
 .rowText { flex: 1; min-width: 0; }
+.rowActions { display: grid; gap: 8px; flex: none; }
 .rowName { font-weight: 700; font-size: 18px; }
 .rowMeta { font-size: 14px; color: var(--muted); }
 .badge { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--raised); color: var(--fg); border: 1px solid var(--line); margin-right: 6px; }
@@ -63,6 +64,8 @@
 .choice { justify-content: flex-start; text-align: left; background: var(--raised); color: var(--fg); border-color: var(--line); display: flex; gap: 10px; align-items: center; }
 .choice[aria-pressed='true'] { border-color: var(--accent); outline: 2px solid var(--accent); }
 .dialogActions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.linkNotice { overflow-wrap: anywhere; }
+.linkNotice[data-tone='bad'] { color: var(--bad); }
 .secondary { background: transparent; color: var(--accent); }
 .secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .inputSwitch { display: flex; gap: 12px; flex: 1 1 100%; }

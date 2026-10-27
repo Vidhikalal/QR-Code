@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { passToken, sha256hex } from '@/lib/domain/token';
-import { myBadgeProfiles, myEvent, saveBadgeProfile } from '@/lib/me/profile';
+import { myEvent, saveBadgeProfile } from '@/lib/me/profile';
 import { myPasses } from '@/lib/pass/mine';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -78,20 +78,6 @@ describe('/me badge profile (SPEC §6.5, v0.5)', () => {
     );
     expect(rows.map((r) => r.actor_kind)).toEqual(['participant', 'participant']);
     expect(JSON.stringify(rows)).not.toMatch(/linkedin|ada|@/i); // ids and the on/off flag only (I-11)
-  });
-
-  it('T-ME-03: lists your accepted events up to 30 days after they end, and whether a badge is linked', async () => {
-    const { id } = await f.addParticipant(f.e1.id);
-    const email = await emailOf(id);
-    const mineNow = () => myBadgeProfiles(serviceClient(), email, new Date());
-    expect(await mineNow()).toEqual([
-      { participantId: id, eventId: f.e1.id, eventName: f.e1.name, linkedinUrl: null, profilePublic: true, badge: false }, // v0.9: on by default
-    ]);
-    await f.linkBadge(id);
-    expect(await mineNow()).toMatchObject([{ participantId: id, badge: true }]);
-    expect(await myBadgeProfiles(serviceClient(), await emailOf(f.p.C), new Date())).toEqual([]);
-    const in31Days = new Date(Date.now() + 32 * 24 * 3600 * 1000); // e1 ends within a day
-    expect(await myBadgeProfiles(serviceClient(), email, in31Days)).toEqual([]);
   });
 });
 

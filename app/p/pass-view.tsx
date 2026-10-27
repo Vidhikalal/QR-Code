@@ -211,7 +211,6 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
   const [on, setOn] = useState(pass.profile.public);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
-  const what = pass.profile.hasLinkedin ? 'name and LinkedIn' : 'name';
 
   async function onToggle(e: React.ChangeEvent<HTMLInputElement>) {
     const next = e.target.checked;
@@ -244,9 +243,9 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
       <p>If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
       <label className={styles.check}>
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
-        Show my {what} to anyone who taps my badge
+        Show my name and profile links to anyone who taps my badge
       </label>
-      {!pass.profile.hasLinkedin && <p className={styles.meta}>We don’t have a LinkedIn URL for you, so only your name would show.</p>}
+      <p className={styles.meta}>Your LinkedIn, Discord and website are set on your Hacker profile.</p>
       <p className={`${styles.message} ${message ? styles[message.tone] : ''}`} role="status" aria-live="polite">
         {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
       </p>

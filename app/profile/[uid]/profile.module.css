@@ -63,3 +63,29 @@
   transition: background-color 0.16s var(--ease);
 }
 .link:hover { background: #6ee7b7; }
+
+/* v0.9.2: Discord and website rows under the LinkedIn button. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 44px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-width: 72px;
+}
+.value { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.copy {
+  --btn: transparent;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.copy:hover:not(:disabled) { --btn: transparent; background: #34d39914; }
+.copyNote { flex-basis: 100%; color: var(--muted); font-size: 14px; }

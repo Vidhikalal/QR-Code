@@ -140,7 +140,7 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
         </dl>
       </div>
       {message && (
-        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
+        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} aria-live="polite">
           {message}
         </p>
       )}

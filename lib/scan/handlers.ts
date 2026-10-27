@@ -276,6 +276,13 @@ export function createSearchHandler(deps: ApiDeps) {
       ...(checkpointId && { p_checkpoint_id: checkpointId }),
     });
     if (error) throw new Error(`search failed (${error.code})`);
+    const { data: badges, error: badgeError } = await deps.db
+      .from('badges')
+      .select('participant_id')
+      .eq('event_id', staff.eventId)
+      .in('participant_id', data.map((r) => r.id));
+    if (badgeError) throw new Error(`badges load failed (${badgeError.code})`);
+    const linked = new Set(badges.map((b) => b.participant_id));
     const photos = await signedPhotoUrls(deps.db, data.flatMap((r) => (r.photo_path ? [r.photo_path] : [])));
     return json({
       results: data.map((r) => ({
@@ -285,6 +292,7 @@ export function createSearchHandler(deps: ApiDeps) {
         email: staff.role === 'organizer' ? r.email : maskEmail(r.email),
         photoUrl: r.photo_path ? (photos.get(r.photo_path) ?? null) : null,
         scannedHere: r.scanned_here,
+        hasBadge: linked.has(r.id),
       })),
     });
   };

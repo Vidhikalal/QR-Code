@@ -27,15 +27,10 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 - [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
 
 ### Scheduler (RSVP deadline and reminders, outbox retries, retention)
-On Coolify (the live app), open it → **Scheduled Tasks** and add two tasks (they run inside the app container, so they use its `DRAIN_SECRET`). Elsewhere (e.g. Vercel), have any scheduler POST to `<origin>/api/cron` every 5 minutes and `<origin>/api/retention` daily, with `Authorization: Bearer <DRAIN_SECRET>`.
-
-| Name | Command | Frequency |
-|------|---------|-----------|
-| `passline-cron` | `node scripts/cron.mjs /api/cron` | `*/5 * * * *` |
-| `passline-retention` | `node scripts/cron.mjs /api/retention` | `17 4 * * *` |
+The live app runs on Vercel (Pro), and `vercel.json` schedules both jobs as Vercel Cron Jobs: `/api/cron` every 5 minutes (`*/5 * * * *`) and `/api/retention` daily (`17 4 * * *`, UTC). Vercel calls them with `GET` and `Authorization: Bearer $CRON_SECRET`, so set **`CRON_SECRET` to the same value as `DRAIN_SECRET`** in the project's Production environment variables. (Any other host: have a scheduler call both paths with `Authorization: Bearer <DRAIN_SECRET>`.)
 
 `/api/cron` turns missed RSVP deadlines into a no, queues the 10:00 reminders (SPEC F13) and sends waiting email, including retries. Without it, nothing is retried and no reminder goes out.
-- [ ] After five minutes, the task's executions show `200 {"jobs":…}`.
+- [ ] After five minutes, the project's **Logs** (or Settings → Cron Jobs) show `/api/cron` answering 200.
 - [ ] Set the event's **RSVP deadline** on the admin Info tab.
 
 ### Your event
