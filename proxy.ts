@@ -19,7 +19,9 @@ export async function proxy(request: NextRequest) {
   });
   const { data } = await supabase.auth.getUser();
 
-  if (!data.user) {
+  // Badge profiles are public (SPEC §6.5, v0.9): the session is still refreshed there, so the holder tapping
+  // their own badge is recognized, but nobody is sent to sign in.
+  if (!data.user && !request.nextUrl.pathname.startsWith('/profile/')) {
     const login = new URL('/login', request.url);
     login.searchParams.set('next', `${request.nextUrl.pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(login);
@@ -28,7 +30,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // /profile: badge profiles are for signed-in attendees and staff only (SPEC §6.5). /me: the hacker menu and its
-  // pages (F14, v0.6.1). `/me/:path*` also matches /me itself.
+  // /profile: session refresh only (above). /me: the hacker menu and its pages (F14, v0.6.1). `/me/:path*` also
+  // matches /me itself.
   matcher: ['/scan/:path*', '/admin/:path*', '/profile/:path*', '/me/:path*'],
 };

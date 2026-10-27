@@ -54,12 +54,26 @@ async function recentAttempts(db: Db, staffId: string, seconds: number, code?: s
   return count ?? 0;
 }
 
+// record_scan() answers a replay before it checks that the caller is still staff (§8 step 1), so health data
+// on a replay goes only to current staff of the scan's event (v0.9).
+async function staffOfScan(db: Db, scanId: string | undefined, userId: string): Promise<boolean> {
+  if (!scanId) return false;
+  const { data: scan, error } = await db.from('scans').select('event_id').eq('id', scanId).maybeSingle();
+  if (error) throw new Error(`scan load failed (${error.code})`);
+  if (!scan) return false;
+  const { data: staff, error: staffError } = await db.from('event_staff').select('user_id').eq('event_id', scan.event_id).eq('user_id', userId).maybeSingle();
+  if (staffError) throw new Error(`event_staff load failed (${staffError.code})`);
+  return staff !== null;
+}
+
 const participantSchema = z.object({
   id: z.string(),
   displayName: z.string(),
   photoPath: z.string().nullable(),
   status: z.string(),
   dietaryNotes: z.string().nullable().optional(),
+  allergies: z.string().nullable().optional(),
+  allergySeverity: z.string().nullable().optional(),
 });
 const scanResultSchema = z.object({
   code: z.enum(SCAN_CODES),
@@ -129,6 +143,7 @@ export function createScanHandler(deps: ApiDeps) {
     if (logError) console.error(JSON.stringify({ level: 'error', msg: 'scan_attempts insert failed', error: sanitizeError(logError.code) }));
 
     const { participant, ...rest } = result;
+    const health = rest.code === 'ACCEPTED' && (!rest.replayed || (await staffOfScan(deps.db, rest.scanId, user.id)));
     return json({
       ...rest,
       ...(participant && {
@@ -136,7 +151,10 @@ export function createScanHandler(deps: ApiDeps) {
           id: participant.id,
           displayName: participant.displayName,
           status: participant.status,
-          dietaryNotes: participant.dietaryNotes ?? null,
+          // v0.9: dietary notes and allergies only on ACCEPTED (record_scan() answers REVOKED before it checks
+          // the event, so another event's attendee would otherwise show theirs here), and a replay only to current staff.
+          dietaryNotes: health ? (participant.dietaryNotes ?? null) : null,
+          ...(health && { allergies: participant.allergies ?? null, allergySeverity: participant.allergySeverity ?? null }),
           photoUrl: participant.photoPath ? await signedPhotoUrl(deps.db, participant.photoPath) : null,
         },
       }),

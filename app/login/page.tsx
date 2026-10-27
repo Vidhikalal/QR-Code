@@ -12,7 +12,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const badge = target.startsWith('/profile/');
   return (
     <main className={styles.page}>
-      <h1>{badge ? 'Sign in to see this badge' : target.startsWith('/scan/') || target.startsWith('/admin/') ? 'Staff sign-in' : 'Sign in'}</h1>
+      <h1>{badge ? 'Sign in to link this badge' : target.startsWith('/scan/') || target.startsWith('/admin/') ? 'Staff sign-in' : 'Sign in'}</h1>
       <p>
         {badge
           ? 'Use the email you registered for the event with.'

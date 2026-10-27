@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
+import { PHONE_PATTERN } from '@/lib/domain/profile';
 import { saveBadgeProfile } from '@/lib/me/profile';
 import formStyles from '../../login/login.module.css';
 import styles from '../../profile/[uid]/profile.module.css';
@@ -11,8 +12,6 @@ import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Emergency contact');
 
-// parseProfileInput's phone rule as an HTML pattern (v-flag syntax): the DB's characters, at least 3 digits.
-const PHONE_PATTERN = '(?=(?:\\D*\\d){3})[0-9+\\(\\) .\\-]{3,30}';
 
 // SPEC F14: the event's emergency info (organizers write it on the Info page) and the attendee's own
 // emergency contact, which only organizers see.

@@ -61,13 +61,16 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
   switch (r.code) {
     case 'ACCEPTED': {
       const headline = HEADLINE[ctx.checkpointKind] + (r.replayed ? ' (confirmed)' : '');
-      const dietary = ctx.checkpointKind === 'meal' ? r.participant?.dietaryNotes : null;
+      // At a meal: the allergy first (v0.9), then the dietary notes.
+      const p = ctx.checkpointKind === 'meal' ? r.participant : undefined;
+      const allergy = p?.allergies ? `ALLERGY${p.allergySeverity ? ` (${p.allergySeverity.toUpperCase()})` : ''}: ${p.allergies}` : null;
+      const emphasis = [allergy, p?.dietaryNotes].filter(Boolean).join(' · ');
       return {
         tone: 'green',
         icon: '✓',
         headline,
         ...who,
-        ...(dietary ? { emphasis: dietary } : {}),
+        ...(emphasis ? { emphasis } : {}),
         dismiss: { autoMs: GREEN_MS },
         sound: 'chime',
       };

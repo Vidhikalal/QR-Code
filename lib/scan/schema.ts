@@ -38,6 +38,8 @@ export const scanResponseSchema = z.object({
       photoUrl: z.string().nullable(),
       status: z.string(),
       dietaryNotes: z.string().nullable().optional(),
+      allergies: z.string().nullable().optional(), // v0.9: meal scans, ACCEPTED only
+      allergySeverity: z.string().nullable().optional(),
     })
     .optional(),
   previous: z.object({ scannedAt: z.string(), scannedByName: z.string().nullable(), scannedByMe: z.boolean() }).optional(),

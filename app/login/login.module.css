@@ -13,6 +13,7 @@
 .form label + :is(input, select, textarea) { margin-top: -10px; }
 .form label { font-size: 14px; font-weight: 500; }
 .form h2 { margin: 12px 0 -8px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 18px; }
+.form h2:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
 
 .input {
   min-height: 48px;

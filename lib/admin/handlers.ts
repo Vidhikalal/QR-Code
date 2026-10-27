@@ -74,6 +74,8 @@ const eventUpdate = z
     emergencyInfo: z.string().max(2000).optional(),
     teamsOpen: z.boolean().optional(),
     tracksReleased: z.boolean().optional(),
+    // v0.9 (F13). Never in the past: the next cron run would turn every unanswered invite into a no.
+    rsvpDeadline: z.iso.datetime().refine((at) => Date.parse(at) > Date.now()).nullable().optional(),
   })
   .strict()
   .refine((b) => Object.keys(b).length > 0);
@@ -152,7 +154,7 @@ export function createAdminApi(deps: AdminDeps) {
   }
 
   async function loadEvent(eventId: string) {
-    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released').eq('id', eventId).single();
+    const { data, error } = await db.from('events').select('name, venue, starts_at, ends_at, timezone, sheet_id, schedule, emergency_info, teams_open, tracks_released, rsvp_deadline').eq('id', eventId).single();
     if (error) throw new Error(`event load failed (${error.code})`);
     return data;
   }
@@ -345,6 +347,12 @@ export function createAdminApi(deps: AdminDeps) {
           linkedinUrl: p.linkedin_url,
           // v0.6: organizers only (every admin route is), never logged or exported.
           emergency: p.emergency_name ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
+          // v0.9 profile setup (F14). Allergies and accessibility are personal data: organizers only, never logged.
+          overnight: p.overnight,
+          teamStatus: p.team_status,
+          allergies: p.allergies,
+          allergySeverity: p.allergy_severity,
+          accessibility: p.accessibility,
           photoUrl: p.photo_path ? await signedPhotoUrl(db, p.photo_path) : null,
           photoUpdatedAt: p.photo_updated_at,
         },
@@ -421,6 +429,18 @@ export function createAdminApi(deps: AdminDeps) {
       if (!id) return notFound();
       const { data, error } = await db.rpc('revoke_pass', { p_event_id: g.eventId, p_participant_id: id, p_actor: g.userId });
       if (error) throw new Error(`revoke_pass failed (${error.code})`);
+      if (data === 'NOT_FOUND') return notFound();
+      return json({ code: data });
+    },
+
+    // POST /api/admin/[slug]/participants/[id]/revoke-rsvp  (§11, v0.9.1): back to not invited
+    async revokeRsvp(request: Request, params: Params) {
+      const g = await guard(request, params);
+      if (g instanceof Response) return g;
+      const id = uuid(params.id);
+      if (!id) return notFound();
+      const { data, error } = await db.rpc('revoke_rsvp', { p_event_id: g.eventId, p_participant_id: id, p_actor: g.userId });
+      if (error) throw new Error(`revoke_rsvp failed (${error.code})`);
       if (data === 'NOT_FOUND') return notFound();
       return json({ code: data });
     },
@@ -541,17 +561,18 @@ export function createAdminApi(deps: AdminDeps) {
         emergencyInfo: e.emergency_info,
         teamsOpen: e.teams_open,
         tracksReleased: e.tracks_released,
+        rsvpDeadline: e.rsvp_deadline && new Date(e.rsvp_deadline).toISOString(),
         lastSyncAt: lastSync ? new Date(lastSync.created_at).toISOString() : null,
       });
     },
 
-    // PATCH /api/admin/[slug]/event  { sheet?: id | URL | null, schedule?, emergencyInfo?, teamsOpen?, tracksReleased? }  (F10, §11 Info, §11 Teams)
+    // PATCH /api/admin/[slug]/event  { sheet?: id | URL | null, schedule?, emergencyInfo?, teamsOpen?, tracksReleased?, rsvpDeadline?: ISO | null }  (F10, §11 Info, §11 Teams, F13)
     async updateEvent(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
       const body = eventUpdate.safeParse(await readJson(request));
       if (!body.success) return badRequest();
-      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased } = body.data;
+      const { sheet, schedule, emergencyInfo, teamsOpen, tracksReleased, rsvpDeadline } = body.data;
       const sheetId = sheet === undefined || sheet === null ? null : parseSheetId(sheet);
       if (sheet !== undefined && sheet !== null && sheetId === null) return badRequest();
       const { error } = await db
@@ -562,14 +583,21 @@ export function createAdminApi(deps: AdminDeps) {
           ...(emergencyInfo !== undefined && { emergency_info: emergencyInfo }),
           ...(teamsOpen !== undefined && { teams_open: teamsOpen }),
           ...(tracksReleased !== undefined && { tracks_released: tracksReleased }),
+          ...(rsvpDeadline !== undefined && { rsvp_deadline: rsvpDeadline }),
         })
         .eq('id', g.eventId);
       if (error) throw new Error(`event update failed (${error.code})`);
       if (sheet !== undefined) await audit(g.eventId, g.userId, 'event.sheet_link', g.eventId, { linked: sheetId !== null });
-      if (schedule !== undefined || emergencyInfo !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
+      if (schedule !== undefined || emergencyInfo !== undefined || rsvpDeadline !== undefined) await audit(g.eventId, g.userId, 'event.info', g.eventId, {});
       const flags = { ...(teamsOpen !== undefined && { teamsOpen }), ...(tracksReleased !== undefined && { tracksReleased }) };
       if (Object.keys(flags).length > 0) await audit(g.eventId, g.userId, 'event.teams', g.eventId, flags);
-      return json({ ...(sheet !== undefined && { sheetId }), ...(schedule !== undefined && { schedule }), ...(emergencyInfo !== undefined && { emergencyInfo }), ...flags });
+      return json({
+        ...(sheet !== undefined && { sheetId }),
+        ...(schedule !== undefined && { schedule }),
+        ...(emergencyInfo !== undefined && { emergencyInfo }),
+        ...(rsvpDeadline !== undefined && { rsvpDeadline: rsvpDeadline && new Date(rsvpDeadline).toISOString() }),
+        ...flags,
+      });
     },
 
     // GET /api/admin/[slug]/teams  (§11 Teams, v0.7): switches, tracks, teams with members, accepted people without a team
@@ -790,10 +818,14 @@ export function createAdminApi(deps: AdminDeps) {
           slug,
           kind,
           toCsv(
-            ['first_name', 'last_name', 'email', 'status', 'source', 'is_test', 'dietary_notes', 'checked_in_at_local', 'has_photo', 'applicant_id'],
+            [
+              'first_name', 'last_name', 'email', 'status', 'source', 'is_test', 'dietary_notes', 'checked_in_at_local', 'has_photo', 'applicant_id',
+              'overnight', 'team_status', 'allergies', 'allergy_severity', // v0.9: catering and rooms
+            ],
             data.map((p) => [
               p.first_name, p.last_name, p.email, p.status, p.source, p.is_test, p.dietary_notes,
               local(checkedInAt.get(p.id) ?? null), p.photo_path !== null, p.external_id,
+              p.overnight, p.team_status, p.allergies, p.allergy_severity,
             ]),
           ),
         );

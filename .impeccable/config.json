@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "arial",
+        "createdAt": "2026-10-16T21:55:48.675Z",
+        "reason": "Claude: email HTML needs a web-safe font stack (clients don't load web fonts); matches the existing pass email template lib/email/templates/pass.ts"
+      }
+    ]
+  }
+}

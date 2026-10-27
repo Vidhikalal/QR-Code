@@ -20,6 +20,10 @@ describe('result screen mapping (SPEC §10.2)', () => {
     });
     const meal = viewFor(server({ code: 'ACCEPTED', participant: { ...participant, dietaryNotes: 'Vegan, nut allergy' } }), ctx('meal'));
     expect(meal).toMatchObject({ tone: 'green', headline: 'SERVE', emphasis: 'Vegan, nut allergy' });
+    // v0.9: the allergy and its severity come first; never at the door.
+    const allergic = { ...participant, dietaryNotes: 'Vegan', allergies: 'Peanuts', allergySeverity: 'severe' };
+    expect(viewFor(server({ code: 'ACCEPTED', participant: allergic }), ctx('meal')).emphasis).toBe('ALLERGY (SEVERE): Peanuts · Vegan');
+    expect(viewFor(server({ code: 'ACCEPTED', participant: allergic }), ctx('door')).emphasis).toBeUndefined();
     expect(viewFor(server({ code: 'ACCEPTED', participant }), ctx('session')).headline).toBe('RECORDED');
     expect(viewFor(server({ code: 'ACCEPTED', participant }), ctx('custom')).headline).toBe('RECORDED');
     expect(viewFor(server({ code: 'ACCEPTED', replayed: true, participant }), ctx('door'))).toMatchObject({

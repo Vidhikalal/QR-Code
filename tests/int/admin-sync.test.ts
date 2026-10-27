@@ -91,4 +91,17 @@ describe('event info for hackers (SPEC §11 Info, v0.6)', () => {
     const { rows } = await f.pool.query<{ detail: unknown }>(`select detail from audit_log where action = 'event.info' and event_id = $1`, [f.e1.id]);
     expect(rows).toEqual([{ detail: {} }, { detail: {} }, { detail: {} }]);
   });
+
+  it('T-ADM-08: organizers set or clear the RSVP deadline (v0.9); anything but a future ISO instant is refused', async () => {
+    const at = new Date(Date.now() + 10 * 86_400_000).toISOString();
+    expect(await patch({ rsvpDeadline: at })).toMatchObject({ status: 200, body: { rsvpDeadline: at } });
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpDeadline: at });
+    // A deadline in the past would turn every unanswered invite into a no at once.
+    for (const rsvpDeadline of ['tomorrow', '2026-11-03', 5, '', new Date(Date.now() - 60_000).toISOString()]) {
+      expect((await patch({ rsvpDeadline })).status, String(rsvpDeadline)).toBe(400);
+    }
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpDeadline: at });
+    expect((await patch({ rsvpDeadline: null })).body).toEqual({ rsvpDeadline: null });
+    expect((await c.call('getEvent', org, { slug: f.slug })).body).toMatchObject({ rsvpDeadline: null });
+  });
 });

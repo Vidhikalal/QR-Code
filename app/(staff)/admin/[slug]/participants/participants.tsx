@@ -22,7 +22,7 @@ export interface Row {
   rsvpSentAt: string | null;
 }
 
-type Pending = { kind: 'resend' | 'revoke' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
+type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
 const STATUSES = ['accepted', 'pending', 'waitlisted', 'rejected', 'withdrawn'] as const;
 
 const RESULT_TEXT: Record<string, string> = {
@@ -30,6 +30,7 @@ const RESULT_TEXT: Record<string, string> = {
   IN_FLIGHT: '! A pass email is already on its way.',
   NOT_ACCEPTED: '! Only accepted participants can get a pass.',
   REVOKED: '✓ Pass revoked.',
+  RESET: '✓ RSVP revoked. They’re back to not RSVPed yet.',
   NO_ACTIVE_PASS: '! They had no active pass.',
   DELETED: '✓ Participant deleted. Their scans still count in totals.',
   ALREADY_DELETED: '! Already deleted.',
@@ -64,7 +65,7 @@ export function Participants({ slug }: { slug: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  async function act(kind: 'resend' | 'revoke' | 'delete', row: Row) {
+  async function act(kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'delete', row: Row) {
     setPending(null);
     const path = `/participants/${row.id}${kind === 'delete' ? '' : `/${kind}`}`;
     const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' ? 'DELETE' : 'POST' });
@@ -198,6 +199,11 @@ export function Participants({ slug }: { slug: string }) {
                           Revoke
                         </button>
                       )}
+                      {(r.status !== 'pending' || r.rsvpSentAt) && (
+                        <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setPending({ kind: 'revoke-rsvp', row: r })}>
+                          Revoke RSVP
+                        </button>
+                      )}
                       <button type="button" className={`${styles.secondary} ${styles.small}`} aria-pressed={r.isTest} onClick={() => void toggleTest(r)}>
                         {r.isTest ? 'Unmark test' : 'Mark test'}
                       </button>
@@ -229,6 +235,21 @@ export function Participants({ slug }: { slug: string }) {
           confirmLabel="Revoke pass"
           danger
           onConfirm={() => void act('revoke', pending.row)}
+          onCancel={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === 'revoke-rsvp' && (
+        <ConfirmDialog
+          title={`Revoke ${fullName(pending.row)}’s RSVP?`}
+          body={
+            <p>
+              Their invitation link stops working, any pass is cancelled and their badge unlinked. They go back to “not RSVPed yet”, so you can send a new RSVP.
+              Their profile and account stay.
+            </p>
+          }
+          confirmLabel="Revoke RSVP"
+          danger
+          onConfirm={() => void act('revoke-rsvp', pending.row)}
           onCancel={() => setPending(null)}
         />
       )}

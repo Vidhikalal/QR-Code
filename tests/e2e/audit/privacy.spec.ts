@@ -7,18 +7,20 @@ const started = readFileSync('.e2e/run-started', 'utf8').trim();
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 const TOKENISH = /(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/g; // §6.1 token shape
 
-// v0.6: the emergency contact (name, phone) is personal data too.
+// v0.6: the emergency contact (name, phone) is personal data too; v0.9: so are allergies and accessibility needs.
 async function participantsFromThisRun(): Promise<Array<{ name: string; email: string; contact: string[] }>> {
   const pool = createPool(1);
   try {
-    const { rows } = await pool.query<{ first_name: string; last_name: string; email: string; emergency_name: string | null; emergency_phone: string | null }>(
-      `select first_name, last_name, email, emergency_name, emergency_phone from participants where created_at >= $1 and deleted_at is null`,
+    const { rows } = await pool.query<{
+      first_name: string; last_name: string; email: string; emergency_name: string | null; emergency_phone: string | null; allergies: string | null; accessibility: string | null;
+    }>(
+      `select first_name, last_name, email, emergency_name, emergency_phone, allergies, accessibility from participants where created_at >= $1 and deleted_at is null`,
       [started],
     );
     return rows.map((r) => ({
       name: `${r.first_name} ${r.last_name}`.trim(),
       email: r.email,
-      contact: [r.emergency_name, r.emergency_phone].filter((v): v is string => v !== null),
+      contact: [r.emergency_name, r.emergency_phone, r.allergies, r.accessibility].filter((v): v is string => v !== null),
     }));
   } finally {
     await pool.end();

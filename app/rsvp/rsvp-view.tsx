@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import form from '../login/login.module.css';
-import me from '../me/me.module.css';
 import styles from '../profile/[uid]/profile.module.css';
 
 interface Invite {
@@ -15,16 +14,10 @@ interface Invite {
   hasAccount: boolean;
   /** v0.6: the Sheet's dietary notes and LinkedIn, to prefill the Yes form. */
   profile: { dietaryNotes: string | null; linkedinUrl: string | null; profilePublic: boolean };
+  /** v0.9: the reply-by time (null: no deadline), and whether it has passed for them. */
+  closesAt: string | null;
+  closed: boolean;
 }
-
-// 400 invalid_profile → which field to fix (F13 step 4).
-const FIELD_ERRORS: Record<string, string> = {
-  emergencyName: 'Enter your emergency contact’s name.',
-  emergencyPhone: 'Enter your emergency contact’s phone number (at least 3 digits).',
-  emergencyRelation: 'Keep the relationship under 60 characters.',
-  linkedin: 'Use your LinkedIn profile link, like linkedin.com/in/yourname, or leave it blank.',
-  dietaryNotes: 'Keep dietary notes under 500 characters.',
-};
 
 type View =
   | { kind: 'loading' | 'not_found' | 'rate_limited' | 'error' | 'not_going' | 'going' }
@@ -47,11 +40,9 @@ async function post(body: object): Promise<{ status: number; data: Record<string
   }
 }
 
-// SPEC F13: answer the invitation. Yes opens one form: the emergency contact (required), the networking
-// profile and dietary notes (prefilled from the Sheet), and a password (required, v0.7.2: a new one without
-// an account, their own with one); then
-// it signs them in and goes to /me, and the pass is emailed. No withdraws (they can change their mind until
-// the event ends).
+// SPEC F13: answer the invitation by its deadline (v0.9). Yes asks only for a password (v0.7.2: a new one
+// without an account, their own with one), signs them in and goes on to profile setup (/me/profile, F14);
+// the pass is emailed. No gives the spot away (they can change their mind until the deadline).
 export function RsvpView() {
   const router = useRouter();
   const [view, setView] = useState<View>({ kind: 'loading' });
@@ -87,8 +78,8 @@ export function RsvpView() {
       return setError('That isn’t your Passline password. Try again, or reset it on the sign-in page.');
     }
     if (r.status === 400 && r.data.error === 'password_required') return setError('Enter your password.');
-    if (r.status === 400 && r.data.error === 'invalid_profile') return setError(FIELD_ERRORS[String(r.data.field)] ?? 'Check the form and try again.');
     if (r.status === 404) return setView({ kind: 'not_found' });
+    if (r.status === 409 && r.data.error === 'closed') return setView((v) => (v.kind === 'invite' ? { ...v, invite: { ...v.invite, closed: true } } : v));
     if (r.status !== 200) return setError(r.status === 429 ? 'Too many tries. Wait a minute and try again.' : 'Something went wrong. Try again.');
     if (r.data.code === 'NOT_GOING') return setView({ kind: 'not_going' });
     // Where the server says (staff may need onboarding first); only our own paths.
@@ -129,7 +120,7 @@ export function RsvpView() {
         {view.kind === 'not_going' && (
           <>
             <h1>Thanks for letting us know</h1>
-            <p>Changed your mind? Open the invitation link again before the event.</p>
+            <p>Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
           </>
         )}
         {view.kind === 'invite' && (
@@ -138,71 +129,41 @@ export function RsvpView() {
             <p className={styles.meta}>
               {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {view.invite.event.venue}
             </p>
-            <p>
-              Hi {view.invite.firstName}, will you be there?
-              {view.invite.status === 'accepted' && ' (You said yes.)'}
-              {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
-            </p>
-            {view.yesForm ? (
+            {view.invite.closed ? (
+              <p>
+                Hi {view.invite.firstName}. The RSVP deadline
+                {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+              </p>
+            ) : (
+              <p>
+                Hi {view.invite.firstName}, will you be there?
+                {view.invite.status === 'accepted' && ' (You said yes.)'}
+                {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
+                {view.invite.status !== 'accepted' && view.invite.closesAt && (
+                  <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
+                )}
+              </p>
+            )}
+            {view.invite.closed ? (
+              // Too late for Yes; someone who hasn't answered can still give their spot away now.
+              view.invite.status === 'pending' && (
+                <div className={form.form}>
+                  <button type="button" className={form.linkButton} disabled={busy} onClick={() => void respond(false)}>
+                    No, give my spot away
+                  </button>
+                </div>
+              )
+            ) : view.yesForm ? (
               <form
                 className={form.form}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const d = new FormData(e.currentTarget);
                   const text = (k: string) => String(d.get(k) ?? '');
-                  void respond(true, {
-                    emergencyName: text('emergencyName'),
-                    emergencyPhone: text('emergencyPhone'),
-                    emergencyRelation: text('emergencyRelation'),
-                    dietaryNotes: text('dietaryNotes'),
-                    linkedin: text('linkedin'),
-                    profilePublic: d.get('public') === 'on',
-                    lookingForTeam: d.get('lookingForTeam') === 'on',
-                    password: text('password'),
-                  });
+                  void respond(true, { password: text('password') });
                 }}
               >
-                <h2>Emergency contact</h2>
-                <p className={styles.meta}>Who we call if something happens to you. Only the organizers see it.</p>
-                <label htmlFor="emergencyName">Emergency contact name</label>
-                <input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" className={form.input} />
-                <label htmlFor="emergencyPhone">Emergency contact phone</label>
-                <input id="emergencyPhone" name="emergencyPhone" type="tel" required maxLength={30} autoComplete="off" className={form.input} />
-                <label htmlFor="emergencyRelation">Relationship (optional)</label>
-                <input id="emergencyRelation" name="emergencyRelation" maxLength={60} placeholder="Parent, partner, friend…" autoComplete="off" className={form.input} />
-
-                <label htmlFor="dietaryNotes">Dietary notes</label>
-                <textarea
-                  id="dietaryNotes"
-                  name="dietaryNotes"
-                  maxLength={500}
-                  placeholder="Allergies, vegetarian, halal…"
-                  defaultValue={view.invite.profile.dietaryNotes ?? ''}
-                  className={me.textarea}
-                />
-
-                <h2>Networking profile (optional)</h2>
-                <p className={styles.meta}>People at the event can tap your badge to see it, if you share it.</p>
-                <label htmlFor="linkedin">LinkedIn</label>
-                <input
-                  id="linkedin"
-                  name="linkedin"
-                  inputMode="url"
-                  autoComplete="url"
-                  placeholder="linkedin.com/in/yourname"
-                  defaultValue={view.invite.profile.linkedinUrl ?? ''}
-                  className={form.input}
-                />
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-                  <input type="checkbox" name="public" defaultChecked={view.invite.profile.profilePublic} style={{ width: 22, height: 22 }} />
-                  Show my name and LinkedIn when someone at the event taps my badge
-                </label>
-
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-                  <input type="checkbox" name="lookingForTeam" style={{ width: 22, height: 22 }} />
-                  I&apos;m looking for a team: list me in the teammate directory (name only)
-                </label>
-
+                <p className={styles.meta}>Next you’ll set up your profile: emergency contact, overnight stay, allergies and your team.</p>
                 {view.invite.hasAccount ? (
                   <>
                     <label htmlFor="password">Your Passline password</label>
@@ -221,16 +182,16 @@ export function RsvpView() {
                   </>
                 )}
                 <button type="submit" disabled={busy}>
-                  {busy ? 'Saving…' : 'Yes, I’ll be there'}
+                  {busy ? 'Saving…' : 'Yes, I’m coming'}
                 </button>
               </form>
             ) : (
               <div className={form.form}>
                 <button type="button" disabled={busy} onClick={() => setView({ ...view, yesForm: true })}>
-                  Yes, I’ll be there
+                  Yes, I’m coming
                 </button>
                 <button type="button" className={form.linkButton} disabled={busy} onClick={() => void respond(false)}>
-                  No, I can’t make it
+                  No, give my spot away
                 </button>
               </div>
             )}

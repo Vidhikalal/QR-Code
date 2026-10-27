@@ -16,58 +16,53 @@ const LINKEDIN = 'https://www.linkedin.com/in/ada-fixture';
 const emailOf = async (participantId: string) =>
   (await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId])).rows[0]?.email ?? '';
 
-test('T-NFC-14: a signed-out tap goes to sign-in and back; attendees of the event see the profile, others do not', async ({ browser, request }) => {
+test('T-NFC-14: anyone who taps a badge sees what its holder shares, signed in or not (v0.9)', async ({ browser, request }) => {
   const { uid } = await f.linkBadge(f.p.A);
   const tapPath = `/profile/${uid}?tap`;
-
-  // Signed out: no profile data, just a redirect that remembers the way back.
-  const out = await request.get(tapPath, { maxRedirects: 0 });
-  expect(out.status()).toBe(307);
-  const to = new URL(out.headers()['location'] ?? '', E2E_ORIGIN);
-  expect(to.pathname).toBe('/login');
-  // Next normalizes the bare `?tap` to `?tap=` when rebuilding the path; the page ignores it either way.
-  expect(to.searchParams.get('next')).toMatch(new RegExp(`^/profile/${uid}\\?tap=?$`));
-
-  // B attends the same event (with an account from their RSVP): sign in, land back on the badge.
-  const b = await browser.newContext({ baseURL: E2E_ORIGIN });
-  const page = await b.newPage();
-  await page.goto(tapPath);
-  await expect(page.getByRole('heading', { name: 'Sign in to see this badge' })).toBeVisible();
-  await createAccount(await emailOf(f.p.B));
-  await signIn(page, await emailOf(f.p.B), tapPath);
-  await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
-
   await f.pool.query('update participants set profile_public = true, linkedin_url = $2 where id = $1', [f.p.A, LINKEDIN]);
-  await page.reload();
-  await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
-  await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', LINKEDIN);
-  const html = await (await page.request.get(`/profile/${uid}`)).text();
+
+  // Signed out: no redirect to sign in, just the shared fields.
+  const out = await request.get(tapPath, { maxRedirects: 0 });
+  expect(out.status()).toBe(200);
+  const html = await out.text();
+  expect(html).toContain('Ada Fixture');
   expect(html).not.toContain(await emailOf(f.p.A));
   expect(html).not.toContain('Vegetarian');
+
+  const anon = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const page = await anon.newPage();
+  await page.goto(tapPath);
+  await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', LINKEDIN);
 
   // Opting out takes effect on the very next view (the page is never cached).
   await f.pool.query('update participants set profile_public = false where id = $1', [f.p.A]);
   await page.reload();
   await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
+  await expect(page.getByText('Ada')).toHaveCount(0);
 
+  // An unlinked badge: claiming it still needs an account.
   await page.goto(`/profile/${randomUid()}?tap`);
   await expect(page.getByRole('heading', { name: /isn’t linked yet/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in to link it' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /This is my badge/ })).toHaveCount(0);
   expect((await page.goto('/profile/not-a-uid'))?.status()).toBe(404);
-  await b.close();
+  await anon.close();
 
-  // X is accepted at the other event: signed in, but not allowed to see this badge.
+  // X attends the other event: signed in, X sees the same as anyone.
+  await f.pool.query('update participants set profile_public = true where id = $1', [f.p.A]);
   const x = await browser.newContext({ baseURL: E2E_ORIGIN });
   const xPage = await x.newPage();
   await createAccount(await emailOf(f.p.X));
   await signIn(xPage, await emailOf(f.p.X), tapPath);
-  await expect(xPage.getByRole('heading', { name: /Only people at this event/ })).toBeVisible();
-  await expect(xPage.getByText('Ada')).toHaveCount(0);
+  await expect(xPage.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
   await x.close();
 });
 
 test('T-NFC-14: the pass-page opt-in sends the token only in a PATCH body', async ({ page }) => {
   const seen: Array<{ url: string; method: string; body: string | null }> = [];
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData() }));
+  await f.pool.query('update participants set profile_public = false where id = $1', [f.p.B]); // on by default since v0.9
   await page.goto(`/p#${f.token.B}`);
   const box = page.getByRole('checkbox', { name: /show my name/i });
   await expect(box).not.toBeChecked();
@@ -97,19 +92,19 @@ test('T-NFC-21: an attendee taps an unlinked badge, signs in, claims it and sets
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
 
   await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/company/not-a-person');
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save LinkedIn' }).click();
   await expect(page.getByText('✕ Not saved. Use your LinkedIn profile link')).toBeVisible();
   await page.getByRole('textbox', { name: 'LinkedIn' }).fill('linkedin.com/in/ada-claimed');
   await page.getByRole('checkbox', { name: /Show my name and LinkedIn/ }).check();
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save LinkedIn' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('https://www.linkedin.com/in/ada-claimed');
   await a.close();
 
-  // B (same event) taps it: A's name and the LinkedIn A chose. The badge also checks A in.
+  // B taps it: A's name and the LinkedIn A chose. The badge also checks A in.
   const b = await browser.newContext({ baseURL: E2E_ORIGIN });
   const bPage = await b.newPage();
-  await signIn(bPage, await emailOf(f.p.B), tapPath);
+  await bPage.goto(tapPath); // no sign-in needed since v0.9
   await expect(bPage.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
   await expect(bPage.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', 'https://www.linkedin.com/in/ada-claimed');
   await expect(bPage.getByRole('button', { name: /This is my badge/ })).toHaveCount(0);

@@ -26,20 +26,17 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
       `EMAIL_FROM`, and optionally `GOOGLE_SERVICE_ACCOUNT_JSON` for Sync now.
 - [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
 
-### Scheduler (outbox drain every minute, retention daily)
-In the Supabase SQL editor, enable `pg_cron` and `pg_net` (Database → Extensions), then run the following. Replace `<origin>` and `<DRAIN_SECRET>` with your values; store the secret in Vault if you prefer:
+### Scheduler (RSVP deadline and reminders, outbox retries, retention)
+On Coolify (the live app), open it → **Scheduled Tasks** and add two tasks (they run inside the app container, so they use its `DRAIN_SECRET`). Elsewhere (e.g. Vercel), have any scheduler POST to `<origin>/api/cron` every 5 minutes and `<origin>/api/retention` daily, with `Authorization: Bearer <DRAIN_SECRET>`.
 
-```sql
-select cron.schedule('passline-drain', '* * * * *', $$
-  select net.http_post(url := '<origin>/api/email/drain',
-                       headers := jsonb_build_object('Authorization', 'Bearer <DRAIN_SECRET>'))
-$$);
-select cron.schedule('passline-retention', '17 4 * * *', $$
-  select net.http_post(url := '<origin>/api/retention',
-                       headers := jsonb_build_object('Authorization', 'Bearer <DRAIN_SECRET>'))
-$$);
-```
-- [ ] After a minute, `select * from cron.job_run_details order by start_time desc limit 5;` shows successful runs.
+| Name | Command | Frequency |
+|------|---------|-----------|
+| `passline-cron` | `node scripts/cron.mjs /api/cron` | `*/5 * * * *` |
+| `passline-retention` | `node scripts/cron.mjs /api/retention` | `17 4 * * *` |
+
+`/api/cron` turns missed RSVP deadlines into a no, queues the 10:00 reminders (SPEC F13) and sends waiting email, including retries. Without it, nothing is retried and no reminder goes out.
+- [ ] After five minutes, the task's executions show `200 {"jobs":…}`.
+- [ ] Set the event's **RSVP deadline** on the admin Info tab.
 
 ### Your event
 - [ ] Create it with production env vars loaded in your shell:

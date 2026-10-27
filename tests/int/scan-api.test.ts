@@ -76,8 +76,39 @@ describe('POST /api/scan (SPEC §9.1)', () => {
     const door = await api.scan(vol2, qr(f.cp.D, f.token.N));
     expect((door.body.participant as Record<string, unknown>).dietaryNotes ?? null).toBeNull();
     await f.pool.query(`update participants set dietary_notes = 'Nut allergy' where id = $1`, [f.p.N]);
+    await f.pool.query(`update participants set allergies = 'Peanuts', allergy_severity = 'severe' where id = $1`, [f.p.N]);
     const lunch = await api.scan(vol2, qr(f.cp.L, f.token.N));
-    expect(lunch.body).toMatchObject({ code: 'ACCEPTED', participant: { dietaryNotes: 'Nut allergy' } });
+    expect(lunch.body).toMatchObject({ code: 'ACCEPTED', participant: { dietaryNotes: 'Nut allergy', allergies: 'Peanuts', allergySeverity: 'severe' } });
+  });
+
+  it('T-SCAN-19: allergies (v0.9) only on an accepted meal scan, never with a refused code', async () => {
+    await f.pool.query(`update participants set allergies = 'Shellfish', allergy_severity = 'mild', dietary_notes = 'Kosher' where id = $1`, [f.p.Rv]);
+    const revoked = await api.scan(vol2, qr(f.cp.L, f.rvOldToken));
+    expect(revoked.body).toMatchObject({ code: 'REVOKED' });
+    expect(revoked.body.participant).not.toHaveProperty('allergies');
+    expect(revoked.body.participant).not.toHaveProperty('allergySeverity');
+    expect((revoked.body.participant as Record<string, unknown>).dietaryNotes ?? null).toBeNull(); // nor dietary notes
+  });
+
+  it('T-SCAN-19: a retry still shows the allergy; a replay after losing staff access never does (v0.9)', async () => {
+    await f.pool.query(`update participants set allergies = 'Sesame', allergy_severity = 'moderate', dietary_notes = 'Halal' where id = $1`, [f.p.T]);
+    await api.scan(vol1, qr(f.cp.D, f.token.T));
+    const id = randomUUID();
+    expect((await api.scan(vol1, qr(f.cp.L, f.token.T, { clientScanId: id }))).body).toMatchObject({ code: 'ACCEPTED', participant: { allergies: 'Sesame' } });
+    expect((await api.scan(vol1, qr(f.cp.L, f.token.T, { clientScanId: id }))).body).toMatchObject({
+      code: 'ACCEPTED', replayed: true, participant: { allergies: 'Sesame', allergySeverity: 'moderate' },
+    });
+    // record_scan() answers a replay before it checks the caller is still staff (§8 step 1).
+    await f.pool.query('delete from event_staff where event_id = $1 and user_id = $2', [f.e1.id, f.staff.vol1]);
+    try {
+      const replay = await api.scan(vol1, qr(f.cp.L, f.token.T, { clientScanId: id }));
+      expect(replay.body).toMatchObject({ code: 'ACCEPTED', replayed: true });
+      expect(replay.body.participant).not.toHaveProperty('allergies');
+      expect(replay.body.participant).not.toHaveProperty('allergySeverity');
+      expect((replay.body.participant as Record<string, unknown>).dietaryNotes).toBeNull();
+    } finally {
+      await f.pool.query(`insert into event_staff (event_id, user_id, role) values ($1, $2, 'volunteer') on conflict do nothing`, [f.e1.id, f.staff.vol1]);
+    }
   });
 
   it('T-SCAN-16: vol3 (other event) is FORBIDDEN', async () => {

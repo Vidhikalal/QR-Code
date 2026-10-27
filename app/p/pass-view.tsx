@@ -241,10 +241,10 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
   return (
     <section className={styles.card} aria-labelledby="profile-heading">
       <h2 id="profile-heading">Badge profile (optional)</h2>
-      <p>If you get an NFC badge at the event, other attendees can tap it with their phone.</p>
+      <p>If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
       <label className={styles.check}>
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
-        Show my {what} when someone taps my badge
+        Show my {what} to anyone who taps my badge
       </label>
       {!pass.profile.hasLinkedin && <p className={styles.meta}>We don’t have a LinkedIn URL for you, so only your name would show.</p>}
       <p className={`${styles.message} ${message ? styles[message.tone] : ''}`} role="status" aria-live="polite">

@@ -17,7 +17,8 @@ export const POST = route((request) =>
       // An account with no password yet (unconfirmed) is told to reset it, like a wrong password.
       if (error) return error.code === 'invalid_credentials' || error.code === 'email_not_confirmed' ? 'wrong' : 'error';
       // F9: like /login, every sign-in grants admin roles, consumes staff invites and may need onboarding first.
-      return { next: await landingAfterSignIn(db(), data.user, '/me', env().ADMIN_EMAILS) };
+      // v0.9: an attendee goes on to set up their profile (F14).
+      return { next: await landingAfterSignIn(db(), data.user, '/me/profile', env().ADMIN_EMAILS) };
     },
     scheduleDrain: (task) => after(task),
     drain: () =>

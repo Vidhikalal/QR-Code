@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { LINK_CODES, type LinkCode } from '@/lib/domain/badge';
 import { normalizeEmail } from '@/lib/domain/normalize';
-import { parseProfileInput, type ProfileFields, type ProfileInput } from '@/lib/domain/profile';
+import { parseProfileInput, type ProfileField, type ProfileFields, type ProfileInput } from '@/lib/domain/profile';
 
 type Account = { id: string; email?: string | null };
 
@@ -55,6 +55,13 @@ export interface MyEvent {
   emergency: { name: string; phone: string; relation: string | null } | null;
   teamId: string | null;
   lookingForTeam: boolean;
+  /** v0.9 profile setup (F14). Finished once the contact, overnight and team status are set. */
+  overnight: string | null;
+  allergies: string | null;
+  allergySeverity: string | null;
+  teamStatus: string | null;
+  accessibility: string | null;
+  profileDone: boolean;
   event: {
     name: string;
     venue: string;
@@ -76,7 +83,7 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
   const { data, error } = await db
     .from('participants')
     .select(
-      'id, first_name, last_name, linkedin_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
+      'id, first_name, last_name, linkedin_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, overnight, allergies, allergy_severity, team_status, accessibility, events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
     )
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
@@ -101,6 +108,12 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
     emergency: p.emergency_name && p.emergency_phone ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
     teamId: p.team_id,
     lookingForTeam: p.looking_for_team,
+    overnight: p.overnight,
+    allergies: p.allergies,
+    allergySeverity: p.allergy_severity,
+    teamStatus: p.team_status,
+    accessibility: p.accessibility,
+    profileDone: p.emergency_name !== null && p.overnight !== null && p.team_status !== null,
     event: {
       name: e.name,
       venue: e.venue,
@@ -127,26 +140,54 @@ export function profileArgs(v: ProfileFields) {
   };
 }
 
-export type SaveProfileResult = 'SAVED' | 'INVALID_LINKEDIN' | 'INVALID_DIETARY' | 'INVALID_CONTACT' | 'NOT_FOUND';
+export type SaveProfileResult =
+  | 'SAVED'
+  | 'INVALID_LINKEDIN'
+  | 'INVALID_DIETARY'
+  | 'INVALID_CONTACT'
+  | 'INVALID_OVERNIGHT'
+  | 'INVALID_ALLERGY'
+  | 'INVALID_TEAM_STATUS'
+  | 'INVALID_ACCESSIBILITY'
+  | 'NOT_FOUND';
 
-// /me/profile and /me/emergency: the attendee's own LinkedIn, sharing, dietary notes and emergency contact.
-// save_hacker_profile() only touches the row whose email is the account's (a forged id changes nothing).
+const FIELD_RESULT: Record<ProfileField, SaveProfileResult> = {
+  linkedin: 'INVALID_LINKEDIN',
+  dietaryNotes: 'INVALID_DIETARY',
+  emergencyName: 'INVALID_CONTACT',
+  emergencyPhone: 'INVALID_CONTACT',
+  emergencyRelation: 'INVALID_CONTACT',
+  overnight: 'INVALID_OVERNIGHT',
+  allergies: 'INVALID_ALLERGY',
+  allergySeverity: 'INVALID_ALLERGY',
+  teamStatus: 'INVALID_TEAM_STATUS',
+  accessibility: 'INVALID_ACCESSIBILITY',
+};
+
+// /me/profile and /me/emergency: the attendee's own LinkedIn, sharing, emergency contact and (v0.9, with
+// `setup`) the profile setup answers. save_hacker_profile() only touches the row whose email is the
+// account's (a forged id changes nothing).
 export async function saveBadgeProfile(
   db: SupabaseClient<Database>,
   user: Account,
   participantId: string,
   input: ProfileInput,
+  opts: { setup?: boolean } = {},
 ): Promise<SaveProfileResult> {
-  const parsed = parseProfileInput(input, { requireEmergency: false });
-  if (!parsed.ok) {
-    return parsed.field === 'linkedin' ? 'INVALID_LINKEDIN' : parsed.field === 'dietaryNotes' ? 'INVALID_DIETARY' : 'INVALID_CONTACT';
-  }
+  const parsed = parseProfileInput(input, { requireEmergency: false, requireSetup: opts.setup });
+  if (!parsed.ok) return FIELD_RESULT[parsed.field];
+  const v = parsed.value;
   if (!user.email || !z.uuid().safeParse(participantId).success) return 'NOT_FOUND';
   const { data, error } = await db.rpc('save_hacker_profile', {
     p_participant_id: participantId,
     p_email: normalizeEmail(user.email),
     p_user_id: user.id,
-    ...profileArgs(parsed.value),
+    ...profileArgs(v),
+    p_overnight: v.overnight,
+    p_allergies: v.allergy?.text,
+    p_allergy_severity: v.allergy?.severity,
+    p_team_status: v.teamStatus,
+    p_accessibility: v.accessibility,
   });
   if (error) throw new Error(`save_hacker_profile failed (${error.code})`);
   return data ? 'SAVED' : 'NOT_FOUND';

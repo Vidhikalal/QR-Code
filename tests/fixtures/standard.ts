@@ -21,6 +21,8 @@ export interface ScanResult {
     photoPath: string | null;
     status: string;
     dietaryNotes?: string | null;
+    allergies?: string | null;
+    allergySeverity?: string | null;
   };
   previous?: { scannedAt: string; scannedByName: string | null; scannedByMe: boolean };
   reissued?: boolean;

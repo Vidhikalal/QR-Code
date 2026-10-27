@@ -2,6 +2,7 @@ import { normalizeLinkedIn } from './badge';
 
 // SPEC F13/F14 (v0.6): what a hacker types on the RSVP Yes form and in their menu. A missing field is left
 // unchanged; a blank LinkedIn or dietary note clears it. The emergency contact is all-or-nothing.
+// v0.9: the profile setup answers (overnight, allergies with their severity, team status, accessibility).
 export interface ProfileInput {
   linkedin?: string;
   profilePublic?: boolean;
@@ -9,23 +10,51 @@ export interface ProfileInput {
   emergencyName?: string;
   emergencyPhone?: string;
   emergencyRelation?: string;
+  overnight?: string;
+  allergies?: string;
+  allergySeverity?: string;
+  teamStatus?: string;
+  accessibility?: string;
 }
+
+export const OVERNIGHT = ['yes', 'no', 'unsure'] as const;
+export const ALLERGY_SEVERITY = ['mild', 'moderate', 'severe'] as const;
+export const TEAM_STATUS = ['team', 'looking', 'solo'] as const;
 
 export interface ProfileFields {
   linkedinUrl?: string; // normalized, or '' to clear
   profilePublic?: boolean;
   dietaryNotes?: string; // '' clears
   emergency?: { name: string; phone: string; relation: string }; // relation '' = none
+  overnight?: (typeof OVERNIGHT)[number];
+  allergy?: { text: string; severity: (typeof ALLERGY_SEVERITY)[number] | '' }; // text '' clears both
+  teamStatus?: (typeof TEAM_STATUS)[number];
+  accessibility?: string; // '' clears
 }
 
-export type ProfileField = 'linkedin' | 'dietaryNotes' | 'emergencyName' | 'emergencyPhone' | 'emergencyRelation';
+export type ProfileField =
+  | 'linkedin'
+  | 'dietaryNotes'
+  | 'emergencyName'
+  | 'emergencyPhone'
+  | 'emergencyRelation'
+  | 'overnight'
+  | 'allergies'
+  | 'allergySeverity'
+  | 'teamStatus'
+  | 'accessibility';
+
+const oneOf = <T extends string>(choices: readonly T[], v: string): v is T => (choices as readonly string[]).includes(v);
 
 // The same character set as the participants check; at least 3 digits is checked only here.
 const PHONE_RE = /^[0-9+() .-]{3,30}$/;
+// The same rule as an HTML pattern (v-flag syntax), so the browser catches a typo before the form is sent.
+export const PHONE_PATTERN = '(?=(?:\\D*\\d){3})[0-9+\\(\\) .\\-]{3,30}';
 
 export function parseProfileInput(
   raw: ProfileInput,
-  opts: { requireEmergency: boolean },
+  // requireSetup: the profile setup form, which also needs overnight and team status (and the contact).
+  opts: { requireEmergency: boolean; requireSetup?: boolean },
 ): { ok: true; value: ProfileFields } | { ok: false; field: ProfileField } {
   const value: ProfileFields = {};
   if (raw.linkedin !== undefined) {
@@ -40,7 +69,7 @@ export function parseProfileInput(
     value.dietaryNotes = dietary;
   }
   const given = [raw.emergencyName, raw.emergencyPhone, raw.emergencyRelation].some((v) => v !== undefined);
-  if (given || opts.requireEmergency) {
+  if (given || opts.requireEmergency || opts.requireSetup) {
     const name = (raw.emergencyName ?? '').trim();
     const phone = (raw.emergencyPhone ?? '').trim();
     const relation = (raw.emergencyRelation ?? '').trim();
@@ -48,6 +77,30 @@ export function parseProfileInput(
     if (!PHONE_RE.test(phone) || (phone.match(/\d/g) ?? []).length < 3) return { ok: false, field: 'emergencyPhone' };
     if (relation.length > 60) return { ok: false, field: 'emergencyRelation' };
     value.emergency = { name, phone, relation };
+  }
+  if (raw.overnight !== undefined || opts.requireSetup) {
+    const overnight = raw.overnight ?? '';
+    if (!oneOf(OVERNIGHT, overnight)) return { ok: false, field: 'overnight' };
+    value.overnight = overnight;
+  }
+  if (raw.allergies !== undefined) {
+    const text = raw.allergies.trim();
+    const severity = raw.allergySeverity ?? '';
+    if (text.length > 300) return { ok: false, field: 'allergies' };
+    if (text === '') value.allergy = { text: '', severity: '' };
+    else if (oneOf(ALLERGY_SEVERITY, severity)) value.allergy = { text, severity };
+    else return { ok: false, field: 'allergySeverity' };
+  }
+  if (raw.teamStatus !== undefined || opts.requireSetup) {
+    const teamStatus = raw.teamStatus ?? '';
+    if (!oneOf(TEAM_STATUS, teamStatus)) return { ok: false, field: 'teamStatus' };
+    value.teamStatus = teamStatus;
+  }
+  if (raw.accessibility !== undefined) {
+    // A browser counts a line break as one character for maxLength but sends \r\n: count it as the browser does.
+    const accessibility = raw.accessibility.replace(/\r\n/g, '\n').trim();
+    if (accessibility.length > 500) return { ok: false, field: 'accessibility' };
+    value.accessibility = accessibility;
   }
   return { ok: true, value };
 }

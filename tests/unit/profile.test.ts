@@ -57,3 +57,51 @@ describe('parseProfileInput (SPEC F13/F14, v0.6)', () => {
     expect(parseProfileInput(contact, { requireEmergency: true })).toMatchObject({ ok: true });
   });
 });
+
+describe('parseProfileInput: profile setup (SPEC F14, v0.9)', () => {
+  const setup = { ...contact, overnight: 'unsure', teamStatus: 'looking', allergies: ' Peanuts ', allergySeverity: 'severe', accessibility: ' Step-free access ' };
+
+  it('T-ME-09: reads the setup answers; blank allergies clear the severity too; blank accessibility clears', () => {
+    expect(parseProfileInput(setup, { requireEmergency: true, requireSetup: true })).toEqual({
+      ok: true,
+      value: {
+        emergency: { name: 'Sam Lee', phone: '+1 (416) 555-0100', relation: 'Parent' },
+        overnight: 'unsure',
+        teamStatus: 'looking',
+        allergy: { text: 'Peanuts', severity: 'severe' },
+        accessibility: 'Step-free access',
+      },
+    });
+    expect(parseProfileInput({ allergies: ' ', allergySeverity: 'mild', accessibility: '' }, { requireEmergency: false })).toEqual({
+      ok: true,
+      value: { allergy: { text: '', severity: '' }, accessibility: '' },
+    });
+    expect(parseProfileInput({ allergies: 'a'.repeat(300), allergySeverity: 'mild', accessibility: 'x'.repeat(500) }, { requireEmergency: false })).toMatchObject({ ok: true });
+    // A browser counts a line break as one character for maxLength but sends it as \r\n: 500 typed is 500 stored.
+    expect(parseProfileInput({ accessibility: `${'x'.repeat(249)}\r\n${'x'.repeat(250)}` }, { requireEmergency: false })).toEqual({
+      ok: true,
+      value: { accessibility: `${'x'.repeat(249)}\n${'x'.repeat(250)}` },
+    });
+  });
+
+  it('T-ME-09: the setup form needs the contact, overnight and team status; bad choices and lengths name their field', () => {
+    const bad: Array<[Parameters<typeof parseProfileInput>[0], string]> = [
+      [{ ...setup, overnight: 'maybe' }, 'overnight'],
+      [{ ...setup, overnight: '' }, 'overnight'],
+      [{ ...setup, overnight: undefined }, 'overnight'],
+      [{ ...setup, teamStatus: 'duo' }, 'teamStatus'],
+      [{ ...setup, teamStatus: undefined }, 'teamStatus'],
+      [{ ...setup, allergySeverity: '' }, 'allergySeverity'],
+      [{ ...setup, allergySeverity: 'deadly' }, 'allergySeverity'],
+      [{ ...setup, allergies: 'a'.repeat(301) }, 'allergies'],
+      [{ ...setup, accessibility: 'x'.repeat(501) }, 'accessibility'],
+      [{ ...setup, emergencyName: undefined, emergencyPhone: undefined, emergencyRelation: undefined }, 'emergencyName'],
+    ];
+    for (const [input, field] of bad) {
+      expect(parseProfileInput(input, { requireEmergency: true, requireSetup: true }), JSON.stringify(input)).toEqual({ ok: false, field });
+    }
+    // Outside the setup form, missing answers stay unchanged, but a given one is still checked.
+    expect(parseProfileInput({ linkedin: '' }, { requireEmergency: false })).toEqual({ ok: true, value: { linkedinUrl: '' } });
+    expect(parseProfileInput({ overnight: 'maybe' }, { requireEmergency: false })).toEqual({ ok: false, field: 'overnight' });
+  });
+});

@@ -11,9 +11,9 @@ import { claimBadge, myBadgeProfiles } from '@/lib/me/profile';
 import formStyles from '../../login/login.module.css';
 import styles from './profile.module.css';
 
-// SPEC §6.5: what a phone opens when it taps a badge. Only for a signed-in attendee or staff member
-// of the badge's event (proxy.ts sends everyone else to /login first); badge_profile() decides and
-// returns only opted-in fields. An unlinked badge is claimed here by its holder (v0.5).
+// SPEC §6.5: what a phone opens when it taps a badge. Public since v0.9: no sign-in needed, and
+// badge_profile() returns only what the holder shares. The holder's own tap opens their menu, and an
+// unlinked badge is claimed here by its holder once signed in (v0.5).
 // `?tap` (on tags written by the earlier datathon-badges app) is ignored.
 export const metadata: Metadata = {
   title: 'Badge · Passline',
@@ -23,7 +23,6 @@ export const metadata: Metadata = {
 
 const profileSchema = z
   .union([
-    z.object({ allowed: z.literal(false) }),
     z.object({ allowed: z.literal(true), public: z.literal(false) }),
     z.object({
       allowed: z.literal(true),
@@ -56,19 +55,18 @@ export default async function BadgeProfilePage(props: {
   const uid = normalizeUid(raw);
   if (!uid) notFound();
   const viewer = await currentUser();
-  if (!viewer) redirect(`/login?next=${encodeURIComponent(`/profile/${raw}`)}`);
+  const signIn = `/login?next=${encodeURIComponent(`/profile/${raw}`)}`;
 
   const { data, error } = await db().rpc('badge_profile', {
     p_uid: uid,
-    p_viewer_id: viewer.id,
-    p_viewer_email: normalizeEmail(viewer.email ?? ''),
+    ...(viewer && { p_viewer_id: viewer.id, p_viewer_email: normalizeEmail(viewer.email ?? '') }),
   });
   if (error) throw new Error(`badge_profile failed (${error.code})`);
   // v0.6 (F14): the holder tapping their own badge opens their hacker menu.
   if (z.object({ self: z.literal(true) }).safeParse(data).success) redirect('/me');
   const profile = profileSchema.parse(data);
   // Events this person may claim the badge in (accepted, up to 30 days after the event).
-  const claimable = profile === null ? await myBadgeProfiles(db(), viewer.email ?? '', new Date()) : [];
+  const claimable = profile === null && viewer ? await myBadgeProfiles(db(), viewer.email ?? '', new Date()) : [];
 
   return (
     <main className={styles.page}>
@@ -89,7 +87,14 @@ export default async function BadgeProfilePage(props: {
         {profile === null && (
           <>
             <h1>This badge isn’t linked yet</h1>
-            {claimable.length > 0 ? (
+            {!viewer ? (
+              <>
+                <p>If this is your badge, sign in with the email you registered with to link it to you.</p>
+                <Link className={styles.link} href={signIn}>
+                  Sign in to link it
+                </Link>
+              </>
+            ) : claimable.length > 0 ? (
               <>
                 <p>If this is your badge, link it to you. People at the event can then tap it to see what you share.</p>
                 {claimable.map((c) => (
@@ -106,32 +111,20 @@ export default async function BadgeProfilePage(props: {
                   You’re signed in as {viewer.email ?? 'an unknown address'}. To make it yours, sign in with the email you
                   registered for the event with.
                 </p>
-                <Link className={styles.link} href={`/login?next=${encodeURIComponent(`/profile/${raw}`)}`}>
+                <Link className={styles.link} href={signIn}>
                   Use a different email
                 </Link>
               </>
             )}
           </>
         )}
-        {profile?.allowed === false && (
-          <>
-            <h1>Only people at this event can see this badge</h1>
-            <p>
-              You’re signed in as {viewer.email ?? 'an unknown address'}. Sign in with the email you registered for the
-              event with.
-            </p>
-            <Link className={styles.link} href={`/login?next=${encodeURIComponent(`/profile/${raw}`)}`}>
-              Use a different email
-            </Link>
-          </>
-        )}
-        {profile?.allowed && !profile.public && (
+        {profile && !profile.public && (
           <>
             <h1>This attendee hasn’t shared a profile</h1>
             <p>They can choose to share their name and LinkedIn from their Passline account.</p>
           </>
         )}
-        {profile?.allowed && profile.public && (
+        {profile?.public && (
           <>
             <h1 className={styles.name}>{`${profile.firstName} ${profile.lastName}`.trim()}</h1>
             {profile.linkedinUrl ? (

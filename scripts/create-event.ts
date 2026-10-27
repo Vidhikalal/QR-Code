@@ -1,4 +1,4 @@
-// `pnpm event:create --slug hackday-2026 --name "Hack Day 2026" --venue "Bahen Centre" \
+// `pnpm event:create --slug datathon-2026 --name "Datathon 2026" --venue "Bahen Centre" \
 //    --starts 2026-10-03T09:00 --ends 2026-10-03T18:00 --tz America/Toronto --organizer you@club.org`
 // Bootstraps an event, its door checkpoint (closed), and an invite for the first organizer, who then
 // signs in at /login with that email. The SPEC has no event-creation flow; this fills that gap.

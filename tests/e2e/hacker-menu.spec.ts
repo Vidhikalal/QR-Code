@@ -42,15 +42,15 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
   await expect(menu.getByText('My pass')).toBeVisible();
   await expect(menu.getByText('In your email')).toBeVisible(); // A's fixture pass predates derived tokens
+  await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
 
   await menu.getByRole('link', { name: 'Hacker profile' }).click();
   await expect(page.getByText('Ada Fixture')).toBeVisible();
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Dietary notes')).toHaveValue('Vegetarian');
-  await page.getByLabel('Dietary notes').fill('Vegan, no nuts');
-  await page.getByRole('button', { name: 'Save' }).click();
+  // v0.8.2: dietary notes are the Sheet's, for organizers only; saving the profile must not clear them.
+  await expect(page.getByLabel('Dietary notes')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Save LinkedIn' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
-  await expect(page.getByLabel('Dietary notes')).toHaveValue('Vegan, no nuts');
 
   await page.getByRole('link', { name: '← Menu' }).click();
   await page.getByRole('link', { name: 'Schedule' }).click();
@@ -77,15 +77,15 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   const { rows } = await f.pool.query('select dietary_notes, emergency_name, emergency_phone, emergency_relation from participants where id = $1', [f.p.A]);
-  expect(rows).toEqual([{ dietary_notes: 'Vegan, no nuts', emergency_name: 'Sam Fixture', emergency_phone: '+1 (416) 555-0100', emergency_relation: 'Brother' }]);
+  expect(rows).toEqual([{ dietary_notes: 'Vegetarian', emergency_name: 'Sam Fixture', emergency_phone: '+1 (416) 555-0100', emergency_relation: 'Brother' }]);
   await a.close();
 
-  // B taps A's badge: the badge profile as before, never A's menu.
+  // B taps A's badge: A's shared profile (on by default since v0.9), never A's menu.
   const b = await browser.newContext({ baseURL: E2E_ORIGIN });
   const bPage = await b.newPage();
   await createAccount(await emailOf(f.p.B));
   await signIn(bPage, await emailOf(f.p.B), `/profile/${uid}?tap`);
-  await expect(bPage.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
+  await expect(bPage.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
   // C is waitlisted: no menu, and its pages 404.
   await b.close();
   const c = await browser.newContext({ baseURL: E2E_ORIGIN });

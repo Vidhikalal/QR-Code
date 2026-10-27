@@ -19,11 +19,20 @@ interface Detail {
     dietaryNotes: string | null;
     linkedinUrl: string | null;
     emergency: { name: string; phone: string; relation: string | null } | null;
+    overnight: string | null;
+    teamStatus: string | null;
+    allergies: string | null;
+    allergySeverity: string | null;
+    accessibility: string | null;
     photoUrl: string | null;
     photoUpdatedAt: string | null;
   };
   scans: Array<{ id: string; checkpointName: string; kind: string; scannedAt: string; method: string; scannedByName: string | null; voided: boolean; voidReason: string | null }>;
 }
+
+// v0.9 profile setup answers, as the hacker chose them (F14).
+const OVERNIGHT: Record<string, string> = { yes: 'Yes', no: 'No', unsure: 'Not sure yet' };
+const TEAM_STATUS: Record<string, string> = { team: 'Has a team', looking: 'Looking for a team', solo: 'Going solo' };
 
 const VOID_TEXT: Record<string, string> = {
   VOIDED: '✓ Scan voided.',
@@ -104,6 +113,24 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
               </dd>
             </>
           )}
+          {p.allergies && (
+            <>
+              <dt className={styles.muted}>Allergies</dt>
+              <dd>
+                {p.allergySeverity === 'severe' ? <strong>Severe: {p.allergies}</strong> : `${p.allergies} (${p.allergySeverity ?? ''})`}
+              </dd>
+            </>
+          )}
+          {p.accessibility && (
+            <>
+              <dt className={styles.muted}>Accessibility</dt>
+              <dd>{p.accessibility}</dd>
+            </>
+          )}
+          <dt className={styles.muted}>Overnight</dt>
+          <dd>{p.overnight ? OVERNIGHT[p.overnight] : 'Not answered'}</dd>
+          <dt className={styles.muted}>Team</dt>
+          <dd>{p.teamStatus ? TEAM_STATUS[p.teamStatus] : 'Not answered'}</dd>
           {p.photoUpdatedAt && (
             <>
               <dt className={styles.muted}>Photo updated</dt>

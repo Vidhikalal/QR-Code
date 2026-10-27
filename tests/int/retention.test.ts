@@ -35,6 +35,8 @@ beforeAll(async () => {
   }
   // v0.6: B in E1 has only an emergency contact.
   await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent' where id = $1`, [f.p.B]);
+  // v0.9: C in E1 has only allergies and accessibility needs.
+  await f.pool.query(`update participants set allergies = 'Peanuts', allergy_severity = 'severe', accessibility = 'Ramp' where id = $1`, [f.p.C]);
 });
 afterAll(async () => {
   await f.close();
@@ -66,6 +68,8 @@ describe('retention (SPEC §15)', () => {
     expect(await objectExists(f.e1.id, f.p.A)).toBe(false);
     const { rows: contact } = await f.pool.query('select emergency_name, emergency_phone, emergency_relation from participants where id = $1', [f.p.B]);
     expect(contact).toEqual([{ emergency_name: null, emergency_phone: null, emergency_relation: null }]);
+    const { rows: health } = await f.pool.query('select allergies, allergy_severity, accessibility from participants where id = $1', [f.p.C]);
+    expect(health).toEqual([{ allergies: null, allergy_severity: null, accessibility: null }]);
 
     const x = await person(f.p.X);
     expect(x?.photo_path).toBe(photoPath(f.e2.id, f.p.X));
@@ -76,7 +80,7 @@ describe('retention (SPEC §15)', () => {
       `select actor_kind, detail from audit_log where event_id = $1 and action = 'privacy.retention'`,
       [f.e1.id],
     );
-    expect(rows).toEqual([{ actor_kind: 'system', detail: { participants: 2, photos: 1 } }]);
+    expect(rows).toEqual([{ actor_kind: 'system', detail: { participants: 3, photos: 1 } }]);
   });
 
   it('T-PRIV-02: running it again changes nothing and writes no second audit row', async () => {

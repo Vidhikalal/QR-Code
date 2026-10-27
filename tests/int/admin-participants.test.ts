@@ -71,14 +71,19 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
   });
 
   it('T-ADM-05: delete → tombstone per §5.1; counts unchanged; old token → REVOKED (deleted); no PII in audit', async () => {
-    await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent' where id = $1`, [f.p.B]);
+    await f.pool.query(
+      `update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent',
+         overnight = 'yes', allergies = 'Peanuts', allergy_severity = 'severe', team_status = 'solo', accessibility = 'Ramp' where id = $1`,
+      [f.p.B],
+    );
     await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.B });
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     const res = await c.call('deleteParticipant', org, { slug: f.slug, id: f.p.B }, { method: 'DELETE' });
     expect(res.status).toBe(200);
     const { rows } = await f.pool.query(
       `select first_name, last_name, email, search_text, dietary_notes, linkedin_url, photo_path,
-              emergency_name, emergency_phone, emergency_relation, deleted_at is not null as deleted
+              emergency_name, emergency_phone, emergency_relation, deleted_at is not null as deleted,
+              overnight, allergies, allergy_severity, team_status, accessibility
          from participants where id = $1`,
       [f.p.B],
     );
@@ -86,6 +91,7 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
       first_name: 'Deleted', last_name: '', email: `deleted+${f.p.B}@invalid`, search_text: '',
       dietary_notes: null, linkedin_url: null, photo_path: null,
       emergency_name: null, emergency_phone: null, emergency_relation: null, deleted: true,
+      overnight: null, allergies: null, allergy_severity: null, team_status: null, accessibility: null, // v0.9
     });
     const after = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
@@ -94,6 +100,39 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     expect(audit).toHaveLength(1);
     expect(JSON.stringify(audit[0]?.detail)).not.toMatch(/Ben|@/);
     expect((await c.call('deleteParticipant', org, { slug: f.slug, id: f.p.B }, { method: 'DELETE' })).body).toMatchObject({ code: 'ALREADY_DELETED' });
+  });
+
+  it('T-ADM-11: Revoke RSVP (v0.9.1) puts someone back to not invited: dead link, no pass or badge, waiting email cancelled; a new RSVP then works', async () => {
+    const { id, token } = await f.addParticipant(f.e1.id); // accepted, with a pass
+    await f.linkBadge(id);
+    await f.pool.query(`update participants set rsvp_token_hash = repeat('a', 64), rsvp_sent_at = now() where id = $1`, [id]);
+    await f.pool.query(`insert into email_outbox (participant_id, kind) values ($1, 'profile_reminder')`, [id]);
+
+    const vol = await signInAs(f.staffEmail.vol1);
+    expect((await c.call('revokeRsvp', vol, { slug: f.slug, id }, { method: 'POST' })).status).toBe(403);
+    for (const other of [f.p.X, 'not-a-uuid']) expect((await c.call('revokeRsvp', org, { slug: f.slug, id: other }, { method: 'POST' })).status).toBe(404);
+
+    expect((await c.call('revokeRsvp', org, { slug: f.slug, id }, { method: 'POST' })).body).toEqual({ code: 'RESET' });
+    const { rows } = await f.pool.query(
+      `select status, rsvp_token_hash, rsvp_sent_at,
+              (select revoke_reason from passes where participant_id = p.id order by issued_at desc limit 1) as pass,
+              exists (select 1 from badges where participant_id = p.id) as badge,
+              (select array_agg(status::text) from email_outbox where participant_id = p.id) as outbox
+         from participants p where id = $1`,
+      [id],
+    );
+    expect(rows[0]).toEqual({ status: 'pending', rsvp_token_hash: null, rsvp_sent_at: null, pass: 'status_change', badge: false, outbox: ['cancelled'] });
+    expect(await f.scan({ cp: f.cp.D, staff: f.staff.vol1, token: token ?? '' })).toMatchObject({ code: 'REVOKED' });
+    const audit = await f.pool.query(`select actor_kind, detail from audit_log where action = 'rsvp.reset' and subject_id = $1`, [id]);
+    expect(audit.rows).toEqual([{ actor_kind: 'staff', detail: {} }]);
+
+    // A fresh RSVP: queued, and a Yes to it issues a new pass (the old one wasn't revoked by hand).
+    expect((await c.call('sendRsvps', org, { slug: f.slug }, { body: { ids: [id] } })).body).toEqual({ queued: 1 });
+    await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [id]);
+    await f.pool.query(`update participants set rsvp_token_hash = repeat('b', 64), rsvp_sent_at = now() where id = $1`, [id]);
+    expect((await f.pool.query<{ r: string }>(`select rsvp_respond(repeat('b', 64), true) as r`)).rows[0]?.r).toBe('GOING');
+    expect((await f.pool.query(`select 1 from email_outbox where participant_id = $1 and kind = 'pass_issued' and status = 'pending'`, [id])).rows).toHaveLength(1);
+    await f.pool.query(`update email_outbox set status = 'cancelled' where participant_id = $1 and status = 'pending'`, [id]);
   });
 
   it('T-MAIL-11 (route): resend queues pass_reissued, rotating the pass; a second resend while in flight is not queued twice', async () => {
@@ -135,6 +174,14 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     await f.pool.query(`update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100' where id = $1`, [f.p.A]);
     expect(obj((await c.call('getParticipant', org, { slug: f.slug, id: f.p.A })).body).participant).toMatchObject({
       emergency: { name: 'Sam Lee', phone: '555 0100', relation: null },
+    });
+    // v0.9: the profile setup answers.
+    expect(obj((await c.call('getParticipant', org, { slug: f.slug, id: f.p.A })).body).participant).toMatchObject({
+      overnight: null, teamStatus: null, allergies: null, allergySeverity: null, accessibility: null,
+    });
+    await f.pool.query(`update participants set overnight = 'unsure', team_status = 'looking', allergies = 'Peanuts', allergy_severity = 'severe', accessibility = 'Ramp' where id = $1`, [f.p.A]);
+    expect(obj((await c.call('getParticipant', org, { slug: f.slug, id: f.p.A })).body).participant).toMatchObject({
+      overnight: 'unsure', teamStatus: 'looking', allergies: 'Peanuts', allergySeverity: 'severe', accessibility: 'Ramp',
     });
   });
 

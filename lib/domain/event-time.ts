@@ -14,6 +14,13 @@ export function formatEventDateTime(at: string | Date, timeZone: string): string
   return `${get('weekday')}, ${get('month')} ${get('day')} · ${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`;
 }
 
+// datetime-local value ("2026-10-03T09:00") for an instant, shown in the event timezone (I-8).
+export function toLocalInput(at: string | Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(at));
+  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? '00';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
+
 // The UTC offset (ms) that `timeZone` has at `instantMs`.
 function offsetAt(instantMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {

@@ -85,6 +85,23 @@ a.pass:hover { border-color: var(--accent); background: color-mix(in srgb, var(-
 }
 .back:hover { color: var(--accent); }
 
+/* Schedule: day headings over time slots, like a calendar's day view. */
+.day { display: grid; gap: 8px; }
+.dayLabel { margin: 8px 0 0; color: var(--link); font-size: 15px; white-space: pre-line; }
+.slots { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.slot {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+}
+.slotTime { color: var(--accent); font-size: 13px; }
+.slotPlace { color: var(--muted); font-size: 13px; }
+
 /* Organizers' free text: keep their line breaks. */
 .text { white-space: pre-line; overflow-wrap: anywhere; line-height: 1.7; }
 
@@ -144,3 +161,9 @@ a.pass:hover { border-color: var(--accent); background: color-mix(in srgb, var(-
 .people li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; min-height: 56px; padding: 6px 0; }
 .people p { margin: 0; }
 .people li + li { border-top: 1px solid var(--line); }
+
+/* Profile setup: one question per group of choices. */
+.choices { display: grid; gap: 2px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.choices legend { padding: 0; margin-bottom: 4px; font-size: 14px; font-weight: 500; }
+.choice { display: flex; gap: 10px; align-items: center; min-height: 44px; }
+.choice input { flex: none; width: 22px; height: 22px; }

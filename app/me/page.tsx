@@ -64,7 +64,13 @@ export default async function MePage() {
               </p>
             )}
             <ul className={me.menu}>
-              <Item href="/me/profile" icon={<ProfileIcon className={me.itemIcon} />} label="Hacker profile" hint={m.badge ? 'Badge linked' : 'No badge linked yet'} />
+              <Item
+                href="/me/profile"
+                icon={<ProfileIcon className={me.itemIcon} />}
+                label="Hacker profile"
+                hint={!m.profileDone ? 'Finish setting up' : m.badge ? 'Badge linked' : 'No badge linked yet'}
+                warn={!m.profileDone}
+              />
               <Item href="/me/team" icon={<TeamIcon className={me.itemIcon} />} label="Team" hint={teamHint} />
               <Item href="/me/schedule" icon={<ScheduleIcon className={me.itemIcon} />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
               <Item

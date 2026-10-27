@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatEventDateTime, zonedToUtc } from '@/lib/domain/event-time';
+import { formatEventDateTime, toLocalInput, zonedToUtc } from '@/lib/domain/event-time';
 import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 import { ConfirmDialog, Modal, VoidDialog } from '../dialog';
@@ -159,13 +159,6 @@ export function Checkpoints({ slug }: { slug: string }) {
       )}
     </>
   );
-}
-
-// datetime-local value ("2026-10-03T09:00") for an instant, shown in the event timezone (I-8).
-function toLocalInput(iso: string, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(iso));
-  const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? '00';
-  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 function CheckpointForm(props: { slug: string; timezone: string; initial: Checkpoint | null; onDone: (msg: string) => void; onCancel: () => void }) {

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateToken } from '@/lib/domain/token';
 import { passClient } from '../fixtures/pass';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
-// SPEC §6.5 badge profile (opt-in) and PATCH /api/pass (§9.3).
+// SPEC §6.5 badge profile (public since v0.9, sharing on by default) and PATCH /api/pass (§9.3).
 let f: StandardFixture;
 beforeAll(async () => {
   f = await createStandardFixture();
@@ -13,13 +14,14 @@ afterAll(async () => {
   await f.close();
 });
 
-type Viewer = { id: string; email: string };
+type Viewer = { id: string; email: string } | null; // null: signed out (v0.9)
 const profileOf = async (uid: string, viewer: Viewer) =>
-  (await f.pool.query<{ p: unknown }>('select badge_profile($1, $2, $3) as p', [uid, viewer.id, viewer.email])).rows[0]?.p ?? null;
+  (await f.pool.query<{ p: unknown }>('select badge_profile($1, $2, $3) as p', [uid, viewer?.id ?? null, viewer?.email ?? null])).rows[0]?.p ?? null;
 const setPublic = (participantId: string, linkedin: string | null) =>
   f.pool.query('update participants set profile_public = true, linkedin_url = $2 where id = $1', [participantId, linkedin]);
+const setPrivate = (participantId: string) => f.pool.query('update participants set profile_public = false where id = $1', [participantId]);
 // An attendee viewer: signed in (any user id) with the email they registered with.
-const attendee = async (participantId: string): Promise<Viewer> => {
+const attendee = async (participantId: string): Promise<{ id: string; email: string }> => {
   const { rows } = await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId]);
   return { id: randomUUID(), email: rows[0]?.email ?? '' };
 };
@@ -30,6 +32,7 @@ describe('badge_profile() (SPEC §6.5)', () => {
     const b = await attendee(f.p.B);
     expect(await profileOf(randomUid(), b)).toBeNull();
     const { uid } = await f.linkBadge(f.p.A);
+    await setPrivate(f.p.A);
     expect(await profileOf(uid, b)).toEqual({ allowed: true, public: false });
 
     await setPublic(f.p.A, 'https://www.linkedin.com/in/ada-fixture');
@@ -43,23 +46,21 @@ describe('badge_profile() (SPEC §6.5)', () => {
     });
   });
 
-  it('T-NFC-12: only attendees and staff of the badge’s event may view; everyone else gets {allowed:false} and nothing more', async () => {
+  it('T-NFC-12: v0.9: anyone may view, signed in or not, and sees the same shared fields', async () => {
     const { id } = await f.addParticipant(f.e1.id);
     const { uid } = await f.linkBadge(id);
     await setPublic(id, 'https://www.linkedin.com/in/someone');
-    expect(await profileOf(uid, staffViewer('org1'))).toMatchObject({ allowed: true, public: true });
+    const shared = await profileOf(uid, staffViewer('org1'));
+    expect(shared).toMatchObject({ allowed: true, public: true, linkedinUrl: 'https://www.linkedin.com/in/someone' });
     for (const viewer of [
+      null, // signed out
       await attendee(f.p.X), // accepted, but at the other event
-      await attendee(f.p.Wd), // this event, but withdrawn
       await attendee(f.p.C), // this event, but waitlisted
       staffViewer('vol3'), // staff of the other event
-      { id: randomUUID(), email: `stranger-${randomUid()}@example.test` }, // any other signed-in account
+      { id: randomUUID(), email: `stranger-${randomUid()}@example.test` }, // any other account
     ]) {
-      expect(await profileOf(uid, viewer), viewer.email).toEqual({ allowed: false });
+      expect(await profileOf(uid, viewer), viewer?.email ?? 'signed out').toEqual(shared);
     }
-    // Email matching is case-insensitive (emails are stored normalized, I-12).
-    const b = await attendee(f.p.B);
-    expect(await profileOf(uid, { ...b, email: b.email.toUpperCase() })).toMatchObject({ allowed: true });
   });
 
   it('T-NFC-12: a tombstoned participant’s badge shows nothing', async () => {
@@ -77,8 +78,9 @@ describe('badge_profile() (SPEC §6.5)', () => {
     await setPublic(f.p.X, null);
     expect(await profileOf(uid, staffViewer('vol3'))).toMatchObject({ public: true, firstName: 'Xan' });
     await f.linkBadge(f.p.N, { uid });
+    await setPrivate(f.p.N);
     expect(await profileOf(uid, await attendee(f.p.B))).toEqual({ allowed: true, public: false });
-    expect(await profileOf(uid, staffViewer('vol3'))).toEqual({ allowed: false });
+    expect(await profileOf(uid, staffViewer('vol3'))).toEqual({ allowed: true, public: false });
   });
 });
 
@@ -113,15 +115,38 @@ describe('badge_profile() for the badge holder (SPEC F14, v0.6)', () => {
   it('T-NFC-22: the holder tapping their own badge also gets self + the event slug (for their menu); nobody else does', async () => {
     const { id } = await f.addParticipant(f.e1.id);
     const { uid } = await f.linkBadge(id);
+    await setPrivate(id);
     const self = await attendee(id);
+    if (!self) throw new Error('no viewer');
     expect(await profileOf(uid, { ...self, email: self.email.toUpperCase() })).toEqual({ allowed: true, public: false, self: true, slug: f.slug });
     await setPublic(id, null);
     expect(await profileOf(uid, self)).toMatchObject({ allowed: true, public: true, self: true, slug: f.slug });
-    for (const viewer of [await attendee(f.p.B), staffViewer('org1'), await attendee(f.p.X)]) {
+    for (const viewer of [await attendee(f.p.B), staffViewer('org1'), await attendee(f.p.X), null]) {
       const p = (await profileOf(uid, viewer)) as Record<string, unknown>;
       expect(p).not.toHaveProperty('self');
       expect(p).not.toHaveProperty('slug');
     }
+  });
+});
+
+describe('sharing on by default (SPEC §6.5, v0.9)', () => {
+  it('T-NFC-24: new participants share by default; the migration switched on only people who never saw the choice (no answer, setting, claim or pass)', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    expect((await f.pool.query('select profile_public from participants where id = $1', [id])).rows).toEqual([{ profile_public: true }]);
+    // The backfill's rule, replayed on rows made private again: only those without an answer or a saved setting flip.
+    // [untouched, answered an RSVP, saved their profile, toggled sharing on the pass page, claimed a badge, holds a pass]
+    const ids = await Promise.all([0, 1, 2, 3, 4, 5].map(async (i) => (await f.addParticipant(f.e1.id, { withPass: i === 5 })).id));
+    for (const [i, action] of [[1, 'rsvp.yes'], [2, 'profile.update'], [3, 'profile.visibility'], [4, 'badge.claim']] as const) {
+      await f.pool.query(`insert into audit_log (event_id, actor_kind, action, subject_id) values ($1, 'participant', $2, $3)`, [f.e1.id, action, ids[i]]);
+    }
+    await f.pool.query('update participants set profile_public = false where id = any($1)', [ids]);
+    const file = readdirSync('supabase/migrations').find((n) => n.endsWith('_public_badges.sql')) ?? '';
+    const backfill = /update participants pa set profile_public = true[\s\S]+?;/.exec(readFileSync(`supabase/migrations/${file}`, 'utf8'))?.[0] ?? '';
+    expect(backfill).not.toBe('');
+    await f.pool.query(backfill.replace('where not pa.profile_public', 'where pa.id = any($1) and not pa.profile_public'), [ids]);
+    const { rows } = await f.pool.query<{ id: string; profile_public: boolean }>('select id, profile_public from participants where id = any($1)', [ids]);
+    const shared = Object.fromEntries(rows.map((r) => [r.id, r.profile_public]));
+    expect(ids.map((pid) => shared[pid])).toEqual([true, false, false, false, false, false]);
   });
 });
 
@@ -146,13 +171,14 @@ describe('PATCH /api/pass (SPEC §9.3)', () => {
 
   it('T-NFC-13: replaced, cancelled and unknown tokens → 404 and nothing changes; a bad body → 400', async () => {
     const c = passClient();
+    const before = (await f.pool.query('select profile_public from participants where id = any($1) order by id', [[f.p.Rv, f.p.Wd]])).rows;
     for (const token of [f.rvOldToken, f.token.Wd, generateToken()]) {
       const res = await c.patch({ token, profilePublic: true });
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ state: 'not_found' });
     }
-    const rows = await f.pool.query('select profile_public from participants where id = any($1)', [[f.p.Rv, f.p.Wd]]);
-    expect(rows.rows).toEqual([{ profile_public: false }, { profile_public: false }]);
+    const rows = await f.pool.query('select profile_public from participants where id = any($1) order by id', [[f.p.Rv, f.p.Wd]]);
+    expect(rows.rows).toEqual(before);
     expect((await c.patch({ token: f.token.N, profilePublic: true, extra: 1 })).status).toBe(400);
     expect((await c.patch({ token: f.token.N, profilePublic: 'yes' })).status).toBe(400);
     expect((await c.patch({ token: f.token.N })).status).toBe(400);
