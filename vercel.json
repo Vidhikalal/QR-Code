@@ -4,5 +4,13 @@
   "crons": [
     { "path": "/api/cron", "schedule": "*/5 * * * *" },
     { "path": "/api/retention", "schedule": "17 4 * * *" }
+  ],
+  "redirects": [
+    {
+      "source": "/:path((?!api/).*)",
+      "has": [{ "type": "host", "value": "passline-seven\\.vercel\\.app" }],
+      "destination": "https://nfc.yvesdonato.com/:path",
+      "permanent": true
+    }
   ]
 }

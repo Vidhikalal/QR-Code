@@ -33,13 +33,13 @@
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.1",
     "barcode-detector": "~3.2.2",
-    "next": "^16.3.6",
+    "next": "^16.4.3",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
-    "sharp": "^0.35.4",
-    "zod": "^4.6.5"
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
@@ -49,7 +49,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
-    "eslint-config-next": "^16.3.6",
+    "eslint-config-next": "^16.4.3",
     "jsqr": "^1.4.0",
     "pg": "^8.23.0",
     "tsx": "^4.23.15",
