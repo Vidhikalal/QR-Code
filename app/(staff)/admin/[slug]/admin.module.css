@@ -2343,4 +2343,430 @@
   color: var(--fg);
   background: var(--card);
 }
+ 
+/* Info page */
+
+.infoPage {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  padding-bottom: 32px;
+}
+
+.infoHeader {
+  padding: 8px 0;
+}
+
+.infoHeader h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.3rem);
+  letter-spacing: -0.045em;
+}
+
+.infoEyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.infoDescription {
+  max-width: 680px;
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.infoForm {
+  display: grid;
+  gap: 20px;
+  max-width: 850px;
+}
+
+.infoSection {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+  padding: 24px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.infoSectionHeading {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.infoIcon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.infoSectionHeading h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+}
+
+.infoSection .field {
+  display: grid;
+  gap: 10px;
+  font-size: 0.84rem;
+  font-weight: 650;
+}
+
+.infoTextarea {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  padding: 14px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.infoEmergencyTextarea {
+  min-height: 140px;
+}
+
+.infoTextarea::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.infoHint {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.infoCounter {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.infoFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  max-width: 850px;
+  padding: 4px 0;
+}
+
+.infoFooterNote {
+  max-width: 480px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.infoSaveButton {
+  min-height: 44px;
+  flex-shrink: 0;
+  padding: 0 22px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.infoSaveButton:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.infoSaveButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.infoPage button:focus-visible,
+.infoPage textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .infoSection {
+    padding: 18px;
+  }
+
+  .infoFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .infoSaveButton {
+    width: 100%;
+  }
+}
+
+
+.infoActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 600px) {
+  .infoActions {
+    width: 100%;
+  }
+
+  .infoActions button {
+    flex: 1;
+  }
+}
+
+.infoPreviewText {
+  white-space: pre-wrap;
+}
+
+/* Export page  */
+
+.exportPage {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  padding-bottom: 32px;
+}
+
+.exportHeader {
+  padding: 8px 0;
+}
+
+.exportHeader h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.3rem);
+  letter-spacing: -0.045em;
+}
+
+.exportEyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.exportDescription {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+
+.exportNotice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  max-width: 850px;
+  padding: 15px 17px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card);
+}
+
+.exportNoticeIcon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.exportNotice p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.exportSection {
+  display: grid;
+  gap: 18px;
+  max-width: 950px;
+}
+
+.exportSectionHeading h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+}
+
+.exportList {
+  display: grid;
+  gap: 14px;
+}
+
+.exportCard {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--card);
+  transition: border-color 150ms ease;
+}
+
+.exportCard:hover {
+  border-color: var(--accent);
+}
+
+.exportCardIcon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--fg);
+}
+
+.exportCardIcon svg {
+  width: 23px;
+  height: 23px;
+}
+
+.exportCardContent {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+}
+
+.exportCardContent h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.exportCardContent > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.83rem;
+  line-height: 1.6;
+}
+
+.exportFileType {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 750;
+  letter-spacing: 0.07em;
+}
+
+.exportDownload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  flex-shrink: 0;
+  padding: 0 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-decoration: none;
+  transition: border-color 150ms ease;
+}
+
+.exportDownload:hover {
+  border-color: var(--accent);
+}
+
+.exportDownload span {
+  font-size: 1rem;
+}
+
+.exportCheckbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 5px;
+  color: var(--fg);
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.exportCheckbox input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.exportPage button:focus-visible,
+.exportPage a:focus-visible,
+.exportPage input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .exportCard {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .exportCardIcon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .exportCardContent {
+    grid-column: 2;
+  }
+
+  .exportDownload {
+    grid-column: 1 / -1;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
 
