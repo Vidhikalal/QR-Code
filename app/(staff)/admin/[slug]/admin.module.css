@@ -4,6 +4,111 @@
 .tab { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tab[aria-current='page'] { color: var(--fg); font-weight: 700; border-bottom-color: var(--accent); }
 
+/* Checkpoints page */
+.checkpointsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+.checkpointsHeader h1 {
+  margin: 0;
+}
+
+.checkpointsHeader p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.checkpointsEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 220px;
+  margin-top: 16px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--card);
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+}
+
+.checkpointsEmpty h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.checkpointsEmpty p {
+  max-width: 440px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+/* Checkpoint state */
+.checkpointState {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 82px;
+  padding: 6px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.checkpointStateDot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.checkpointOpen {
+  color: var(--fg);
+  background: var(--card);
+  border-color: var(--accent);
+}
+
+.checkpointOpen .checkpointStateDot {
+  background: var(--accent);
+}
+
+.checkpointClosed {
+  color: var(--muted);
+  background: transparent;
+  border-color: var(--line);
+}
+
+.checkpointClosed .checkpointStateDot {
+  background: var(--muted);
+}
+
+@media (max-width: 600px) {
+  .checkpointsHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .checkpointsHeader button {
+    width: 100%;
+  }
+
+  .checkpointsEmpty {
+    min-height: 180px;
+    padding: 24px 16px;
+  }
+}
 
 .alert {
   display: flex;

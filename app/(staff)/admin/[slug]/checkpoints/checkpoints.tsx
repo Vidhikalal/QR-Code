@@ -59,19 +59,43 @@ export function Checkpoints({ slug }: { slug: string }) {
 
   return (
     <>
-      <h1>Checkpoints</h1>
-      <div className={styles.toolbar}>
+      <div className={styles.checkpointsHeader}>
+        <div>
+          <h1>Checkpoints</h1>
+          <p className={styles.muted}>
+            Manage entry points, meal stations, and event sessions.
+          </p>
+        </div>
+
         <button type="button" onClick={() => setEditing('new')}>
-          Add checkpoint
+          + Add checkpoint
         </button>
       </div>
+
+      {rows !== null && (
+        <p className={styles.muted}>
+          {rows.length} {rows.length === 1 ? 'checkpoint' : 'checkpoints'}
+        </p>
+      )}
       {message && (
         <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
           {message}
         </p>
       )}
       {rows === null ? (
-        <p>Loading…</p>
+        <p className={styles.muted} role="status">
+          Loading checkpoints…
+        </p>
+      ) : rows.length === 0 ? (
+        <div className={styles.checkpointsEmpty}>
+          <h2>No checkpoints yet</h2>
+          <p className={styles.muted}>
+            Add your first checkpoint to start managing event entry and attendance.
+          </p>
+          <button type="button" onClick={() => setEditing('new')}>
+            + Add your first checkpoint
+          </button>
+        </div>
       ) : (
         <div className={styles.tableWrap}>
           <table className={styles.table}>
@@ -92,8 +116,14 @@ export function Checkpoints({ slug }: { slug: string }) {
                   <td>{c.name}</td>
                   <td>{c.kind}</td>
                   <td>
-                    <span data-testid="cp-state" className={`${styles.badge} ${c.isOpen ? styles.badgeOk : ''}`}>
-                      {c.isOpen ? '● Open' : '○ Closed'}
+                    <span
+                      data-testid="cp-state"
+                      className={`${styles.checkpointState} ${
+  c.isOpen ? styles.checkpointOpen : styles.checkpointClosed
+}`}
+                    >
+                      <span className={styles.checkpointStateDot} aria-hidden="true" />
+                      {c.isOpen ? 'Open' : 'Closed'}
                     </span>
                   </td>
                   <td>{c.requiresCheckin ? 'Yes' : 'No'}</td>
