@@ -1,7 +1,11 @@
 'use client';
 
+import { Card } from '@/components/ui/card';
+import { Entrance } from '@/components/motion';
+import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
+
 import { useCallback, useEffect, useRef, useState } from 'react';
-import styles from './scanner.module.css';
 import { UndoDialog } from './undo-dialog';
 
 interface Row {
@@ -81,52 +85,58 @@ export function ScannedHere(props: {
   const time = new Intl.DateTimeFormat(undefined, { timeZone: props.timezone, weekday: 'short', hour: 'numeric', minute: '2-digit' });
   const count = state.kind === 'rows' ? ` · ${state.rows.length} ${state.rows.length === 1 ? 'person' : 'people'}` : '';
   return (
-    <section className={styles.sheet} aria-labelledby="scanned-title">
-      <div className={styles.sheetHeader}>
+    <Entrance><Card className="tw-scanner-sheet gap-0 rounded-none border-0 bg-background p-0 shadow-none fixed [inset:0px] z-[15] [background:var(--bg)] text-fg flex flex-col" asChild><section  aria-labelledby="scanned-title">
+      <div className="flex gap-[12px] items-center p-[20px_24px] [border-bottom-width:1px] [border-bottom-style:solid]
+
+          [border-bottom-color:var(--line)] [background:var(--card)] [&_h2]:flex-1 [&_h2]:m-0 [&_h2]:text-[22px]
+
+          [&_h2]:tracking-[-0.03em]">
         <h2 id="scanned-title" ref={heading} tabIndex={-1}>
           Scanned here
         </h2>
         {/* Focus starts inside the sheet, like Manual search's input. */}
-        <button type="button" className={styles.secondary} onClick={props.onClose} autoFocus>
+        <Button type="button" variant="outline" onClick={props.onClose} autoFocus>
           Close
-        </button>
+        </Button>
       </div>
-      <p className={styles.notice}>
+      <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">
         {checkpoint.name}
         {count}
       </p>
       {notice && (
-        <p className={styles.notice} role="status">
+        <Alert className="p-[0px_24px_16px] text-muted-foreground text-[14px]" asChild role="status"><p  role="status">
           {notice}
-        </p>
+        </p></Alert>
       )}
-      {state.kind === 'loading' && <p className={styles.notice}>Loading…</p>}
-      {state.kind === 'error' && <p className={styles.notice}>✕ Couldn’t load the list. Try again.</p>}
-      {state.kind === 'rows' && state.rows.length === 0 && <p className={styles.notice}>No one yet.</p>}
+      {state.kind === 'loading' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">Loading…</p>}
+      {state.kind === 'error' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">✕ Couldn’t load the list. Try again.</p>}
+      {state.kind === 'rows' && state.rows.length === 0 && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">No one yet.</p>}
       {state.kind === 'rows' && state.rows.length > 0 && (
-        <ul className={styles.results}>
+        <ul className="list-none m-0 p-[0px_24px_28px] overflow-y-auto">
           {state.rows.map((r) => (
-            <li key={r.id} className={styles.row}>
-              <div className={styles.rowText}>
-                <div className={styles.rowName}>
+            <li key={r.id} className="flex gap-[14px] items-center p-[16px_0px] [border-bottom-width:1px] [border-bottom-style:solid]
+
+          [border-bottom-color:var(--line)]">
+              <div className="flex-1 min-w-0">
+                <div className="[font-weight:750] text-[16px] mb-[5px]">
                   {r.displayName}
                   {r.isTest && ' (test)'}
                 </div>
-                <div className={styles.rowMeta}>
+                <div className="text-[13px] leading-[1.8] text-muted-foreground">
                   {time.format(new Date(r.scannedAt))} · {HOW[r.method]}
                   {r.scannedByName && ` · by ${r.scannedByName}`}
                 </div>
               </div>
               {r.canRemove && (
-                <button type="button" className={styles.secondary} disabled={props.disabled || removingNow} onClick={() => setRemoving(r)} aria-label={`Remove ${r.displayName}`}>
+                <Button type="button" variant="outline" disabled={props.disabled || removingNow} onClick={() => setRemoving(r)} aria-label={`Remove ${r.displayName}`}>
                   Remove
-                </button>
+                </Button>
               )}
             </li>
           ))}
         </ul>
       )}
       {removing && <UndoDialog title={`Remove ${removing.displayName}?`} onSubmit={(reason) => void remove(removing, reason)} onCancel={() => setRemoving(null)} />}
-    </section>
+    </section></Card></Entrance>
   );
 }

@@ -1,87 +1,275 @@
-/* Theme from sheridandatathon.com: navy, terminal green, Fira Code. */
-:root {
-  --fg: #e8f2ff;
-  --muted: #8fa0c4;
-  --bg: #05081a;
-  --bg-deep: #030512;
-  --card: #0a1029;
-  --raised: #0c1330;
-  --line: #b8dcff24;
-  --field: #6b7aa0;
-  --accent: #34d399;
-  --accent-ink: #03120c;
-  --link: #b8dcff;
-  --ok: #34d399;
-  --warn: #fbbf24;
-  --bad: #f87171;
-  --ease: cubic-bezier(0.23, 1, 0.32, 1);
-  --shadow: inset 0 1px 0 0 #b8dcff0f, 0 12px 32px -16px #030512e6;
-  color-scheme: dark;
-  accent-color: var(--accent);
-  caret-color: var(--accent);
-  scrollbar-color: #b8dcff38 transparent;
+@import "tailwindcss";
+@theme inline {
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-card: var(--card);
+  --color-raised: var(--raised);
+  --color-line: var(--line);
+  --color-field: var(--field);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-link: var(--link);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-mono), ui-monospace, Menlo, monospace;
+  --font-code: var(--font-mono), ui-monospace, Menlo, monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-control: 6px; /* sheridandatathon.com: rounded-md */
+  --radius-card: 8px; /* rounded-lg */
+  --radius-ticket: 8px;
+  --shadow-panel: var(--shadow);
+}
+@layer base {
+  /* Preserve the browser defaults that the existing interface was built on. */
+  ::-webkit-datetime-edit, ::-webkit-datetime-edit-fields-wrapper, ::-webkit-datetime-edit-year-field, ::-webkit-datetime-edit-month-field, ::-webkit-datetime-edit-day-field, ::-webkit-datetime-edit-hour-field, ::-webkit-datetime-edit-minute-field, ::-webkit-datetime-edit-second-field, ::-webkit-datetime-edit-millisecond-field, ::-webkit-datetime-edit-meridiem-field, ::-webkit-calendar-picker-indicator, ::-webkit-date-and-time-value {
+    all: revert-layer;
+  }
+  *, ::before, ::after, ::backdrop, html, body, a, b, strong, small, sub, sup, table, button, input, select, optgroup, textarea, img, svg, video, canvas, audio, iframe, embed, object, hr, abbr, summary {
+    all: revert-layer;
+  }
+}
+@layer components {
+  /* Theme from sheridandatathon.com: navy, terminal green, Fira Code. */
+  :root {
+    --fg: #e8f2ff;
+    --muted-foreground: #8fa0c4;
+    --bg: #05081a;
+    --bg-deep: #030512;
+    --card: #0a1029;
+    --raised: #0c1330;
+    --line: #b8dcff24;
+    --field: #6b7aa0;
+    --accent: #34d399;
+    --accent-ink: #03120c;
+    --link: #b8dcff;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+    --radius: 0.5rem;
+    --background: var(--bg);
+    --foreground: var(--fg);
+    --card-foreground: var(--fg);
+    --popover: var(--card);
+    --popover-foreground: var(--fg);
+    --primary: var(--accent);
+    --primary-foreground: var(--accent-ink);
+    --secondary: var(--raised);
+    --secondary-foreground: var(--fg);
+    --muted: var(--raised);
+    --accent-foreground: var(--accent-ink);
+    --destructive: var(--bad);
+    --destructive-foreground: var(--accent-ink);
+    --border: var(--line);
+    --input: var(--field);
+    --ring: var(--accent);
+    --ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --shadow: inset 0 1px 0 0 #b8dcff0f, 0 12px 32px -16px #030512e6;
+    color-scheme: dark;
+    accent-color: var(--accent);
+    caret-color: var(--accent);
+    scrollbar-color: #b8dcff38 transparent;
+  }
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.5 var(--font-mono), ui-monospace, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    color: #f2fff9;
+    background: #34d39952;
+  }
+  h1, h2, h3 {
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  h1 {
+    font-size: 28px;
+    margin: 0 0 12px;
+  }
+  h2 {
+    font-size: 20px;
+    margin: 0 0 8px;
+  }
+  h3 {
+    font-size: 16px;
+    margin: 0 0 8px;
+  }
+  a {
+    color: var(--link);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Long labels beside a checkbox must not squeeze it. */
+  input[type='checkbox'], input[type='radio'] {
+    flex: none;
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+  /* Zero specificity: module classes still win. */
+  :where(input:not([type='checkbox'], [type='radio'], [type='file']), textarea, select) {
+    background: var(--raised);
+    color: var(--fg);
+    border: 1px solid var(--field);
+  }
+  :where(input, textarea)::placeholder {
+    color: var(--muted-foreground);
+    opacity: 1;
+  }
+}
+@layer components {
+  .tw-admin-dialog::backdrop {
+    background: rgb(3 5 18 / 72%);
+  }
+  .tw-admin-eventName::before {
+    content: "D/";
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: none;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--card));
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 700;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tw-admin-tile {
+      transition: none !important;
+    }
+    .tw-admin-tab {
+      transition: none !important;
+    }
+    .tw-admin-table tbody tr {
+      transition: none !important;
+    }
+    .tw-admin-input {
+      transition: none !important;
+    }
+    .tw-admin-tile:hover {
+      transform: none !important;
+    }
+    .tw-admin-chartBar {
+      transition: none !important;
+    }
+    .tw-admin-table .tw-admin-actions button {
+      transition: none !important;
+    }
+    .tw-admin-table .tw-admin-actions a {
+      transition: none !important;
+    }
+    .tw-admin-main * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    .tw-admin-dialog * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    .tw-admin-drawer * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+    .tw-me-dashboard .tw-me-pass {
+      transition: none !important;
+    }
+    .tw-me-dashboard .tw-me-chevron {
+      transition: none !important;
+    }
+    .tw-me-dashboard .tw-me-staff > div {
+      transition: none !important;
+    }
+    .tw-me-dashboard a.tw-me-pass:hover {
+      transform: none !important;
+    }
+    .tw-me-dashboard .tw-me-item:hover .tw-me-chevron {
+      transform: none !important;
+    }
+  }
+  .tw-admin-main > h1::after {
+    content: "LIVE OPERATIONS";
+    display: block;
+    margin-top: 12px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+  }
+  .tw-scanner-dialog::backdrop {
+    background: rgba(3, 5, 18, 0.78);
+    backdrop-filter: blur(6px);
+  }
+  :where(.tw-scanner-root, .tw-scanner-sheet, .tw-scanner-dialog) button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  :where(.tw-scanner-root, .tw-scanner-sheet, .tw-scanner-dialog) input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .tw-me-dashboard .tw-me-hero::before {
+    content: "DATATHON / ATTENDEE PORTAL";
+    display: block;
+    margin-bottom: 12px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+  }
 }
 
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font: 16px/1.5 var(--font-mono), ui-monospace, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-}
-
-::selection { color: #f2fff9; background: #34d39952; }
-
-h1, h2, h3 { font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; text-wrap: balance; }
-h1 { font-size: 28px; margin: 0 0 12px; }
-h2 { font-size: 20px; margin: 0 0 8px; }
-h3 { font-size: 16px; margin: 0 0 8px; }
-
-a { color: var(--link); text-underline-offset: 3px; text-decoration-thickness: 1px; }
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-button, .button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0 18px;
-  border-radius: 8px;
-  border: 1px solid var(--btn, var(--accent));
-  background: var(--btn, var(--accent));
-  color: var(--accent-ink);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-  transition: background-color 0.16s var(--ease), border-color 0.16s var(--ease), color 0.16s var(--ease);
-}
-
-/* A variable, not a background: classes that set their own background keep it (and style their own hover). */
-:where(button, .button):hover:not(:disabled) { --btn: #6ee7b7; }
-
-button:disabled { opacity: 0.6; cursor: default; }
-
-/* Long labels beside a checkbox must not squeeze it. */
-input[type='checkbox'], input[type='radio'] { flex: none; }
-
-/* Zero specificity: module classes still win. */
-:where(input:not([type='checkbox'], [type='radio'], [type='file']), textarea, select) {
-  background: var(--raised);
-  color: var(--fg);
-  border: 1px solid var(--field);
-}
-:where(input, textarea)::placeholder { color: var(--muted); opacity: 1; }
-
-.visually-hidden {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+@layer components {
+  /* Native controls in dense table cells still have a 44px activation area. */
+  [data-slot="button"], [data-slot="input"], [data-slot="native-select"] {
+    min-height: 44px;
+  }
+  [data-slot="button"] {
+    min-width: 44px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

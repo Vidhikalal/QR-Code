@@ -176,6 +176,14 @@ describe('record_scan (SPEC §8)', () => {
       expect(res.code).toBe('ACCEPTED');
       expect(res.participant?.dietaryNotes ?? null).toBeNull();
     }
+    // v0.9: allergies and their severity, at meals only.
+    await f.pool.query(`update participants set allergies = 'Peanuts', allergy_severity = 'severe' where id = $1`, [f.p.A]);
+    const { rows } = await f.pool.query<{ meal: Record<string, unknown>; door: Record<string, unknown> }>(
+      `select _who(p, 'meal') as meal, _who(p, 'door') as door from participants p where id = $1`,
+      [f.p.A],
+    );
+    expect(rows[0]?.meal).toMatchObject({ allergies: 'Peanuts', allergySeverity: 'severe' });
+    expect(rows[0]?.door).toMatchObject({ allergies: null, allergySeverity: null });
   });
 
   it('T-SCAN-20: the same clientScanId twice by vol1 is replayed, one row', async () => {

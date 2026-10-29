@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { adminClient, obj } from '../fixtures/admin-api';
 import { scanApi } from '../fixtures/scan-api';
 import { signInAs } from '../fixtures/staff';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
 // SPEC §6.5 / §8 (NFC note) / §14.15. Badge links per event, NFC scans through record_badge_scan().
 let f: StandardFixture;
+const c = adminClient();
 let api: ReturnType<typeof scanApi>;
 let org1: string;
 let vol1: string;
@@ -23,6 +25,87 @@ const liveScans = async (participantId: string) =>
     'select method, pass_id, checkpoint_id from scans where participant_id = $1 and voided_at is null',
     [participantId],
   )).rows;
+
+describe('staff badge links (SPEC §6.5, v0.10)', () => {
+  it('T-NFC-27: an organizer unlinks a badge, stopping badge scans and public profile access; relinking works', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const { uid } = await f.linkBadge(id);
+    const unlink = () => c.call('unlinkBadge', org1, { slug: f.slug, id }, { method: 'DELETE' });
+    const profile = async () => (await f.pool.query('select badge_profile($1) as profile', [uid])).rows[0]?.profile;
+    expect(await profile()).not.toBeNull();
+    expect(await unlink()).toMatchObject({ status: 200, body: { code: 'UNLINKED' } });
+    expect((await f.badgeScan({ cp: f.cp.R, staff: f.staff.vol1, uid })).code).toBe('NOT_FOUND');
+    expect(await profile()).toBeNull();
+    expect(await unlink()).toMatchObject({ status: 404, body: { code: 'NOT_FOUND' } });
+    const audit = await f.pool.query(
+      `select event_id, actor_user_id, actor_kind, detail from audit_log where action = 'badge.unlink' and subject_id = $1`,
+      [id],
+    );
+    expect(audit.rows).toEqual([{ event_id: f.e1.id, actor_user_id: f.staff.org1, actor_kind: 'staff', detail: {} }]);
+    expect((await f.linkBadge(id, { uid })).code).toBe('LINKED');
+    expect((await f.badgeScan({ cp: f.cp.R, staff: f.staff.vol1, uid })).code).toBe('ACCEPTED');
+    expect(await profile()).not.toBeNull();
+  });
+
+  it('T-NFC-27: unlink requires an organizer of this event and a valid participant in it', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const { uid } = await f.linkBadge(id);
+    const other = await f.addParticipant(f.e2.id);
+    const otherBadge = await f.linkBadge(other.id, { actor: f.staff.vol3 });
+    const unlink = (jwt: string | null, participantId: string) =>
+      c.call('unlinkBadge', jwt, { slug: f.slug, id: participantId }, { method: 'DELETE' });
+    expect((await unlink(null, id)).status).toBe(401);
+    expect((await unlink(vol1, id)).status).toBe(403);
+    expect((await unlink(vol3, id)).status).toBe(403);
+    for (const missing of [other.id, crypto.randomUUID(), 'not-a-uuid']) {
+      expect(await unlink(org1, missing)).toMatchObject({ status: 404, body: { code: 'NOT_FOUND' } });
+    }
+    const badges = await f.pool.query('select uid from badges where participant_id in ($1, $2)', [id, other.id]);
+    expect(badges.rows.map((b) => b.uid).sort()).toEqual([uid, otherBadge.uid].sort());
+    expect((await f.pool.query(`select 1 from audit_log where action = 'badge.unlink' and subject_id in ($1, $2)`, [id, other.id])).rows).toEqual([]);
+  });
+
+  it('T-NFC-27: participant lists and manual search report whether a badge is linked', async () => {
+    const flags = async (hasBadge: boolean) => {
+      const list = await c.call('listParticipants', org1, { slug: f.slug }, { query: { q: 'ada fixture' } });
+      expect(list.status).toBe(200);
+      expect(obj(list.body).participants).toEqual([expect.objectContaining({ id: f.p.A, hasBadge })]);
+      for (const staff of [org1, vol1]) {
+        const search = await api.search(staff, f.slug, 'ada fixture');
+        expect(search.status).toBe(200);
+        expect(search.body.results).toContainEqual(expect.objectContaining({ id: f.p.A, hasBadge }));
+      }
+    };
+    await flags(false);
+    await f.linkBadge(f.p.A);
+    await flags(true);
+    expect((await c.call('unlinkBadge', org1, { slug: f.slug, id: f.p.A }, { method: 'DELETE' })).status).toBe(200);
+    await flags(false);
+  });
+
+  it('T-NFC-27: the participants list still knows who has a badge when the event holds over 1,000 of them', async () => {
+    // A separate query for the event's badges stops at the API's 1,000-row cap; the flag must come with each row.
+    const { rows } = await f.pool.query<{ n: number }>(
+      `with bulk as (
+         insert into participants (event_id, email, first_name, search_text, status, source)
+         select $1, 'bulk-' || g || '-' || $2 || '@example.test', 'Bulk', 'bulk', 'accepted', 'seed' from generate_series(1, 1001) g
+         returning id)
+       insert into badges (uid, event_id, participant_id) select substr(md5(id::text), 1, 14), $1, id from bulk returning 1`,
+      [f.e1.id, randomUid()],
+    );
+    expect(rows).toHaveLength(1001);
+    await f.linkBadge(f.p.B); // linked after the 1,001 others
+    const list = await c.call('listParticipants', org1, { slug: f.slug }, { query: { q: 'ben fixture' } });
+    expect(obj(list.body).participants).toEqual([expect.objectContaining({ id: f.p.B, hasBadge: true })]);
+  });
+
+  it('T-NFC-27: claim_badge no longer exists', async () => {
+    const { rows } = await f.pool.query(
+      `select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = 'claim_badge'`,
+    );
+    expect(rows).toEqual([]);
+  });
+});
 
 describe('NFC scans (SPEC §8 NFC note)', () => {
   it('T-NFC-03: a linked badge follows the same rules as a QR pass', async () => {
@@ -161,72 +244,6 @@ describe('POST /api/events/[slug]/badges (SPEC §6.5, §9.3)', () => {
         ]);
         for (const r of results) expect(['LINKED', 'BADGE_TAKEN'], `round ${round}`).toContain(r.code);
       }
-    }
-  });
-});
-
-describe('claim_badge() (SPEC §6.5, v0.5)', () => {
-  const emailOf = async (id: string) =>
-    (await f.pool.query<{ email: string }>('select email from participants where id = $1', [id])).rows[0]?.email ?? '';
-  // The account id only goes into audit_log; any real user will do here.
-  const claim = async (uid: string, email: string, eventId = f.e1.id) =>
-    (await f.pool.query<{ code: string }>('select claim_badge($1, $2, $3, $4) as code', [uid, eventId, email, f.staff.vol1])).rows[0]?.code;
-  const holder = async (uid: string) =>
-    (await f.pool.query<{ participant_id: string }>('select participant_id from badges where uid = $1', [uid])).rows.map((r) => r.participant_id);
-
-  it('T-NFC-20: an attendee claims an unlinked badge; it scans as them, and a second badge replaces the first', async () => {
-    const a = await f.addParticipant(f.e1.id);
-    const first = randomUid();
-    expect(await claim(first, await emailOf(a.id))).toBe('LINKED');
-    expect((await f.badgeScan({ cp: f.cp.R, staff: f.staff.vol1, uid: first })).code).toBe('ACCEPTED');
-    const { rows } = await f.pool.query<{ actor_kind: string; detail: unknown }>(
-      `select actor_kind, detail from audit_log where action = 'badge.claim' and subject_id = $1`,
-      [a.id],
-    );
-    expect(rows).toEqual([{ actor_kind: 'participant', detail: {} }]); // no UID, no PII (I-11)
-
-    const second = randomUid();
-    expect(await claim(second, ` ${(await emailOf(a.id)).toUpperCase()} `)).toBe('LINKED');
-    expect(await holder(first)).toEqual([]);
-    expect(await holder(second)).toEqual([a.id]);
-  });
-
-  it('T-NFC-20: someone else’s badge → BADGE_TAKEN; anyone who isn’t an accepted attendee of that event → NOT_FOUND', async () => {
-    const { uid } = await f.linkBadge(f.p.A);
-    const b = await f.addParticipant(f.e1.id);
-    const own = randomUid();
-    expect(await claim(own, await emailOf(b.id))).toBe('LINKED');
-    expect(await claim(uid, await emailOf(b.id))).toBe('BADGE_TAKEN');
-    expect(await holder(uid)).toEqual([f.p.A]);
-    expect(await holder(own)).toEqual([b.id]); // the refused claim didn't drop B's own badge
-
-    const gone = await f.addParticipant(f.e1.id);
-    const goneEmail = await emailOf(gone.id);
-    await f.pool.query('update participants set deleted_at = now() where id = $1', [gone.id]);
-    for (const email of [await emailOf(f.p.C), await emailOf(f.p.Wd), await emailOf(f.p.X), goneEmail, f.staffEmail.org1]) {
-      expect(await claim(randomUid(), email), email).toBe('NOT_FOUND');
-    }
-
-    const { rows } = await f.pool.query<{ id: string }>(
-      `insert into events (slug, name, venue, starts_at, ends_at)
-       values ($1, 'Old Event', 'Old Hall', now() - interval '40 days', now() - interval '31 days') returning id`,
-      [`${f.slug}-claim-old`],
-    );
-    const oldEvent = rows[0]?.id ?? '';
-    const late = await f.addParticipant(oldEvent);
-    expect(await claim(randomUid(), await emailOf(late.id), oldEvent)).toBe('NOT_FOUND');
-    await f.pool.query(`update events set ends_at = now() - interval '29 days' where id = $1`, [oldEvent]);
-    expect(await claim(randomUid(), await emailOf(late.id), oldEvent)).toBe('LINKED');
-  });
-
-  it('T-NFC-20: ten attendees claiming one badge at the same moment → exactly one wins', async () => {
-    const people = await Promise.all(Array.from({ length: 10 }, () => f.addParticipant(f.e1.id)));
-    const emails = await Promise.all(people.map((p) => emailOf(p.id)));
-    for (let round = 0; round < 20; round += 1) {
-      const uid = randomUid();
-      const codes = await Promise.all(emails.map((e) => claim(uid, e)));
-      expect(codes.filter((c) => c === 'LINKED'), `round ${round}`).toHaveLength(1);
-      expect(codes.filter((c) => c === 'BADGE_TAKEN'), `round ${round}`).toHaveLength(9);
     }
   });
 });

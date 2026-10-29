@@ -163,6 +163,14 @@ test('T-ADM-09: Add attendee with "Not RSVPed yet" adds a pending applicant; Sen
     await expect(page.getByRole('row', { name: /Nora Notyet/ })).toContainText('RSVP sent', { timeout: 1000 });
   }).toPass({ timeout: 15_000 });
   expect(await consoleMailText(email, '/rsvp#')).toMatch(/\/rsvp#[A-Za-z0-9_-]{32}/);
+
+  // T-ADM-11 (v0.9.1): Revoke RSVP takes it back, e.g. after a test.
+  const nora = page.getByRole('row', { name: /Nora Notyet/ });
+  await nora.getByRole('button', { name: 'Revoke RSVP' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Revoke RSVP' }).click();
+  await expect(page.getByRole('status')).toHaveText('✓ RSVP revoked. They’re back to not RSVPed yet.');
+  await expect(nora).not.toContainText('RSVP sent');
+  await expect(nora.getByRole('button', { name: 'Revoke RSVP' })).toHaveCount(0);
 });
 
 test('T-ADM-10: Checkpoints → People lists who was scanned there; Remove voids one, and they can be scanned again', async ({ page }) => {

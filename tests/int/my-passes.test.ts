@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { passToken, sha256hex } from '@/lib/domain/token';
-import { myBadgeProfiles, myEvent, saveBadgeProfile } from '@/lib/me/profile';
+import { myEvent, saveBadgeProfile } from '@/lib/me/profile';
 import { myPasses } from '@/lib/pass/mine';
 import { serviceClient } from '../fixtures/mail';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -79,20 +79,6 @@ describe('/me badge profile (SPEC §6.5, v0.5)', () => {
     expect(rows.map((r) => r.actor_kind)).toEqual(['participant', 'participant']);
     expect(JSON.stringify(rows)).not.toMatch(/linkedin|ada|@/i); // ids and the on/off flag only (I-11)
   });
-
-  it('T-ME-03: lists your accepted events up to 30 days after they end, and whether a badge is linked', async () => {
-    const { id } = await f.addParticipant(f.e1.id);
-    const email = await emailOf(id);
-    const mineNow = () => myBadgeProfiles(serviceClient(), email, new Date());
-    expect(await mineNow()).toEqual([
-      { participantId: id, eventId: f.e1.id, eventName: f.e1.name, linkedinUrl: null, profilePublic: false, badge: false },
-    ]);
-    await f.linkBadge(id);
-    expect(await mineNow()).toMatchObject([{ participantId: id, badge: true }]);
-    expect(await myBadgeProfiles(serviceClient(), await emailOf(f.p.C), new Date())).toEqual([]);
-    const in31Days = new Date(Date.now() + 32 * 24 * 3600 * 1000); // e1 ends within a day
-    expect(await myBadgeProfiles(serviceClient(), email, in31Days)).toEqual([]);
-  });
 });
 
 describe('hacker menu (SPEC F14, v0.6)', () => {
@@ -105,6 +91,41 @@ describe('hacker menu (SPEC F14, v0.6)', () => {
       )
     ).rows[0];
   const contact = { emergencyName: 'Sam Lee', emergencyPhone: '+1 416 555 0100', emergencyRelation: 'Parent' };
+
+  it('T-ME-10: profile setup (v0.9) saves the answers, finishes the profile, and moves the directory opt-in only on a change', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const email = await emailOf(id);
+    const user = { id: f.staff.vol1, email };
+    const setup = { ...contact, overnight: 'yes', teamStatus: 'looking', allergies: 'Peanuts', allergySeverity: 'severe', accessibility: 'Step-free access' };
+    const save = (input: Parameters<typeof saveBadgeProfile>[3]) => saveBadgeProfile(serviceClient(), user, id, input, { setup: true });
+    const row = async () =>
+      (await f.pool.query('select overnight, team_status, allergies, allergy_severity, accessibility, looking_for_team from participants where id = $1', [id])).rows[0];
+
+    expect((await myEvent(serviceClient(), email, new Date()))?.profileDone).toBe(false);
+    expect(await save({ ...contact, teamStatus: 'solo' })).toBe('INVALID_OVERNIGHT');
+    expect(await save({ ...setup, allergySeverity: '' })).toBe('INVALID_ALLERGY');
+    expect(await save({ ...setup, teamStatus: 'duo' })).toBe('INVALID_TEAM_STATUS');
+    expect(await save({ ...setup, accessibility: 'x'.repeat(501) })).toBe('INVALID_ACCESSIBILITY');
+    expect(await row()).toMatchObject({ overnight: null, team_status: null, looking_for_team: false });
+
+    expect(await save(setup)).toBe('SAVED');
+    expect(await row()).toEqual({
+      overnight: 'yes', team_status: 'looking', allergies: 'Peanuts', allergy_severity: 'severe', accessibility: 'Step-free access', looking_for_team: true,
+    });
+    expect((await myEvent(serviceClient(), email, new Date()))?.profileDone).toBe(true);
+
+    // Opting out on the Team page sticks: saving the same team status again doesn't list them again.
+    await f.pool.query('update participants set looking_for_team = false where id = $1', [id]);
+    expect(await save({ ...setup, allergies: '', accessibility: '' })).toBe('SAVED');
+    expect(await row()).toMatchObject({ allergies: null, allergy_severity: null, accessibility: null, looking_for_team: false });
+    expect(await save({ ...setup, teamStatus: 'solo' })).toBe('SAVED');
+    expect(await row()).toMatchObject({ team_status: 'solo', looking_for_team: false });
+    expect(await save({ ...setup, teamStatus: 'looking' })).toBe('SAVED');
+    expect(await row()).toMatchObject({ looking_for_team: true });
+
+    const { rows } = await f.pool.query(`select detail from audit_log where action = 'profile.update' and subject_id = $1`, [id]);
+    expect(JSON.stringify(rows)).not.toMatch(/peanut|step-free|severe|sam|555|@/i); // no PII (I-11)
+  });
 
   it('T-ME-05: an attendee saves their own emergency contact and dietary notes; invalid input and other rows change nothing', async () => {
     const { id } = await f.addParticipant(f.e1.id);

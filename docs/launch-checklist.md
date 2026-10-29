@@ -8,7 +8,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 
 ### Supabase (production project)
 - [ ] Create the project in the region closest to Toronto (§17 A9), e.g. `ca-central-1` or `us-east-1`.
-- [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket.
+- [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket (retained for deleting legacy uploads).
 - [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/confirm**` to the redirect URLs. Point the invite and recovery email templates at `https://<your-domain>/auth-email/invite.html` and `recovery.html`, and turn off public sign-ups. Keep "Secure email change" on (Passline trusts an account's email for `/me` and invites).
 - [ ] Auth → SMTP: **set up custom SMTP** (e.g. Resend's SMTP). Supabase's built-in mailer only sends a few emails per hour, which isn't enough for volunteers signing in on event day.
 - [ ] Copy the project URL, anon key and service-role key for the Vercel env.
@@ -26,20 +26,12 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
       `EMAIL_FROM`, and optionally `GOOGLE_SERVICE_ACCOUNT_JSON` for Sync now.
 - [ ] Deploy, then open `https://<your-domain>/login` to confirm it loads.
 
-### Scheduler (outbox drain every minute, retention daily)
-In the Supabase SQL editor, enable `pg_cron` and `pg_net` (Database → Extensions), then run the following. Replace `<origin>` and `<DRAIN_SECRET>` with your values; store the secret in Vault if you prefer:
+### Scheduler (RSVP deadline and reminders, outbox retries, retention)
+The live app runs on Vercel (Pro), and `vercel.json` schedules both jobs as Vercel Cron Jobs: `/api/cron` every 5 minutes (`*/5 * * * *`) and `/api/retention` daily (`17 4 * * *`, UTC). Vercel calls them with `GET` and `Authorization: Bearer $CRON_SECRET`, so set **`CRON_SECRET` to the same value as `DRAIN_SECRET`** in the project's Production environment variables. (Any other host: have a scheduler call both paths with `Authorization: Bearer <DRAIN_SECRET>`.)
 
-```sql
-select cron.schedule('passline-drain', '* * * * *', $$
-  select net.http_post(url := '<origin>/api/email/drain',
-                       headers := jsonb_build_object('Authorization', 'Bearer <DRAIN_SECRET>'))
-$$);
-select cron.schedule('passline-retention', '17 4 * * *', $$
-  select net.http_post(url := '<origin>/api/retention',
-                       headers := jsonb_build_object('Authorization', 'Bearer <DRAIN_SECRET>'))
-$$);
-```
-- [ ] After a minute, `select * from cron.job_run_details order by start_time desc limit 5;` shows successful runs.
+`/api/cron` turns missed RSVP deadlines into a no, queues the 10:00 reminders (SPEC F13) and sends waiting email, including retries. Without it, nothing is retried and no reminder goes out.
+- [ ] After five minutes, the project's **Logs** (or Settings → Cron Jobs) show `/api/cron` answering 200.
+- [ ] Set the event's **RSVP deadline** on the admin Info tab.
 
 ### Your event
 - [ ] Create it with production env vars loaded in your shell:
@@ -69,9 +61,6 @@ $$);
 ### Email: T-MAIL-12
 Check each of Gmail web, Gmail iOS in **dark mode**, Apple Mail, Outlook web and the college email:
 - [ ] The email lands in the inbox, not spam.  - [ ] The QR scans straight off the screen.
-
-### Pass page: T-PASS-10
-- [ ] On a real iPhone, add a photo from the library (a HEIC original) → the upload succeeds.
 
 ### Device matrix: T-DEV / T-SCUI-13 (target ≥ 95% of scans under 3 s)
 Scanners: iPhone Safari (current iOS and one version back) and Android Chrome (a recent phone and an old or cheap one).

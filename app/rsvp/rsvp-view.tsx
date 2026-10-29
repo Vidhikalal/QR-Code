@@ -1,12 +1,16 @@
 'use client';
 
+import { Entrance } from '@/components/motion';
+import { Card } from '@/components/ui/card';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { formatEventDateTime } from '@/lib/domain/event-time';
-import form from '../login/login.module.css';
-import me from '../me/me.module.css';
-import styles from '../profile/[uid]/profile.module.css';
 
 interface Invite {
   firstName: string;
@@ -15,20 +19,15 @@ interface Invite {
   hasAccount: boolean;
   /** v0.6: the Sheet's dietary notes and LinkedIn, to prefill the Yes form. */
   profile: { dietaryNotes: string | null; linkedinUrl: string | null; profilePublic: boolean };
+  /** v0.9: the reply-by time (null: no deadline), and whether it has passed for them. */
+  closesAt: string | null;
+  closed: boolean;
 }
-
-// 400 invalid_profile → which field to fix (F13 step 4).
-const FIELD_ERRORS: Record<string, string> = {
-  emergencyName: 'Enter your emergency contact’s name.',
-  emergencyPhone: 'Enter your emergency contact’s phone number (at least 3 digits).',
-  emergencyRelation: 'Keep the relationship under 60 characters.',
-  linkedin: 'Use your LinkedIn profile link, like linkedin.com/in/yourname, or leave it blank.',
-  dietaryNotes: 'Keep dietary notes under 500 characters.',
-};
 
 type View =
   | { kind: 'loading' | 'not_found' | 'rate_limited' | 'error' | 'not_going' | 'going' }
-  | { kind: 'invite'; invite: Invite; yesForm: boolean };
+  | { kind: 'invite'; invite: Invite; yesForm: boolean }
+  | { kind: 'signed_in'; firstName: string };
 
 function readToken(): string {
   try {
@@ -47,11 +46,9 @@ async function post(body: object): Promise<{ status: number; data: Record<string
   }
 }
 
-// SPEC F13: answer the invitation. Yes opens one form: the emergency contact (required), the networking
-// profile and dietary notes (prefilled from the Sheet), and a password (required, v0.7.2: a new one without
-// an account, their own with one); then
-// it signs them in and goes to /me, and the pass is emailed. No withdraws (they can change their mind until
-// the event ends).
+// SPEC F13: answer the invitation by its deadline (v0.9). Yes asks only for a password (v0.7.2: a new one
+// without an account, their own with one), signs them in and offers profile setup (/me/profile, F14) or
+// their menu; the pass is emailed. No gives the spot away (they can change their mind until the deadline).
 export function RsvpView() {
   const router = useRouter();
   const [view, setView] = useState<View>({ kind: 'loading' });
@@ -84,25 +81,36 @@ export function RsvpView() {
     if (r.status === 400 && r.data.error === 'wrong_password') {
       // The server sees an account (maybe made by an earlier try of this form): ask for its password from now on.
       setView((v) => (v.kind === 'invite' ? { ...v, invite: { ...v.invite, hasAccount: true } } : v));
-      return setError('That isn’t your Passline password. Try again, or reset it on the sign-in page.');
+      return setError('That isn’t your Datathon password. Try again, or reset it on the sign-in page.');
     }
     if (r.status === 400 && r.data.error === 'password_required') return setError('Enter your password.');
-    if (r.status === 400 && r.data.error === 'invalid_profile') return setError(FIELD_ERRORS[String(r.data.field)] ?? 'Check the form and try again.');
     if (r.status === 404) return setView({ kind: 'not_found' });
+    if (r.status === 409 && r.data.error === 'closed') return setView((v) => (v.kind === 'invite' ? { ...v, invite: { ...v.invite, closed: true } } : v));
     if (r.status !== 200) return setError(r.status === 429 ? 'Too many tries. Wait a minute and try again.' : 'Something went wrong. Try again.');
     if (r.data.code === 'NOT_GOING') return setView({ kind: 'not_going' });
     // Where the server says (staff may need onboarding first); only our own paths.
-    if (r.data.signedIn === true) return router.push(safeNextPath(typeof r.data.next === 'string' ? r.data.next : null, '/me'));
+    if (r.data.signedIn === true) {
+      const next = safeNextPath(typeof r.data.next === 'string' ? r.data.next : null, '/me');
+      // Profile setup is offered, not forced; any other landing (staff onboarding) goes straight on.
+      if (next !== '/me/profile') return router.push(next);
+      return setView((v) => ({ kind: 'signed_in', firstName: v.kind === 'invite' ? v.invite.firstName : '' }));
+    }
     setView({ kind: 'going' });
   }
 
   return (
-    <main className={styles.page}>
-      <div className={styles.top}>
-        <span className={styles.context}>Invitation</span>
+    <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
+      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
+
+          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
+
+          uppercase">Invitation</span>
       </div>
-      <section className={styles.card}>
-        {view.kind === 'loading' && <p role="status">Loading…</p>}
+      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
+        {view.kind === 'loading' && <Alert asChild role="status"><p role="status">Loading…</p></Alert>}
         {view.kind === 'not_found' && (
           <>
             <h1>This invitation link doesn’t work</h1>
@@ -118,130 +126,137 @@ export function RsvpView() {
         {view.kind === 'going' && (
           <>
             <h1>You’re going</h1>
-            <p>We’re emailing your check-in pass. You can also see it on Passline.</p>
+            <p>We’re emailing your check-in pass. You can also see it on the Datathon site.</p>
             <p>
-              <a className={styles.link} href="/login?next=%2Fme">
+              <Button className="self-start" asChild><a  href="/login?next=%2Fme">
                 Sign in to see your pass
-              </a>
+              </a></Button>
             </p>
           </>
+        )}
+        {view.kind === 'signed_in' && (
+          <Entrance><div className="grid gap-[16px] [&>p]:m-0">
+            <h1>You’re in, {view.firstName}</h1>
+            <p>Your check-in pass is on its way by email.</p>
+            <p className="text-muted-foreground text-[14px]">Set up your hacker profile: emergency contact, overnight stay, allergies and your team. You can also do it later from your menu.</p>
+            <Button asChild><a href="/me/profile">Set up my hacker profile</a></Button>
+            <Button variant="link" className="font-normal" asChild><a href="/me">Later</a></Button>
+          </div></Entrance>
         )}
         {view.kind === 'not_going' && (
           <>
             <h1>Thanks for letting us know</h1>
-            <p>Changed your mind? Open the invitation link again before the event.</p>
+            <p>Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
           </>
         )}
         {view.kind === 'invite' && (
           <>
             <h1>{view.invite.event.name}</h1>
-            <p className={styles.meta}>
+            <p className="m-0 text-muted-foreground text-[14px]">
               {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {view.invite.event.venue}
             </p>
-            <p>
-              Hi {view.invite.firstName}, will you be there?
-              {view.invite.status === 'accepted' && ' (You said yes.)'}
-              {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
-            </p>
-            {view.yesForm ? (
+            {view.invite.closed ? (
+              <p>
+                Hi {view.invite.firstName}. The RSVP deadline
+                {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+              </p>
+            ) : (
+              <p>
+                Hi {view.invite.firstName}, will you be there?
+                {view.invite.status === 'accepted' && ' (You said yes.)'}
+                {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
+                {view.invite.status !== 'accepted' && view.invite.closesAt && (
+                  <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
+                )}
+              </p>
+            )}
+            {view.invite.closed ? (
+              // Too late for Yes; someone who hasn't answered can still give their spot away now.
+              view.invite.status === 'pending' && (
+                <div className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
+                  <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                    No, give my spot away
+                  </Button>
+                </div>
+              )
+            ) : view.yesForm ? (
               <form
-                className={form.form}
+                className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]"
                 onSubmit={(e) => {
                   e.preventDefault();
                   const d = new FormData(e.currentTarget);
                   const text = (k: string) => String(d.get(k) ?? '');
-                  void respond(true, {
-                    emergencyName: text('emergencyName'),
-                    emergencyPhone: text('emergencyPhone'),
-                    emergencyRelation: text('emergencyRelation'),
-                    dietaryNotes: text('dietaryNotes'),
-                    linkedin: text('linkedin'),
-                    profilePublic: d.get('public') === 'on',
-                    lookingForTeam: d.get('lookingForTeam') === 'on',
-                    password: text('password'),
-                  });
+                  void respond(true, { password: text('password') });
                 }}
               >
-                <h2>Emergency contact</h2>
-                <p className={styles.meta}>Who we call if something happens to you. Only the organizers see it.</p>
-                <label htmlFor="emergencyName">Emergency contact name</label>
-                <input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" className={form.input} />
-                <label htmlFor="emergencyPhone">Emergency contact phone</label>
-                <input id="emergencyPhone" name="emergencyPhone" type="tel" required maxLength={30} autoComplete="off" className={form.input} />
-                <label htmlFor="emergencyRelation">Relationship (optional)</label>
-                <input id="emergencyRelation" name="emergencyRelation" maxLength={60} placeholder="Parent, partner, friend…" autoComplete="off" className={form.input} />
-
-                <label htmlFor="dietaryNotes">Dietary notes</label>
-                <textarea
-                  id="dietaryNotes"
-                  name="dietaryNotes"
-                  maxLength={500}
-                  placeholder="Allergies, vegetarian, halal…"
-                  defaultValue={view.invite.profile.dietaryNotes ?? ''}
-                  className={me.textarea}
-                />
-
-                <h2>Networking profile (optional)</h2>
-                <p className={styles.meta}>People at the event can tap your badge to see it, if you share it.</p>
-                <label htmlFor="linkedin">LinkedIn</label>
-                <input
-                  id="linkedin"
-                  name="linkedin"
-                  inputMode="url"
-                  autoComplete="url"
-                  placeholder="linkedin.com/in/yourname"
-                  defaultValue={view.invite.profile.linkedinUrl ?? ''}
-                  className={form.input}
-                />
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-                  <input type="checkbox" name="public" defaultChecked={view.invite.profile.profilePublic} style={{ width: 22, height: 22 }} />
-                  Show my name and LinkedIn when someone at the event taps my badge
-                </label>
-
-                <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
-                  <input type="checkbox" name="lookingForTeam" style={{ width: 22, height: 22 }} />
-                  I&apos;m looking for a team: list me in the teammate directory (name only)
-                </label>
-
+                <p className="m-0 text-muted-foreground text-[14px]">Then you can set up your hacker profile: emergency contact, overnight stay, allergies and your team.</p>
                 {view.invite.hasAccount ? (
                   <>
-                    <label htmlFor="password">Your Passline password</label>
-                    <input id="password" name="password" type="password" required maxLength={200} autoComplete="current-password" className={form.input} />
-                    <p className={styles.meta}>
-                      You already have a Passline account with this email.{' '}
-                      <a className={form.linkButton} style={{ display: 'inline-flex', alignItems: 'center' }} href="/login" target="_blank" rel="noopener">
+                    <Label htmlFor="password">Your Datathon password</Label>
+                    <Input id="password" name="password" type="password" required maxLength={200} autoComplete="current-password" className="min-h-12 w-full" />
+                    <p className="m-0 text-muted-foreground text-[14px]">
+                      You already have a Datathon account with this email.{' '}
+                      <a className="min-h-[44px] [background:none] [border-width:0px] [border-style:none] [border-color:currentcolor]
+
+          text-link underline [text-underline-offset:3px] [font-style:inherit] [font-variant:inherit] font-normal
+
+          [font-stretch:inherit] [font-size:inherit] leading-[inherit] [font-family:inherit]
+
+          [font-optical-sizing:inherit] [font-size-adjust:inherit] [font-kerning:inherit]
+
+          [font-feature-settings:inherit] [font-variation-settings:inherit] [font-language-override:inherit]
+
+          cursor-pointer [&:hover:not(:disabled)]:text-fg" style={{ display: 'inline-flex', alignItems: 'center' }} href="/login" target="_blank" rel="noopener">
                         Forgot it?
                       </a>
                     </p>
                   </>
                 ) : (
                   <>
-                    <label htmlFor="password">Set a password for your Passline account</label>
-                    <input id="password" name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" className={form.input} />
+                    <Label htmlFor="password">Set a password for your Datathon account</Label>
+                    <Input id="password" name="password" type="password" required minLength={8} maxLength={72} autoComplete="new-password" className="min-h-12 w-full" />
                   </>
                 )}
-                <button type="submit" disabled={busy}>
-                  {busy ? 'Saving…' : 'Yes, I’ll be there'}
-                </button>
+                <Button type="submit" disabled={busy}>
+                  {busy ? 'Saving…' : 'Yes, I’m coming'}
+                </Button>
               </form>
             ) : (
-              <div className={form.form}>
-                <button type="button" disabled={busy} onClick={() => setView({ ...view, yesForm: true })}>
-                  Yes, I’ll be there
-                </button>
-                <button type="button" className={form.linkButton} disabled={busy} onClick={() => void respond(false)}>
-                  No, I can’t make it
-                </button>
+              <div className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
+                <Button type="button" disabled={busy} onClick={() => setView({ ...view, yesForm: true })}>
+                  Yes, I’m coming
+                </Button>
+                <Button type="button" variant="link" className="whitespace-normal font-normal" disabled={busy} onClick={() => void respond(false)}>
+                  No, give my spot away
+                </Button>
               </div>
             )}
             {error && (
-              <p role="alert" className={form.error}>
+              <Alert className="text-bad" asChild><p role="alert" >
                 ✕ {error}
-              </p>
+              </p></Alert>
             )}
           </>
         )}
-      </section>
-    </main>
+      </section></Card>
+    </main></Entrance>
   );
 }

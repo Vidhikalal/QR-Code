@@ -5,9 +5,8 @@ import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { env } from '@/lib/env';
 import { Scanner } from './scanner';
-import styles from './scanner.module.css';
 
-export const metadata: Metadata = { title: 'Scanner · Passline', robots: { index: false } };
+export const metadata: Metadata = { title: 'Scanner · Datathon', robots: { index: false } };
 
 export default async function ScanPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -16,7 +15,11 @@ export default async function ScanPage({ params }: { params: Promise<{ slug: str
   const staff = await requireStaffBySlug(db(), user.id, slug);
   if (!staff) {
     return (
-      <main className={styles.noAccess}>
+      <main className="max-w-[420px] m-[48px_auto] p-[32px_24px] [background:var(--card)] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-lg">
         <h1>✕ No access to this event</h1>
         <p>Ask an organizer to invite the email you signed in with.</p>
       </main>

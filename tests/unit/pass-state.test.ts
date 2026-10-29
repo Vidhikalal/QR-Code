@@ -4,11 +4,10 @@ import { passState, type PassLookup } from '@/lib/domain/pass-state';
 const base: PassLookup = {
   pass: { id: 'p1', revokedAt: null, revokeReason: null },
   participant: {
-    id: 'u1', eventId: 'e1', firstName: 'Ada', status: 'accepted', deleted: false, photoPath: null, photoUpdatedAt: null,
+    id: 'u1', eventId: 'e1', firstName: 'Ada', status: 'accepted', deleted: false,
     profilePublic: false, hasLinkedin: false,
   },
   event: { name: 'Hack Day', venue: 'Hall', startsAt: '2026-10-03T13:00:00Z', timezone: 'America/Toronto' },
-  checkedIn: false,
 };
 const revoked = (reason: string): PassLookup => ({ ...base, pass: { id: 'p1', revokedAt: '2026-10-01T00:00:00Z', revokeReason: reason } });
 

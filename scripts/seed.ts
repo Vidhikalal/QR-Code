@@ -11,7 +11,7 @@ import { generateToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
 
 const SLUG = 'demo';
-const EVENT_NAME = 'Demo Hack Day';
+const EVENT_NAME = 'Datathon';
 const FIRST = ['Ada', 'Zoë', 'Liam', 'Priya', 'Mateo', 'Aisha', 'Kenji', 'Sofía', 'Noah', 'Chloé'];
 const TRACKS = [
   '[Sponsored] Tangerine - Best Data Project',

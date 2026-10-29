@@ -24,7 +24,7 @@ export async function runRetention(db: Db, now: Date): Promise<RetentionReport> 
       .from('participants')
       .select('id, photo_path')
       .eq('event_id', eventId)
-      .or('photo_path.not.is.null,dietary_notes.not.is.null,emergency_name.not.is.null');
+      .or('photo_path.not.is.null,dietary_notes.not.is.null,emergency_name.not.is.null,allergies.not.is.null,accessibility.not.is.null');
     if (peopleError) throw new Error(`retention participants load failed (${peopleError.code})`);
     if (people.length === 0) continue;
 
@@ -44,6 +44,9 @@ export async function runRetention(db: Db, now: Date): Promise<RetentionReport> 
           emergency_name: null,
           emergency_phone: null,
           emergency_relation: null,
+          allergies: null, // v0.9
+          allergy_severity: null,
+          accessibility: null,
           updated_at: now.toISOString(),
         })
         .in('id', ids.slice(i, i + 500));

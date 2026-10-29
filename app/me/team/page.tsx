@@ -1,3 +1,10 @@
+
+import { Entrance } from '@/components/motion';
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Input } from '@/components/ui/input';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -10,9 +17,6 @@ import { env } from '@/lib/env';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent } from '@/lib/me/profile';
 import { createTeam, declineInvite, inviteTeammate, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, type TeamCode } from '@/lib/me/team';
-import formStyles from '../../login/login.module.css';
-import styles from '../../profile/[uid]/profile.module.css';
-import me from '../me.module.css';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Team');
@@ -73,90 +77,128 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
   const trackName = tracks.find((t) => t.id === team?.trackId)?.name;
 
   return (
-    <main className={styles.page}>
-      <div className={styles.top}>
-        <Link className={me.back} href="/me">
+    <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
+      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
+
+          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
+        <Link className="inline-flex items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
           ← Menu
         </Link>
-        <span className={styles.context}>{m.event.name}</span>
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
+
+          uppercase">{m.event.name}</span>
       </div>
       <h1>Team</h1>
       {notice && (
-        <p role={notice.startsWith('✓') ? 'status' : 'alert'} className={notice.startsWith('✓') ? formStyles.ok : formStyles.error}>
+        <p role={notice.startsWith('✓') ? 'status' : 'alert'} className={notice.startsWith('✓') ? " text-ok" : " text-bad"}>
           {notice}
         </p>
       )}
       {!team && live && (
-        <section aria-labelledby="looking-title" className={styles.card}>
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="looking-title" >
           <h2 id="looking-title">Find teammates</h2>
-          <form action={act} className={formStyles.form}>
+          <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
             <input type="hidden" name="op" value="looking" />
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+            <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
               <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
               Looking for a team
-            </label>
-            <p className={styles.meta}>List my name in the teammate directory for this event.</p>
-            <button type="submit">Save directory preference</button>
+            </Label>
+            <p className="m-0 text-muted-foreground text-[14px]">List my name in the teammate directory for this event.</p>
+            <Button type="submit">Save directory preference</Button>
           </form>
-        </section>
+        </section></Card>
       )}
       {!team && invites.length > 0 && (
-        <section aria-labelledby="invites-title" className={styles.card}>
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="invites-title" >
           <h2 id="invites-title">Pending invites</h2>
-          <ul className={me.people}>
+          <ul className="m-0 p-0 list-none [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:justify-between
+
+          [&_li]:gap-[8px_12px] [&_li]:min-h-[56px] [&_li]:p-[6px_0px] [&_p]:m-0
+
+          [&_li_+_li]:[border-top-width:1px] [&_li_+_li]:[border-top-style:solid]
+
+          [&_li_+_li]:[border-top-color:var(--line)]">
             {invites.map((invite) => (
               <li key={invite.teamId}>
                 <p>
                   {invite.from} invited you to join {invite.teamName}.
                 </p>
-                <div className={me.row}>
+                <div className="flex flex-wrap gap-[8px]">
                   {open && (
                     <form action={act}>
                       <input type="hidden" name="op" value="accept" />
                       <input type="hidden" name="teamId" value={invite.teamId} />
-                      <button type="submit">Accept</button>
+                      <Button type="submit">Accept</Button>
                     </form>
                   )}
                   <form action={act}>
                     <input type="hidden" name="op" value="decline" />
                     <input type="hidden" name="teamId" value={invite.teamId} />
-                    <button type="submit" className={formStyles.secondary}>
+                    <Button type="submit" variant="outline">
                       Decline
-                    </button>
+                    </Button>
                   </form>
                 </div>
               </li>
             ))}
           </ul>
-        </section>
+        </section></Card>
       )}
       {team ? (
-        <section aria-labelledby="team-name" className={styles.card}>
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="team-name" >
           <h2 id="team-name">{team.name}</h2>
-          <ul className={me.members}>
+          <ul className="m-0 p-0 list-none grid gap-[8px] [&_li]:flex [&_li]:items-center [&_li]:gap-[12px]">
             {team.members.map((name) => (
               <li key={name}>
-                <span className={me.initials} aria-hidden="true">
+                <span className="grid [place-items:center] [flex:0_0_auto] w-[32px] h-[32px] rounded-[50%] [background:var(--raised)]
+
+          [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] text-link text-[12px] font-semibold" aria-hidden="true">
                   {initials(name)}
                 </span>
                 {name}
               </li>
             ))}
           </ul>
-          <div className={me.code}>
-            <span className={me.label}>Join code</span>
-            <strong className={me.codeValue}>{formatJoinCode(team.code)}</strong>
-            <span className={styles.meta}>Share it with your teammates (4 people at most).</span>
+          <div className="grid gap-[4px] p-[12px_16px] [border-width:1px] [border-style:dashed]
+
+          [border-top-color:color-mix(in_srgb,_var(--accent)_55%,_transparent)]
+
+          [border-right-color:color-mix(in_srgb,_var(--accent)_55%,_transparent)]
+
+          [border-bottom-color:color-mix(in_srgb,_var(--accent)_55%,_transparent)]
+
+          [border-left-color:color-mix(in_srgb,_var(--accent)_55%,_transparent)] rounded-md
+
+          [background:var(--raised)]">
+            <span className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase">Join code</span>
+            <strong className="text-accent text-[26px] font-semibold tracking-[0.12em]">{formatJoinCode(team.code)}</strong>
+            <span className="m-0 text-muted-foreground text-[14px]">Share it with your teammates (4 people at most).</span>
           </div>
-          <div className={me.divider}>
+          <div className="pt-[16px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
             <h3>Track</h3>
             {!m.event.tracksReleased ? (
               <p>Tracks are announced at the hackathon.</p>
             ) : live && tracks.length > 0 ? (
-              <form action={act} className={formStyles.form}>
+              <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
                 <input type="hidden" name="op" value="track" />
-                <label htmlFor="trackId">Your team’s track</label>
-                <select id="trackId" name="trackId" defaultValue={team.trackId ?? ''} required className={formStyles.input}>
+                <Label htmlFor="trackId">Your team’s track</Label>
+                <NativeSelect id="trackId" name="trackId" defaultValue={team.trackId ?? ''} required className="min-h-12 w-full">
                   <option value="" disabled>
                     Pick a track
                   </option>
@@ -165,55 +207,81 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
                       {t.name}
                     </option>
                   ))}
-                </select>
-                <button type="submit">Save track</button>
+                </NativeSelect>
+                <Button type="submit">Save track</Button>
               </form>
             ) : (
               <p>{trackName ?? 'No track chosen.'}</p>
             )}
           </div>
           {open && (
-            <form action={act} className={`${formStyles.form} ${me.divider}`}>
+            <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px] pt-[16px]
+
+          [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              {team.members.length === 1 && <p className={styles.meta}>You’re the only member: leaving deletes the team.</p>}
-              <button type="submit" className={formStyles.secondary}>
+              {team.members.length === 1 && <p className="m-0 text-muted-foreground text-[14px]">You’re the only member: leaving deletes the team.</p>}
+              <Button type="submit" variant="outline">
                 Leave team
-              </button>
+              </Button>
             </form>
           )}
-        </section>
+        </section></Card>
       ) : !open ? (
-        <section className={styles.card}>
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
           <p>{live ? 'Teams open on hackathon day. Come back then to create or join one.' : 'The event is over.'}</p>
-        </section>
+        </section></Card>
       ) : (
         <>
-          <section aria-labelledby="create" className={styles.card}>
+          <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="create" >
             <h2 id="create">Create a team</h2>
-            <form action={act} className={formStyles.form}>
+            <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
               <input type="hidden" name="op" value="create" />
-              <label htmlFor="name">Team name</label>
-              <input id="name" name="name" required maxLength={60} autoComplete="off" className={formStyles.input} />
-              <button type="submit">Create team</button>
+              <Label htmlFor="name">Team name</Label>
+              <Input id="name" name="name" required maxLength={60} autoComplete="off" className="min-h-12 w-full" />
+              <Button type="submit">Create team</Button>
             </form>
-          </section>
-          <section aria-labelledby="join" className={styles.card}>
+          </section></Card>
+          <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="join" >
             <h2 id="join">Join with a code</h2>
-            <form action={act} className={formStyles.form}>
+            <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
               <input type="hidden" name="op" value="join" />
-              <label htmlFor="code">Join code</label>
-              <input id="code" name="code" required maxLength={20} autoComplete="off" autoCapitalize="characters" placeholder="ABCD-EFGH" className={formStyles.input} />
-              <button type="submit">Join team</button>
+              <Label htmlFor="code">Join code</Label>
+              <Input id="code" name="code" required maxLength={20} autoComplete="off" autoCapitalize="characters" placeholder="ABCD-EFGH" className="min-h-12 w-full" />
+              <Button type="submit">Join team</Button>
             </form>
-          </section>
+          </section></Card>
         </>
       )}
       {open && (!team || team.members.length < 4) && (
-        <section aria-labelledby="directory-title" className={styles.card}>
+        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="directory-title" >
           <h2 id="directory-title">Teammate directory</h2>
-          {!team && <p className={styles.meta}>Create a team to invite them.</p>}
-          {directory.length === 0 ? <p className={styles.meta}>No one is looking for a team yet.</p> : (
-            <ul className={me.people}>
+          {!team && <p className="m-0 text-muted-foreground text-[14px]">Create a team to invite them.</p>}
+          {directory.length === 0 ? <p className="m-0 text-muted-foreground text-[14px]">No one is looking for a team yet.</p> : (
+            <ul className="m-0 p-0 list-none [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:justify-between
+
+          [&_li]:gap-[8px_12px] [&_li]:min-h-[56px] [&_li]:p-[6px_0px] [&_p]:m-0
+
+          [&_li_+_li]:[border-top-width:1px] [&_li_+_li]:[border-top-style:solid]
+
+          [&_li_+_li]:[border-top-color:var(--line)]">
               {directory.map((person) => (
                 <li key={person.id}>
                   {person.name}
@@ -221,17 +289,17 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
                     <form action={act}>
                       <input type="hidden" name="op" value="invite" />
                       <input type="hidden" name="inviteeId" value={person.id} />
-                      <button type="submit" className={formStyles.secondary} aria-label={`Invite ${person.name}`}>
+                      <Button type="submit" variant="outline" aria-label={`Invite ${person.name}`}>
                         Invite
-                      </button>
+                      </Button>
                     </form>
                   )}
                 </li>
               ))}
             </ul>
           )}
-        </section>
+        </section></Card>
       )}
-    </main>
+    </main></Entrance>
   );
 }

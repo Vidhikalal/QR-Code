@@ -61,24 +61,3 @@ test('T-PASS-03: replaced, cancelled and unknown passes show their messages', as
   await page.goto('/p');
   await expect(page.getByRole('heading', { name: 'Pass not found' })).toBeVisible();
 });
-
-test('F5: a participant can add a photo, which is shrunk in the browser and then shown; locked after check-in', async ({ page }) => {
-  const big = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: { r: 30, g: 120, b: 200 } } })
-    .jpeg()
-    .toBuffer();
-  const uploads: number[] = [];
-  page.on('request', (r) => {
-    if (r.url().endsWith('/api/pass/photo')) uploads.push(r.postDataBuffer()?.length ?? 0);
-  });
-  await page.goto(`/p#${f.token.B}`);
-  await page.getByLabel('Add a photo').setInputFiles({ name: 'me.jpg', mimeType: 'image/jpeg', buffer: big });
-  await expect(page.getByText('✓ Photo saved.')).toBeVisible();
-  await expect(page.getByRole('img', { name: 'Your photo' })).toBeVisible();
-  expect(uploads).toHaveLength(1);
-  expect(uploads[0]).toBeLessThan(4.5 * 1024 * 1024);
-
-  await f.checkIn(f.p.B, f.token.B);
-  await page.reload();
-  await expect(page.getByText(/Your photo is locked/)).toBeVisible();
-  await expect(page.locator('input[type="file"]')).toHaveCount(0);
-});

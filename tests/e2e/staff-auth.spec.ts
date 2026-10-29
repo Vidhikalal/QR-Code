@@ -20,7 +20,7 @@ async function requestPasswordLink(page: Page, email: string, next: string): Pro
   const started = Date.now();
   await page.getByLabel('Email').fill(email);
   await page.getByRole('button', { name: 'Email me a link to set my password' }).click();
-  await expect(page.getByText('If that address can use Passline, we sent a link')).toBeVisible();
+  await expect(page.getByText('If that address can sign in here, we sent a link')).toBeVisible();
   return started;
 }
 
@@ -69,7 +69,7 @@ test('T-AUTH-02: "Forgot password" resets an account, invites an accepted partic
   const next = `/scan/${f.slug}`;
   const started = await requestPasswordLink(page, f.staffEmail.vol2, next);
   const reset = await latestAuthLink(f.staffEmail.vol2, started);
-  expect(reset.subject).toBe('Reset your Passline password');
+  expect(reset.subject).toBe('Reset your Datathon password');
   await setPasswordFromLink(page, reset.url, NEW_PASSWORD);
   await page.waitForURL((url) => url.pathname === next);
 
@@ -89,7 +89,7 @@ test('T-AUTH-02: "Forgot password" resets an account, invites an accepted partic
   const a = rows[0]?.email ?? '';
   const firstAsk = await requestPasswordLink(page, a, '/');
   const invited = await latestAuthLink(a, firstAsk);
-  expect(invited.subject).toBe('Set your Passline password');
+  expect(invited.subject).toBe('Set your Datathon password');
   // At most 3 emails per address per hour (§15); a 4th request sends nothing but looks the same.
   // Spaced past the auth server's own 1 s per-address throttle (config.toml max_frequency), so only ours applies.
   for (let i = 0; i < 3; i++) {
@@ -123,7 +123,7 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   const invitee = await browser.newContext({ baseURL: E2E_ORIGIN });
   const p = await invitee.newPage();
   const link = await latestAuthLink(email, started);
-  expect(link.subject).toBe('Set your Passline password');
+  expect(link.subject).toBe('Set your Datathon password');
   // The link's token is in the fragment only, so no server (ours, a proxy, a CDN) ever logs it.
   const linkToken = new URL(link.url).hash.slice(1);
   expect(linkToken.length).toBeGreaterThan(20);

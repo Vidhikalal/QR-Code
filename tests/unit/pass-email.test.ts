@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DISCORD_URL, HACKER_PACKAGE_URL } from '@/lib/email/links';
 import { renderPassEmail } from '@/lib/email/templates/pass';
 
 const base = {
@@ -6,6 +7,7 @@ const base = {
   event: { name: 'Hack Day 2026', venue: 'Bahen Centre, Room 1180', startsAt: '2026-10-03T13:00:00Z', timezone: 'America/Toronto' },
   passUrl: 'https://passline.example.com/p#Ab3_-xYz0123456789abcdefGHIJKLMN',
   qrPng: Buffer.from('fake-png'),
+  profileUrl: 'https://passline.example.com/me/profile',
 };
 
 describe('pass email template (SPEC §12)', () => {
@@ -24,6 +26,19 @@ describe('pass email template (SPEC §12)', () => {
     // §12 order: greeting, event, time, venue, QR, link.
     const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'cid:qr', 'Open your pass'].map((s) => m.html.indexOf(s));
     expect(order.every((v, i) => v >= 0 && (i === 0 || v > (order[i - 1] ?? 0)))).toBe(true);
+  });
+
+  it('T-MAIL-07: points them to profile setup, the Discord, the hacker package and the Google Group (v0.9)', () => {
+    const m = renderPassEmail(base);
+    for (const part of [m.html, m.text]) {
+      expect(part).toContain(base.profileUrl);
+      expect(part).toContain('https://groups.google.com/g/sheridandatathon');
+      expect(part).toContain(DISCORD_URL);
+      expect(part).toContain(HACKER_PACKAGE_URL);
+      expect(part).toContain('allergies');
+    }
+    expect(m.html).toContain('Set up your profile');
+    expect(m.html.indexOf('Open your pass')).toBeLessThan(m.html.indexOf('Set up your profile'));
   });
 
   it('T-MAIL-07: local time uses the event timezone, not the device (EST after DST ends)', () => {

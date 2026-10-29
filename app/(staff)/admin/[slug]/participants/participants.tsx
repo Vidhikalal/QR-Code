@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import styles from '../admin.module.css';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
+import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { linkNotice, normalizeUid } from '@/lib/domain/badge';
+import { useNfcReader } from '@/lib/scanner/nfc';
 import { adminUrl, errorText, useApi } from '../api';
 import { ConfirmDialog, Modal } from '../dialog';
 import { ParticipantDetail } from './detail';
@@ -15,21 +24,24 @@ export interface Row {
   status: 'pending' | 'accepted' | 'waitlisted' | 'rejected' | 'withdrawn';
   source: string;
   isTest: boolean;
-  hasPhoto: boolean;
+  hasBadge: boolean;
   passState: 'active' | 'revoked' | 'none';
   liveScans: number;
   checkedIn: boolean;
   rsvpSentAt: string | null;
 }
 
-type Pending = { kind: 'resend' | 'revoke' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
+type Pending = { kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete'; row: Row } | { kind: 'walk-in' } | null;
 const STATUSES = ['accepted', 'pending', 'waitlisted', 'rejected', 'withdrawn'] as const;
 
+const ALREADY_UNLINKED = '! That badge was already unlinked.';
 const RESULT_TEXT: Record<string, string> = {
   QUEUED: '✓ New pass queued. Their old code has stopped working.',
   IN_FLIGHT: '! A pass email is already on its way.',
   NOT_ACCEPTED: '! Only accepted participants can get a pass.',
   REVOKED: '✓ Pass revoked.',
+  UNLINKED: '✓ Badge unlinked. It stops working until it’s linked again.',
+  RESET: '✓ RSVP revoked. They’re back to not RSVPed yet.',
   NO_ACTIVE_PASS: '! They had no active pass.',
   DELETED: '✓ Participant deleted. Their scans still count in totals.',
   ALREADY_DELETED: '! Already deleted.',
@@ -44,6 +56,10 @@ export function Participants({ slug }: { slug: string }) {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [badgeTarget, setBadgeTarget] = useState<Row | null>(null);
+  const [badgeError, setBadgeError] = useState<string | null>(null);
+  const [badgeBusy, setBadgeBusy] = useState(false);
+  const linking = useRef(false);
   // F13: who gets an RSVP. Accepted people can't be picked (they're already in).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
@@ -64,11 +80,55 @@ export function Participants({ slug }: { slug: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  async function act(kind: 'resend' | 'revoke' | 'delete', row: Row) {
+  async function linkBadge(serial: string, row: Row) {
+    if (linking.current) return;
+    const uid = normalizeUid(serial);
+    if (!uid) return setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
+    linking.current = true; // Android can report one tap twice
+    setBadgeBusy(true);
+    nfc.stop();
+    const r = await api<{ code?: string }>(`/api/events/${encodeURIComponent(slug)}/badges`, {
+      method: 'POST',
+      body: { participantId: row.id, uid },
+    });
+    setBadgeTarget(null);
+    setBadgeBusy(false);
+    setMessage(linkNotice(r.ok ? r.data.code : undefined, uid, fullName(row)).text);
+    await load();
+  }
+
+  const nfc = useNfcReader({
+    prefKey: 'passline:linker',
+    defaultOn: false,
+    autoStart: false,
+    onTag: ({ serial }) => {
+      if (badgeTarget) void linkBadge(serial, badgeTarget);
+    },
+    onUnreadable: () => {
+      if (badgeTarget && !linking.current) setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
+    },
+  });
+
+  function startLink(row: Row) {
+    linking.current = false;
+    setBadgeTarget(row);
+    setBadgeError(null);
+    if (nfc.state === 'off') void nfc.start(); // this click is the user gesture Chrome needs
+  }
+
+  function cancelLink() {
+    linking.current = true;
+    nfc.stop();
+    setBadgeTarget(null);
+  }
+
+  async function act(kind: 'resend' | 'revoke' | 'revoke-rsvp' | 'unlink' | 'delete', row: Row) {
     setPending(null);
-    const path = `/participants/${row.id}${kind === 'delete' ? '' : `/${kind}`}`;
-    const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' ? 'DELETE' : 'POST' });
-    setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : `✕ ${errorText(r)}`);
+    const path = `/participants/${row.id}${kind === 'delete' ? '' : `/${kind === 'unlink' ? 'badge' : kind}`}`;
+    const r = await api<{ code: string }>(adminUrl(slug, path), { method: kind === 'delete' || kind === 'unlink' ? 'DELETE' : 'POST' });
+    // Unlink answers 404 when the badge is already gone (moved, or the attendee said No): what was wanted anyway.
+    const gone = kind === 'unlink' && r.status === 404;
+    setMessage(r.ok ? (RESULT_TEXT[r.data.code] ?? r.data.code) : gone ? ALREADY_UNLINKED : `✕ ${errorText(r)}`);
     if (kind === 'delete' && openId === row.id) setOpenId(null);
     await load();
   }
@@ -98,36 +158,74 @@ export function Participants({ slug }: { slug: string }) {
   return (
     <>
       <h1>Participants</h1>
-      <div className={styles.toolbar}>
-        <label className={styles.field}>
+      <div className="tw-admin-toolbar flex flex-wrap [align-items:end] gap-[14px] mb-[20px] p-[18px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
+
+          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+
+          shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
+
+          [&_.tw-admin-input]:w-full [&_.tw-admin-input]:min-h-[44px] [&_.tw-admin-input]:text-[14px]
+
+          [&_.tw-admin-input]:tracking-[normal] [&_.tw-admin-input]:normal-case
+
+          [&_.tw-admin-input]:[font-family:inherit] [&_.tw-admin-input]:font-normal
+
+          [&_.tw-admin-check]:min-h-[44px] [&_.tw-admin-check]:inline-flex [&_.tw-admin-check]:items-center
+
+          [&_.tw-admin-check]:gap-[9px] [&_.tw-admin-check]:p-[0px_4px] [&_.tw-admin-check]:text-fg
+
+          [&_.tw-admin-check]:text-[13px] [&_.tw-admin-check]:tracking-[normal] [&_.tw-admin-check]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-check]:[flex:1_1_100%] [&_>_button]:min-h-[44px] [&_>_button]:p-[0px_16px]
+
+          [&_>_button]:whitespace-nowrap max-[700.001px]:[&_>_button]:[flex:1_1_auto]
+
+          [&_.tw-admin-field]:[font-family:inherit] [&_.tw-admin-field]:text-[12px]
+
+          [&_.tw-admin-field]:font-semibold [&_.tw-admin-field]:tracking-[0.02em] [&_.tw-admin-field]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-field]:[flex:1_1_100%] [&_select]:[font-family:inherit]
+
+          [&_select]:text-[14px] [&_select]:font-normal [&_select]:tracking-[normal] [&_select]:normal-case">
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
           Search name
-          <input className={styles.input} value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Ada" />
-        </label>
-        <label className={styles.field}>
+          <Input className="tw-admin-input w-full" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Ada" />
+        </Label>
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
           Status
-          <select className={styles.input} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <NativeSelect className="tw-admin-input w-full" value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
-          </select>
-        </label>
-        <label className={styles.check}>
+          </NativeSelect>
+        </Label>
+        <Label className="tw-admin-check">
           <input type="checkbox" checked={noShow} onChange={(e) => setNoShow(e.target.checked)} /> Not arrived only
-        </label>
-        <button type="button" onClick={() => setPending({ kind: 'walk-in' })}>
+        </Label>
+        <Button type="button" onClick={() => setPending({ kind: 'walk-in' })}>
           Add attendee
-        </button>
-        <button type="button" disabled={picked.length === 0} onClick={() => void sendRsvps()}>
+        </Button>
+        <Button type="button" disabled={picked.length === 0} onClick={() => void sendRsvps()}>
           Send RSVP ({picked.length})
-        </button>
+        </Button>
       </div>
       {message && (
-        <p className={styles.alert + ' ' + (message.startsWith('✓') ? styles.alertOk : styles.alertWarn)} role="status">
+        <Alert className={`flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+                [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+                [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+                leading-[1.65] [overflow-wrap:anywhere]` + ' ' + (message.startsWith('✓') ? `[&&]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
+                [&&]:[background:color-mix(in_srgb,_#4ade80_6%,_var(--card))]` : message.startsWith('✕') ? `[&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+                [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]` : `[&&]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
+                [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]`)} asChild role="status"><p  data-tone={message.startsWith('✓') ? 'ok' : message.startsWith('✕') ? 'bad' : 'warn'} role="status">
           {message}
-        </p>
+        </p></Alert>
       )}
 
       {openId && <ParticipantDetail slug={slug} id={openId} onClose={() => setOpenId(null)} onChanged={load} />}
@@ -135,84 +233,186 @@ export function Participants({ slug }: { slug: string }) {
       {rows === null ? (
         <p>Loading…</p>
       ) : rows.length === 0 ? (
-        <p className={styles.muted}>No participants match.</p>
+        <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">No participants match.</p>
       ) : (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>
-                  <label className={styles.pick}>
+        <div className="tw-admin-tableWrap overflow-x-auto [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card shadow-panel max-[600.001px]:max-w-full">
+          <Table className="tw-admin-table [&_.tw-admin-num]:text-right! [&_.tw-admin-actions]:flex [&_.tw-admin-actions]:items-center [&_.tw-admin-actions]:gap-1 [&_.tw-admin-actions_button]:px-2 [&_.tw-admin-actions_button]:text-xs [&_.tw-admin-badge]:text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>
+                  <Label className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] cursor-pointer [&_input]:w-[20px]
+
+          [&_input]:h-[20px]">
                     <input
                       type="checkbox"
                       aria-label="Select everyone shown who isn't accepted yet"
                       checked={invitable.length > 0 && picked.length === invitable.length}
                       onChange={(e) => setSelected(new Set(e.target.checked ? invitable.map((r) => r.id) : []))}
                     />
-                  </label>
-                </th>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Pass</th>
-                <th>Arrived</th>
-                <th className={styles.num}>Scans</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+                  </Label>
+                </TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Pass</TableHead>
+                <TableHead>Arrived</TableHead>
+                <TableHead className="tw-admin-num text-right! tabular-nums">Scans</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>
+                <TableRow key={r.id}>
+                  <TableCell>
                     {r.status !== 'accepted' && (
-                      <label className={styles.pick}>
+                      <Label className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] cursor-pointer [&_input]:w-[20px]
+
+          [&_input]:h-[20px]">
                         <input type="checkbox" aria-label={`Select ${fullName(r)}`} checked={selected.has(r.id)} onChange={(e) => pick(r.id, e.target.checked)} />
-                      </label>
+                      </Label>
                     )}
-                  </td>
-                  <td>
+                  </TableCell>
+                  <TableCell>
                     {fullName(r)}
-                    {r.isTest && <span className={styles.badge}> TEST</span>}
-                    {r.hasPhoto && <span className={styles.muted}> · 📷</span>}
-                  </td>
-                  <td>{r.email}</td>
-                  <td>
-                    <span className={`${styles.badge} ${r.status === 'accepted' ? styles.badgeOk : r.status === 'withdrawn' || r.status === 'rejected' ? styles.badgeBad : ''}`}>{r.status}</span>
-                    {r.status === 'pending' && r.rsvpSentAt && <span className={styles.muted}> · RSVP sent</span>}
-                  </td>
-                  <td>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</td>
-                  <td>{r.checkedIn ? '✓ Checked in' : '—'}</td>
-                  <td className={styles.num}>{r.liveScans}</td>
-                  <td>
-                    <div className={styles.actions}>
-                      <button type="button" className={`${styles.secondary} ${styles.small}`} aria-label={`Details for ${fullName(r)}`} onClick={() => setOpenId(r.id)}>
+                    {r.isTest && <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md
+
+          [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap
+          max-w-full
+ [font-family:inherit]"> TEST</Badge>}
+                    {r.hasBadge && <> <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md
+
+          [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap
+          max-w-full
+ [font-family:inherit]">Badge linked</Badge></>}
+                  </TableCell>
+                  <TableCell>{r.email}</TableCell>
+                  <TableCell>
+                    <Badge className={`tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap max-w-full [font-family:inherit] ${r.status === 'accepted' ? `tw-admin-badgeOk
+                [&.tw-admin-badgeOk]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
+                [&.tw-admin-badgeOk]:[background:color-mix(in_srgb,_var(--ok,_#4ade80)_10%,_var(--card))]
+                [&.tw-admin-badgeOk]:[color:var(--ok,_#4ade80)]` : r.status === 'withdrawn' || r.status === 'rejected' ? `tw-admin-badgeBad
+                [&.tw-admin-badgeBad]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+                [&.tw-admin-badgeBad]:[background:color-mix(in_srgb,_var(--bad,_#f87171)_10%,_var(--card))]
+                [&.tw-admin-badgeBad]:[color:var(--bad,_#f87171)]` : ''}`}>{r.status}</Badge>
+                    {r.status === 'pending' && r.rsvpSentAt && <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]"> · RSVP sent</span>}
+                  </TableCell>
+                  <TableCell>{r.passState === 'active' ? 'Active' : r.passState === 'revoked' ? 'Revoked' : '—'}</TableCell>
+                  <TableCell>{r.checkedIn ? '✓ Checked in' : '—'}</TableCell>
+                  <TableCell className="tw-admin-num text-right! tabular-nums">{r.liveScans}</TableCell>
+                  <TableCell>
+                    <div className="tw-admin-actions flex flex-nowrap gap-[6px]">
+                      <Button type="button" variant="outline" aria-label={`Details for ${fullName(r)}`} onClick={() => setOpenId(r.id)}>
                         Details
-                      </button>
+                      </Button>
                       {r.status === 'accepted' && (
-                        <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setPending({ kind: 'resend', row: r })}>
+                        <Button type="button" variant="outline" onClick={() => setPending({ kind: 'resend', row: r })}>
                           Resend pass
-                        </button>
+                        </Button>
+                      )}
+                      {r.status === 'accepted' && nfc.supported && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          aria-label={`${r.hasBadge ? 'Replace' : 'Link'} badge for ${fullName(r)}`}
+                          disabled={badgeBusy}
+                          onClick={() => startLink(r)}
+                        >
+                          {r.hasBadge ? 'Replace badge' : 'Link badge'}
+                        </Button>
+                      )}
+                      {r.hasBadge && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          aria-label={`Unlink badge for ${fullName(r)}`}
+                          disabled={badgeBusy}
+                          onClick={() => setPending({ kind: 'unlink', row: r })}
+                        >
+                          Unlink badge
+                        </Button>
                       )}
                       {r.passState === 'active' && (
-                        <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => setPending({ kind: 'revoke', row: r })}>
+                        <Button type="button" variant="outline" onClick={() => setPending({ kind: 'revoke', row: r })}>
                           Revoke
-                        </button>
+                        </Button>
                       )}
-                      <button type="button" className={`${styles.secondary} ${styles.small}`} aria-pressed={r.isTest} onClick={() => void toggleTest(r)}>
+                      {(r.status !== 'pending' || r.rsvpSentAt) && (
+                        <Button type="button" variant="outline" onClick={() => setPending({ kind: 'revoke-rsvp', row: r })}>
+                          Revoke RSVP
+                        </Button>
+                      )}
+                      <Button type="button" variant="outline" aria-pressed={r.isTest} onClick={() => void toggleTest(r)}>
                         {r.isTest ? 'Unmark test' : 'Mark test'}
-                      </button>
-                      <button type="button" className={`${styles.danger} ${styles.small}`} onClick={() => setPending({ kind: 'delete', row: r })}>
+                      </Button>
+                      <Button type="button" variant="ghost" className="tw-admin-danger text-destructive hover:bg-destructive/10" onClick={() => setPending({ kind: 'delete', row: r })}>
                         Delete
-                      </button>
+                      </Button>
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
+      {badgeTarget && (
+        <Modal title="Link a badge" onCancel={cancelLink}>
+          <p>Tap the badge to link it to {fullName(badgeTarget)}.</p>
+          <div aria-live="polite">
+            {badgeBusy ? <p>Linking badge…</p> : (badgeError || nfc.error) && <p className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]">{badgeError ?? nfc.error}</p>}
+          </div>
+          <div className="flex gap-[8px] justify-end flex-wrap mt-[8px] pt-[14px] [border-top-width:1px] [border-top-style:solid]
+
+          [border-top-color:var(--line)] [&_button]:min-h-[44px] [&_button]:p-[8px_12px] [&_button]:rounded-md
+
+          [&_button]:[font-family:inherit] [&_button]:text-[12px] [&_button]:font-semibold
+
+          max-[480.001px]:[&_button]:flex-1">
+            {/* After Chrome refused NFC (permission denied), this tap retries; the error names this button. */}
+            {nfc.state === 'off' && !badgeBusy && (
+              <Button type="button" onClick={() => void nfc.start()}>
+                Start badge reader
+              </Button>
+            )}
+            <Button type="button" variant="outline" onClick={cancelLink}>
+              Cancel
+            </Button>
+          </div>
+        </Modal>
+      )}
+      {pending?.kind === 'unlink' && (
+        <ConfirmDialog
+          title="Unlink this badge?"
+          body={<p>{fullName(pending.row)}’s badge stops working (scans and profile) until staff link it again. The chip itself doesn’t change.</p>}
+          confirmLabel="Unlink badge"
+          danger
+          onConfirm={() => void act('unlink', pending.row)}
+          onCancel={() => setPending(null)}
+        />
+      )}
       {pending?.kind === 'resend' && (
         <ConfirmDialog
           title={`Resend pass to ${fullName(pending.row)}?`}
@@ -232,10 +432,25 @@ export function Participants({ slug }: { slug: string }) {
           onCancel={() => setPending(null)}
         />
       )}
+      {pending?.kind === 'revoke-rsvp' && (
+        <ConfirmDialog
+          title={`Revoke ${fullName(pending.row)}’s RSVP?`}
+          body={
+            <p>
+              Their invitation link stops working, any pass is cancelled and their badge unlinked. They go back to “not RSVPed yet”, so you can send a new RSVP.
+              Their profile and account stay.
+            </p>
+          }
+          confirmLabel="Revoke RSVP"
+          danger
+          onConfirm={() => void act('revoke-rsvp', pending.row)}
+          onCancel={() => setPending(null)}
+        />
+      )}
       {pending?.kind === 'delete' && (
         <ConfirmDialog
           title={`Delete ${fullName(pending.row)}?`}
-          body={<p>This removes their name, email, photo and notes, and cancels their pass. Their scans stay in the totals. It can’t be undone.</p>}
+          body={<p>This removes their name, email and notes, and cancels their pass. Their scans stay in the totals. It can’t be undone.</p>}
           confirmLabel="Delete participant"
           danger
           typeToConfirm="DELETE"
@@ -296,51 +511,73 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
   return (
     <Modal title="Add attendee" onCancel={props.onCancel}>
       <form
-        className={styles.dialogForm}
+        className="grid gap-[14px] [&_>_.tw-admin-muted]:m-[-4px_0px_0px] [&_>_.tw-admin-muted]:text-[12px]
+
+          [&_>_.tw-admin-muted]:leading-[1.6] [&_>_button]:min-h-[44px] [&_>_button]:p-[8px_12px]
+
+          [&_>_button]:rounded-md [&_>_button]:[font-family:inherit] [&_>_button]:text-[12px]
+
+          [&_>_button]:font-semibold"
         onSubmit={(e) => {
           e.preventDefault();
           void submit();
         }}
       >
-        <label className={styles.field}>
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
           First name
-          <input className={styles.input} required maxLength={100} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-        </label>
-        <label className={styles.field}>
+          <Input className="tw-admin-input w-full" required maxLength={100} value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+        </Label>
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
           Last name
-          <input className={styles.input} maxLength={100} value={lastName} onChange={(e) => setLastName(e.target.value)} />
-        </label>
-        <label className={styles.field}>
+          <Input className="tw-admin-input w-full" maxLength={100} value={lastName} onChange={(e) => setLastName(e.target.value)} />
+        </Label>
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
           Email
-          <input className={styles.input} type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </label>
-        <label className={styles.check}>
+          <Input className="tw-admin-input w-full" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Label>
+        <Label className="tw-admin-check">
           <input type="checkbox" checked={notRsvped} onChange={(e) => setNotRsvped(e.target.checked)} /> Not RSVPed yet
-        </label>
+        </Label>
         {notRsvped ? (
-          <p className={styles.muted}>They’re added as an applicant and sent nothing. Send their RSVP from the list when you’re ready.</p>
+          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">They’re added as an applicant and sent nothing. Send their RSVP from the list when you’re ready.</p>
         ) : (
           <>
-            <label className={styles.check}>
+            <Label className="tw-admin-check">
               <input type="checkbox" checked={checkInNow} onChange={(e) => setCheckInNow(e.target.checked)} /> Check in now
-            </label>
-            <label className={styles.check}>
+            </Label>
+            <Label className="tw-admin-check">
               <input type="checkbox" checked={sendPass} onChange={(e) => setSendPass(e.target.checked)} /> Email them a pass
-            </label>
+            </Label>
           </>
         )}
         {error && (
-          <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
+          <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild><p  role="alert">
             ✕ {error}
-          </p>
+          </p></Alert>
         )}
-        <div className={styles.dialogActions}>
-          <button type="button" className={styles.secondary} onClick={props.onCancel}>
+        <div className="flex gap-[8px] justify-end flex-wrap mt-[8px] pt-[14px] [border-top-width:1px] [border-top-style:solid]
+
+          [border-top-color:var(--line)] [&_button]:min-h-[44px] [&_button]:p-[8px_12px] [&_button]:rounded-md
+
+          [&_button]:[font-family:inherit] [&_button]:text-[12px] [&_button]:font-semibold
+
+          max-[480.001px]:[&_button]:flex-1">
+          <Button type="button" variant="outline" onClick={props.onCancel}>
             Cancel
-          </button>
-          <button type="submit" disabled={busy}>
+          </Button>
+          <Button type="submit" disabled={busy}>
             Add attendee
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>

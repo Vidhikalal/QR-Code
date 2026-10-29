@@ -1,15 +1,17 @@
 'use client';
 
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+
 import { useEffect, useRef, useState } from 'react';
 import { badgeUrl, badgeWritable, formatUid, normalizeUid } from '@/lib/domain/badge';
 import { useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
-import styles from '../admin.module.css';
 
 const decoder = new TextDecoder();
 const WRITE_TIMEOUT_MS = 5000;
 
 // SPEC §11 / §6.5 tag writer, ported from datathon-badges. Writes the badge link onto each tag tapped;
-// attendees then link their own badge by tapping it (v0.5), or an organizer links it with BadgeLinker.
+// staff then link badges from Participants or the scanner’s Manual search (v0.10).
 export function BadgeWriter({ origin }: { origin: string }) {
   const writable = badgeWritable(origin);
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
@@ -59,16 +61,26 @@ export function BadgeWriter({ origin }: { origin: string }) {
       <h2 id="write-heading">Write tags</h2>
       <p>
         Writes <code>{badgeUrl(origin, '<uid>')}</code> onto each tag you tap. After that, any phone (iPhone included)
-        opens the badge’s page, where its owner signs in and links it to themselves.
+        opens the badge’s page. Staff link badges from the Participants page or the scanner’s Manual search.
       </p>
       {!writable && (
-        <p className={`${styles.alert} ${styles.alertWarn}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]" asChild><p  role="alert">
           ! Badge links must start with https://, or phones can’t open them. Set BADGE_ORIGIN to the public address,
           e.g. https://nfc.yvesdonato.com.
-        </p>
+        </p></Alert>
       )}
       {nfc.supported && writable && (
-        <button
+        <Button
           type="button"
           aria-pressed={nfc.state !== 'off'}
           onClick={() => {
@@ -78,17 +90,29 @@ export function BadgeWriter({ origin }: { origin: string }) {
           }}
         >
           {nfc.state === 'off' ? 'Start writing' : nfc.state === 'starting' ? 'Starting…' : 'Writing: tap to stop'}
-        </button>
+        </Button>
       )}
       {nfc.error && (
-        <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild><p  role="alert">
           ✕ {nfc.error}
-        </p>
+        </p></Alert>
       )}
       {status && (
-        <p className={`${styles.alert} ${status.ok ? styles.alertOk : styles.alertBad}`} role="status">
+        <Alert className={` flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px] leading-[1.65] [overflow-wrap:anywhere] ${status.ok ? `[&&]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
+                [&&]:[background:color-mix(in_srgb,_#4ade80_6%,_var(--card))]` : `[&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+                [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]`}`} asChild role="status"><p  role="status">
           {status.ok ? '✓' : '✕'} {status.text}
-        </p>
+        </p></Alert>
       )}
     </section>
   );

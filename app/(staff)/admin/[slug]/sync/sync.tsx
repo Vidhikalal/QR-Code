@@ -1,8 +1,13 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Alert } from '@/components/ui/alert';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+
 import { useCallback, useState } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
-import styles from '../admin.module.css';
 import { adminUrl, errorText, useApi, useLoad } from '../api';
 
 interface EventInfo {
@@ -76,68 +81,156 @@ export function Sync({ slug }: { slug: string }) {
           {event.sheetId ? (
             <>
               Linked Sheet: <code>{event.sheetId}</code>{' '}
-              <button type="button" className={`${styles.secondary} ${styles.small}`} onClick={() => void link(null)}>
+              <Button type="button" variant="outline" onClick={() => void link(null)}>
                 Unlink
-              </button>
+              </Button>
             </>
           ) : (
             'No Sheet linked yet.'
           )}
           <br />
-          <span className={styles.muted}>Last sync: {event.lastSyncAt ? formatEventDateTime(event.lastSyncAt, event.timezone) : 'never'}</span>
+          <span className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Last sync: {event.lastSyncAt ? formatEventDateTime(event.lastSyncAt, event.timezone) : 'never'}</span>
         </p>
       )}
       <form
-        className={styles.toolbar}
+        className="tw-admin-toolbar flex flex-wrap [align-items:end] gap-[14px] mb-[20px] p-[18px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
+
+          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+
+          shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
+
+          [&_.tw-admin-input]:w-full [&_.tw-admin-input]:min-h-[44px] [&_.tw-admin-input]:text-[14px]
+
+          [&_.tw-admin-input]:tracking-[normal] [&_.tw-admin-input]:normal-case
+
+          [&_.tw-admin-input]:[font-family:inherit] [&_.tw-admin-input]:font-normal
+
+          [&_.tw-admin-check]:min-h-[44px] [&_.tw-admin-check]:inline-flex [&_.tw-admin-check]:items-center
+
+          [&_.tw-admin-check]:gap-[9px] [&_.tw-admin-check]:p-[0px_4px] [&_.tw-admin-check]:text-fg
+
+          [&_.tw-admin-check]:text-[13px] [&_.tw-admin-check]:tracking-[normal] [&_.tw-admin-check]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-check]:[flex:1_1_100%] [&_>_button]:min-h-[44px] [&_>_button]:p-[0px_16px]
+
+          [&_>_button]:whitespace-nowrap max-[700.001px]:[&_>_button]:[flex:1_1_auto]
+
+          [&_.tw-admin-field]:[font-family:inherit] [&_.tw-admin-field]:text-[12px]
+
+          [&_.tw-admin-field]:font-semibold [&_.tw-admin-field]:tracking-[0.02em] [&_.tw-admin-field]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-field]:[flex:1_1_100%] [&_select]:[font-family:inherit]
+
+          [&_select]:text-[14px] [&_select]:font-normal [&_select]:tracking-[normal] [&_select]:normal-case"
         onSubmit={(e) => {
           e.preventDefault();
           void link(sheet);
         }}
       >
-        <label className={styles.field} style={{ flex: 1, minWidth: 240 }}>
+        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground" style={{ flex: 1, minWidth: 240 }}>
           Sheet link or id
-          <input className={styles.input} value={sheet} required onChange={(e) => setSheet(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" />
-        </label>
-        <button type="submit" className={styles.secondary}>
+          <Input className="tw-admin-input w-full" value={sheet} required onChange={(e) => setSheet(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" />
+        </Label>
+        <Button type="submit" variant="outline">
           Link Sheet
-        </button>
+        </Button>
       </form>
 
-      <div className={styles.toolbar}>
-        <button type="button" disabled={busy} onClick={() => void run(true)}>
+      <div className="tw-admin-toolbar flex flex-wrap [align-items:end] gap-[14px] mb-[20px] p-[18px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
+
+          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+
+          shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
+
+          [&_.tw-admin-input]:w-full [&_.tw-admin-input]:min-h-[44px] [&_.tw-admin-input]:text-[14px]
+
+          [&_.tw-admin-input]:tracking-[normal] [&_.tw-admin-input]:normal-case
+
+          [&_.tw-admin-input]:[font-family:inherit] [&_.tw-admin-input]:font-normal
+
+          [&_.tw-admin-check]:min-h-[44px] [&_.tw-admin-check]:inline-flex [&_.tw-admin-check]:items-center
+
+          [&_.tw-admin-check]:gap-[9px] [&_.tw-admin-check]:p-[0px_4px] [&_.tw-admin-check]:text-fg
+
+          [&_.tw-admin-check]:text-[13px] [&_.tw-admin-check]:tracking-[normal] [&_.tw-admin-check]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-check]:[flex:1_1_100%] [&_>_button]:min-h-[44px] [&_>_button]:p-[0px_16px]
+
+          [&_>_button]:whitespace-nowrap max-[700.001px]:[&_>_button]:[flex:1_1_auto]
+
+          [&_.tw-admin-field]:[font-family:inherit] [&_.tw-admin-field]:text-[12px]
+
+          [&_.tw-admin-field]:font-semibold [&_.tw-admin-field]:tracking-[0.02em] [&_.tw-admin-field]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-field]:[flex:1_1_100%] [&_select]:[font-family:inherit]
+
+          [&_select]:text-[14px] [&_select]:font-normal [&_select]:tracking-[normal] [&_select]:normal-case">
+        <Button type="button" disabled={busy} onClick={() => void run(true)}>
           Sync now (preview)
-        </button>
+        </Button>
       </div>
       {error && (
-        <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild><p  role="alert">
           ✕ {error}
-        </p>
+        </p></Alert>
       )}
       {message && (
-        <p className={`${styles.alert} ${styles.alertOk}`} role="status">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#4ade80_6%,_var(--card))]" asChild role="status"><p  role="status">
           {message}
-        </p>
+        </p></Alert>
       )}
       {report && (
         <section aria-labelledby="diff-title">
           <h2 id="diff-title">Preview: {report.total} rows read</h2>
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Result</th>
-                  <th className={styles.num}>Rows</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="tw-admin-tableWrap overflow-x-auto [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card shadow-panel max-[600.001px]:max-w-full">
+            <Table className="tw-admin-table [&_.tw-admin-num]:text-right! [&_.tw-admin-actions]:flex [&_.tw-admin-actions]:items-center [&_.tw-admin-actions]:gap-1 [&_.tw-admin-actions_button]:px-2 [&_.tw-admin-actions_button]:text-xs [&_.tw-admin-badge]:text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Result</TableHead>
+                  <TableHead className="tw-admin-num text-right! tabular-nums">Rows</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {Object.entries(report.counts).map(([code, n]) => (
-                  <tr key={code}>
-                    <td>{code}</td>
-                    <td className={styles.num}>{n}</td>
-                  </tr>
+                  <TableRow key={code}>
+                    <TableCell>{code}</TableCell>
+                    <TableCell className="tw-admin-num text-right! tabular-nums">{n}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
           {report.changes.length > 0 && (
             <details>
@@ -151,13 +244,45 @@ export function Sync({ slug }: { slug: string }) {
               </ul>
             </details>
           )}
-          <div className={styles.toolbar}>
-            <button type="button" disabled={busy || report.changes.length === 0} onClick={() => void run(false)}>
+          <div className="tw-admin-toolbar flex flex-wrap [align-items:end] gap-[14px] mb-[20px] p-[18px] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
+
+          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+
+          shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
+
+          [&_.tw-admin-input]:w-full [&_.tw-admin-input]:min-h-[44px] [&_.tw-admin-input]:text-[14px]
+
+          [&_.tw-admin-input]:tracking-[normal] [&_.tw-admin-input]:normal-case
+
+          [&_.tw-admin-input]:[font-family:inherit] [&_.tw-admin-input]:font-normal
+
+          [&_.tw-admin-check]:min-h-[44px] [&_.tw-admin-check]:inline-flex [&_.tw-admin-check]:items-center
+
+          [&_.tw-admin-check]:gap-[9px] [&_.tw-admin-check]:p-[0px_4px] [&_.tw-admin-check]:text-fg
+
+          [&_.tw-admin-check]:text-[13px] [&_.tw-admin-check]:tracking-[normal] [&_.tw-admin-check]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-check]:[flex:1_1_100%] [&_>_button]:min-h-[44px] [&_>_button]:p-[0px_16px]
+
+          [&_>_button]:whitespace-nowrap max-[700.001px]:[&_>_button]:[flex:1_1_auto]
+
+          [&_.tw-admin-field]:[font-family:inherit] [&_.tw-admin-field]:text-[12px]
+
+          [&_.tw-admin-field]:font-semibold [&_.tw-admin-field]:tracking-[0.02em] [&_.tw-admin-field]:normal-case
+
+          max-[700.001px]:[&_.tw-admin-field]:[flex:1_1_100%] [&_select]:[font-family:inherit]
+
+          [&_select]:text-[14px] [&_select]:font-normal [&_select]:tracking-[normal] [&_select]:normal-case">
+            <Button type="button" disabled={busy || report.changes.length === 0} onClick={() => void run(false)}>
               Apply changes
-            </button>
-            <button type="button" className={styles.secondary} onClick={() => setReport(null)}>
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setReport(null)}>
               Discard
-            </button>
+            </Button>
           </div>
         </section>
       )}

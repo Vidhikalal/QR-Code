@@ -180,7 +180,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     const job = rows[0]?.id;
     await call({ token: old, going: false }); // answers No with the previous link: cancels the job
     const fresh = sha256hex(generateToken());
-    expect((await f.pool.query<{ ok: boolean }>('select set_rsvp_token($1, $2) as ok', [job, fresh])).rows[0]?.ok).toBe(false);
+    // v0.9: set_rsvp_token answers when the invitation closes, or null when it refuses.
+    expect((await f.pool.query<{ ok: unknown }>('select set_rsvp_token($1, $2) as ok', [job, fresh])).rows[0]?.ok).toBeNull();
     expect((await f.pool.query<{ h: string }>('select rsvp_token_hash as h from participants where id = $1', [p.id])).rows[0]?.h).toBe(sha256hex(old));
   });
 
@@ -329,15 +330,14 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(await statusOf(csrf.id)).toBe('pending');
   });
 
-  it('T-RSVP-06: Yes needs an emergency contact; an invalid form is refused before anything changes (no account is made)', async () => {
+  it('T-RSVP-06: Yes needs only a password (v0.9: the profile is set up after); fields it does carry are checked before anything changes', async () => {
     const p = await newApplicant('form');
     const token = await rsvpToken(p.id);
     const bad: Array<[Record<string, unknown>, string]> = [
-      [{}, 'emergencyName'],
       [{ emergencyName: 'Sam Lee' }, 'emergencyPhone'],
-      [{ ...YES, emergencyPhone: 'call me' }, 'emergencyPhone'],
-      [{ ...YES, linkedin: 'linkedin.com/company/x' }, 'linkedin'],
-      [{ ...YES, dietaryNotes: 'd'.repeat(501) }, 'dietaryNotes'],
+      [{ ...CONTACT, emergencyPhone: 'call me' }, 'emergencyPhone'],
+      [{ linkedin: 'linkedin.com/company/x' }, 'linkedin'],
+      [{ dietaryNotes: 'd'.repeat(501) }, 'dietaryNotes'],
     ];
     for (const [form, field] of bad) {
       expect(await call({ token, going: true, password: 'my-event-password', ...form })).toEqual({ status: 400, body: { error: 'invalid_profile', field } });
@@ -346,6 +346,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     expect(await statusOf(p.id)).toBe('pending');
     expect((await f.pool.query('select 1 from auth.users where email = $1', [p.email])).rows).toHaveLength(0);
     expect((await call({ token, going: false })).body).toMatchObject({ code: 'NOT_GOING' }); // No needs no form
+    expect((await call({ token, going: true, password: 'my-event-password' })).body).toMatchObject({ code: 'GOING' });
+    expect((await f.pool.query('select emergency_name from participants where id = $1', [p.id])).rows).toEqual([{ emergency_name: null }]);
   });
 
   it('T-RSVP-07: Yes stores the emergency contact and networking profile with the answer; the lookup prefills only dietary notes and LinkedIn', async () => {
@@ -353,7 +355,8 @@ describe('RSVP (SPEC F13, v0.4)', () => {
     await f.pool.query(`update participants set dietary_notes = 'Vegetarian', linkedin_url = 'https://www.linkedin.com/in/from-sheet' where id = $1`, [p.id]);
     const token = await rsvpToken(p.id);
     const look = await call({ token });
-    expect(look.body).toMatchObject({ profile: { dietaryNotes: 'Vegetarian', linkedinUrl: 'https://www.linkedin.com/in/from-sheet', profilePublic: false } });
+    // v0.9: sharing is on by default.
+    expect(look.body).toMatchObject({ profile: { dietaryNotes: 'Vegetarian', linkedinUrl: 'https://www.linkedin.com/in/from-sheet', profilePublic: true } });
     expect(JSON.stringify(look.body)).not.toMatch(/@|emergency/i);
 
     const yes = { ...YES, emergencyRelation: 'Sister', dietaryNotes: 'Vegetarian', linkedin: 'linkedin.com/in/rae-r', profilePublic: true };

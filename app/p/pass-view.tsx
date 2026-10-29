@@ -1,18 +1,20 @@
 'use client';
 
-import Image from 'next/image';
+import { Entrance } from '@/components/motion';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Alert } from '@/components/ui/alert';
+
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { QR_OPTIONS } from '@/lib/qr/options';
-import styles from './pass.module.css';
 
 interface ActivePass {
   state: 'active';
   firstName: string;
   event: { name: string; venue: string; startsAt: string; timezone: string };
-  photo: { url: string | null; updatedAt: string | null };
-  photoLocked: boolean;
   profile: { public: boolean; hasLinkedin: boolean };
 }
 
@@ -22,7 +24,6 @@ type View =
   | { kind: 'replaced' | 'cancelled' | 'not_found' | 'rate_limited' | 'error' };
 
 const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_ORIGIN ?? '';
-const MAX_SIDE = 2048;
 
 function readToken(): string {
   try {
@@ -40,30 +41,6 @@ function subscribeHash(onChange: () => void) {
 function isActivePass(v: unknown): v is ActivePass {
   return typeof v === 'object' && v !== null && 'state' in v && v.state === 'active' && 'firstName' in v && 'event' in v;
 }
-
-// Vercel caps request bodies at 4.5 MB, so the browser shrinks the photo first (S4 decision).
-// createImageBitmap applies EXIF orientation; the server still validates and re-processes everything.
-async function shrink(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const scale = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('no canvas');
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return new Promise((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/jpeg', 0.85),
-  );
-}
-
-const PHOTO_ERRORS: Record<number, string> = {
-  409: "Your photo is locked because you've already checked in.",
-  413: 'That photo is too large. Please pick a smaller one.',
-  415: "That file isn't a supported image. Please use a JPEG, PNG or WebP photo.",
-  429: "You've changed your photo a lot recently. Please try again in an hour.",
-};
 
 async function fetchPass(token: string): Promise<View> {
   try {
@@ -106,9 +83,11 @@ export function PassView() {
   const shown: View = token === '' ? { kind: 'not_found' } : view;
 
   return (
-    <main className={styles.page}>
+    <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
       {shown.kind === 'loading' && <p aria-live="polite">Loading your pass…</p>}
-      {shown.kind === 'active' && token && <ActiveView pass={shown.pass} token={token} onChanged={reload} />}
+      {shown.kind === 'active' && token && <ActiveView pass={shown.pass} token={token} />}
       {shown.kind === 'replaced' && (
         <Status tone="warn" icon="!" title="This pass was replaced">
           Check your most recent email for your current pass.
@@ -132,30 +111,38 @@ export function PassView() {
       {shown.kind === 'error' && (
         <Status tone="warn" icon="!" title="Couldn't load your pass">
           Check your connection and try again.{' '}
-          <button type="button" onClick={reload}>
+          <Button type="button" onClick={reload}>
             Retry
-          </button>
+          </Button>
         </Status>
       )}
-    </main>
+    </main></Entrance>
   );
 }
 
 function Status(props: { tone: 'warn' | 'bad'; icon: string; title: string; children: React.ReactNode }) {
   return (
-    <section className={`${styles.card} ${styles.status}`} role="status">
-      <span className={`${styles.icon} ${styles[props.tone]}`} aria-hidden="true">
+    <Card className="tw-pass-card flex flex-col gap-[12px] [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card p-[20px] shadow-panel [:where(&)_>_*]:m-0
+
+          [&_h2]:text-[18px] [&.tw-pass-card]:flex-row [&.tw-pass-card]:gap-[12px] [&.tw-pass-card]:items-start
+
+          [&.tw-pass-card_h1]:m-[0px_0px_4px] [&.tw-pass-card_h1]:text-[22px] [&.tw-pass-card_p]:m-0" asChild><section  role="status">
+      <span className={` text-[28px] leading-[1] ${({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[props.tone]}`} aria-hidden="true">
         {props.icon}
       </span>
       <div>
         <h1>{props.title}</h1>
         <p>{props.children}</p>
       </div>
-    </section>
+    </section></Card>
   );
 }
 
-function ActiveView({ pass, token, onChanged }: { pass: ActivePass; token: string; onChanged: () => void }) {
+function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -171,24 +158,42 @@ function ActiveView({ pass, token, onChanged }: { pass: ActivePass; token: strin
 
   return (
     <>
-      <section className={styles.ticket} aria-labelledby="pass-name">
-        <div className={styles.ticketBar}>
-          <span className={styles.dots} aria-hidden="true">
+      <section className="overflow-hidden [overflow-wrap:anywhere] [background:var(--card)] [border-width:1px]
+
+          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket shadow-panel" aria-labelledby="pass-name">
+        <div className="flex items-center gap-[12px] p-[10px_16px] [background:var(--raised)] [border-bottom-width:1px]
+
+          [border-bottom-style:solid] [border-bottom-color:var(--line)] text-muted-foreground text-[12px] tracking-[0.08em]
+
+          uppercase">
+          <span className="inline-flex gap-[6px] [&_span]:w-[10px] [&_span]:h-[10px] [&_span]:rounded-[50%]
+
+          [&_span]:[background:rgb(255,_95,_86)] [&_span:nth-child(2)]:[background:rgb(255,_189,_46)]
+
+          [&_span:nth-child(3)]:[background:rgb(39,_201,_63)]" aria-hidden="true">
             <span />
             <span />
             <span />
           </span>
           Check-in pass
         </div>
-        <div className={styles.ticketBody}>
-          <h1 id="pass-name" className={styles.name}>
+        <div className="grid [justify-items:center] gap-[4px] p-[24px_20px_20px] text-center [:where(&)_>_*]:m-0">
+          <h1 id="pass-name" className="text-[32px] leading-[1.15] [overflow-wrap:anywhere]">
             {pass.firstName}
           </h1>
-          <p className={styles.event}>{pass.event.name}</p>
-          <canvas ref={canvas} className={styles.qr} role="img" aria-label="Your check-in QR code" />
-          <p className={styles.hint}>Show this at the door. Turn your screen brightness up. This code is personal.</p>
+          <p className="text-link mb-[16px]">{pass.event.name}</p>
+          <canvas ref={canvas} className="block w-[min(100%,_300px)] h-auto [background:rgb(255,_255,_255)] rounded-md
+
+          [image-rendering:pixelated]" role="img" aria-label="Your check-in QR code" />
+          <p className="max-w-[32ch] mt-[12px] text-muted-foreground text-[13px]">Show this at the door. Turn your screen brightness up. This code is personal.</p>
         </div>
-        <dl className={styles.facts}>
+        <dl className="grid [grid-template-columns:repeat(auto-fit,_minmax(160px,_1fr))] gap-[16px] m-0 p-[16px_20px_20px]
+
+          [border-top-width:1px] [border-top-style:dashed] [border-top-color:var(--line)] [&_dt]:text-muted-foreground
+
+          [&_dt]:text-[12px] [&_dt]:tracking-[0.08em] [&_dt]:uppercase [&_dd]:m-[4px_0px_0px] [&_dd]:font-semibold">
           <div>
             <dt>When</dt>
             <dd>{formatEventDateTime(pass.event.startsAt, pass.event.timezone)}</dd>
@@ -199,7 +204,6 @@ function ActiveView({ pass, token, onChanged }: { pass: ActivePass; token: strin
           </div>
         </dl>
       </section>
-      <PhotoSection pass={pass} token={token} onChanged={onChanged} />
       {/* Keyed so another pass opened in this tab (hash change) never shows the previous pass's setting. */}
       <ProfileSection key={`${token}:${pass.profile.public}`} pass={pass} token={token} />
     </>
@@ -211,7 +215,6 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
   const [on, setOn] = useState(pass.profile.public);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
-  const what = pass.profile.hasLinkedin ? 'name and LinkedIn' : 'name';
 
   async function onToggle(e: React.ChangeEvent<HTMLInputElement>) {
     const next = e.target.checked;
@@ -239,87 +242,25 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
   }
 
   return (
-    <section className={styles.card} aria-labelledby="profile-heading">
+    <Card className="tw-pass-card flex flex-col gap-[12px] [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card p-[20px] shadow-panel [:where(&)_>_*]:m-0
+
+          [&_h2]:text-[18px]" asChild><section  aria-labelledby="profile-heading">
       <h2 id="profile-heading">Badge profile (optional)</h2>
-      <p>If you get an NFC badge at the event, other attendees can tap it with their phone.</p>
-      <label className={styles.check}>
+      <p>If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
+      <Label className="flex gap-[12px] items-center min-h-[44px] font-semibold [&_input]:w-[22px] [&_input]:h-[22px]
+
+          [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
-        Show my {what} when someone taps my badge
-      </label>
-      {!pass.profile.hasLinkedin && <p className={styles.meta}>We don’t have a LinkedIn URL for you, so only your name would show.</p>}
-      <p className={`${styles.message} ${message ? styles[message.tone] : ''}`} role="status" aria-live="polite">
+        Show my name and profile links to anyone who taps my badge
+      </Label>
+      <p className="m-0 text-muted-foreground text-[14px]">Your LinkedIn, Discord and website are set on your Hacker profile.</p>
+      <Alert className={` [&:empty]:mt-[-12px] ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">
         {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
-      </p>
-    </section>
-  );
-}
-
-function PhotoSection({ pass, token, onChanged }: { pass: ActivePass; token: string; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
-
-  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setBusy(true);
-    setMessage(null);
-    try {
-      let upload: Blob;
-      try {
-        upload = await shrink(file);
-      } catch {
-        setMessage({ tone: 'bad', text: "That image couldn't be read. Please use a JPEG, PNG or WebP photo." });
-        return;
-      }
-      const form = new FormData();
-      form.set('token', token);
-      form.set('file', upload, 'photo.jpg');
-      const res = await fetch('/api/pass/photo', { method: 'POST', body: form });
-      if (res.ok) {
-        setMessage({ tone: 'ok', text: 'Photo saved.' });
-        onChanged();
-      } else {
-        setMessage({ tone: 'bad', text: PHOTO_ERRORS[res.status] ?? 'Upload failed. Please try again.' });
-      }
-    } catch {
-      setMessage({ tone: 'bad', text: 'Upload failed. Check your connection and try again.' });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <section className={styles.card} aria-labelledby="photo-heading">
-      <h2 id="photo-heading">Photo (optional)</h2>
-      <p>A photo helps volunteers check you in faster.</p>
-      <div className={styles.photoRow}>
-        {pass.photo.url ? (
-          <Image className={styles.photo} src={pass.photo.url} alt="Your photo" width={96} height={96} unoptimized />
-        ) : (
-          <p className={styles.meta}>No photo yet.</p>
-        )}
-      </div>
-      {pass.photoLocked ? (
-        <p>🔒 Your photo is locked because you&apos;ve already checked in.</p>
-      ) : (
-        <>
-          <input
-            id="photo-input"
-            className={styles.fileInput}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={onFile}
-            disabled={busy}
-          />
-          <label htmlFor="photo-input" className={styles.fileLabel}>
-            {busy ? 'Uploading…' : pass.photo.url ? 'Change photo' : 'Add a photo'}
-          </label>
-        </>
-      )}
-      <p className={`${styles.message} ${message ? styles[message.tone] : ''}`} role="status" aria-live="polite">
-        {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
-      </p>
-    </section>
+      </p></Alert>
+    </section></Card>
   );
 }

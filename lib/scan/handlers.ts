@@ -11,7 +11,6 @@ import { SCAN_CODES, VOID_CODES } from '@/lib/domain/scan-codes';
 import { searchQuery } from '@/lib/domain/search';
 import { sha256hex } from '@/lib/domain/token';
 import { UNDO_WINDOW_MS } from '@/lib/scanner/undo';
-import { signedPhotoUrl, signedPhotoUrls } from '@/lib/storage/photos';
 import { scanRequestSchema } from './schema';
 
 type Db = SupabaseClient<Database>;
@@ -54,12 +53,25 @@ async function recentAttempts(db: Db, staffId: string, seconds: number, code?: s
   return count ?? 0;
 }
 
+// record_scan() answers a replay before it checks that the caller is still staff (§8 step 1), so health data
+// on a replay goes only to current staff of the scan's event (v0.9).
+async function staffOfScan(db: Db, scanId: string | undefined, userId: string): Promise<boolean> {
+  if (!scanId) return false;
+  const { data: scan, error } = await db.from('scans').select('event_id').eq('id', scanId).maybeSingle();
+  if (error) throw new Error(`scan load failed (${error.code})`);
+  if (!scan) return false;
+  const { data: staff, error: staffError } = await db.from('event_staff').select('user_id').eq('event_id', scan.event_id).eq('user_id', userId).maybeSingle();
+  if (staffError) throw new Error(`event_staff load failed (${staffError.code})`);
+  return staff !== null;
+}
+
 const participantSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  photoPath: z.string().nullable(),
   status: z.string(),
   dietaryNotes: z.string().nullable().optional(),
+  allergies: z.string().nullable().optional(),
+  allergySeverity: z.string().nullable().optional(),
 });
 const scanResultSchema = z.object({
   code: z.enum(SCAN_CODES),
@@ -75,7 +87,7 @@ const scanResultSchema = z.object({
 });
 
 // POST /api/scan (SPEC §9.1, F6). Every decision is made by record_scan() (I-2); this handler only
-// authenticates, rate-limits, hashes the token (I-3), signs the photo URL and logs the attempt.
+// authenticates, rate-limits, hashes the token (I-3) and logs the attempt.
 export function createScanHandler(deps: ApiDeps) {
   return async (request: Request): Promise<Response> => {
     const user = await deps.authenticate(request);
@@ -129,6 +141,7 @@ export function createScanHandler(deps: ApiDeps) {
     if (logError) console.error(JSON.stringify({ level: 'error', msg: 'scan_attempts insert failed', error: sanitizeError(logError.code) }));
 
     const { participant, ...rest } = result;
+    const health = rest.code === 'ACCEPTED' && (!rest.replayed || (await staffOfScan(deps.db, rest.scanId, user.id)));
     return json({
       ...rest,
       ...(participant && {
@@ -136,8 +149,10 @@ export function createScanHandler(deps: ApiDeps) {
           id: participant.id,
           displayName: participant.displayName,
           status: participant.status,
-          dietaryNotes: participant.dietaryNotes ?? null,
-          photoUrl: participant.photoPath ? await signedPhotoUrl(deps.db, participant.photoPath) : null,
+          // v0.9: dietary notes and allergies only on ACCEPTED (record_scan() answers REVOKED before it checks
+          // the event, so another event's attendee would otherwise show theirs here), and a replay only to current staff.
+          dietaryNotes: health ? (participant.dietaryNotes ?? null) : null,
+          ...(health && { allergies: participant.allergies ?? null, allergySeverity: participant.allergySeverity ?? null }),
         },
       }),
       serverTime: new Date().toISOString(),
@@ -258,15 +273,21 @@ export function createSearchHandler(deps: ApiDeps) {
       ...(checkpointId && { p_checkpoint_id: checkpointId }),
     });
     if (error) throw new Error(`search failed (${error.code})`);
-    const photos = await signedPhotoUrls(deps.db, data.flatMap((r) => (r.photo_path ? [r.photo_path] : [])));
+    const { data: badges, error: badgeError } = await deps.db
+      .from('badges')
+      .select('participant_id')
+      .eq('event_id', staff.eventId)
+      .in('participant_id', data.map((r) => r.id));
+    if (badgeError) throw new Error(`badges load failed (${badgeError.code})`);
+    const linked = new Set(badges.map((b) => b.participant_id));
     return json({
       results: data.map((r) => ({
         id: r.id,
         displayName: `${r.first_name} ${r.last_name}`.trim(),
         status: r.status,
         email: staff.role === 'organizer' ? r.email : maskEmail(r.email),
-        photoUrl: r.photo_path ? (photos.get(r.photo_path) ?? null) : null,
         scannedHere: r.scanned_here,
+        hasBadge: linked.has(r.id),
       })),
     });
   };

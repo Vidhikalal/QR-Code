@@ -15,11 +15,12 @@ test.afterEach(async () => {
 test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a password → /me → the same pass as the email; tokens never in a URL', async ({ browser, page }) => {
   const email = `rae-${f.slug}@example.test`;
   await f.pool.query(
-    `insert into participants (event_id, external_id, email, first_name, last_name, search_text, status, source)
-     values ($1, 'rsvp-1', $2, 'Rae', 'Rsvp', 'rae rsvp', 'pending', 'sheet')`,
+    `insert into participants (event_id, external_id, email, first_name, last_name, search_text, dietary_notes, status, source)
+     values ($1, 'rsvp-1', $2, 'Rae', 'Rsvp', 'rae rsvp', 'Halal', 'pending', 'sheet')`,
     [f.e1.id, email],
   );
 
+  await f.pool.query(`update events set rsvp_deadline = now() + interval '3 days' where id = $1`, [f.e1.id]); // v0.9
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/participants`);
   await page.getByLabel('Select Rae Rsvp').check();
   await page.getByRole('button', { name: 'Send RSVP (1)' }).click();
@@ -30,7 +31,9 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
     await expect(page.getByText('RSVP sent')).toBeVisible({ timeout: 1000 });
   }).toPass({ timeout: 15_000 });
 
-  const rsvpToken = /\/rsvp#([A-Za-z0-9_-]{32})/.exec(await consoleMailText(email, '/rsvp#'))?.[1] ?? '';
+  const invitation = await consoleMailText(email, '/rsvp#');
+  expect(invitation).toContain('Please reply by '); // v0.9
+  const rsvpToken = /\/rsvp#([A-Za-z0-9_-]{32})/.exec(invitation)?.[1] ?? '';
   expect(rsvpToken).toHaveLength(32);
 
   const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
@@ -40,16 +43,45 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.goto(`/rsvp#${rsvpToken}`);
   await expect(p.getByRole('heading', { name: f.e1.name })).toBeVisible();
   await expect(p.getByText('Hi Rae, will you be there?')).toBeVisible();
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await expect(p.locator('strong', { hasText: /^\s*Reply by \w{3}, / })).toBeVisible();
+  await expect(p.getByRole('button', { name: 'No, give my spot away' })).toBeVisible();
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  await expect(p.getByLabel('Dietary notes')).toHaveCount(0); // v0.8.2: the Sheet's, for organizers only
+  await expect(p.getByLabel('Emergency contact name')).toHaveCount(0); // v0.9: set up after the Yes
+  await p.getByLabel('Set a password for your Datathon account').fill('rae-event-password');
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  // Profile setup (F14) is offered after the Yes, not forced.
+  await expect(p.getByRole('heading', { name: 'You’re in, Rae' })).toBeVisible();
+  await p.getByRole('link', { name: 'Set up my hacker profile' }).click();
+  await p.waitForURL('**/me/profile');
+  await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
   await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
   await p.getByLabel('Emergency contact phone').fill('416 555 0100');
-  await p.getByLabel("I'm looking for a team: list me in the teammate directory (name only)").check();
-  await p.getByLabel('Set a password for your Passline account').fill('rae-event-password');
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
-  await p.waitForURL('**/me');
+  await p.getByLabel('Not sure yet').check();
+  await p.getByLabel('I’m looking for a team (lists my name in the teammate directory)').check();
+  await p.getByLabel('Allergies (optional)').fill('Peanuts');
+  // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.
+  await p.getByRole('button', { name: 'Save profile' }).click();
+  expect(await p.getByLabel('How severe?').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
+  await expect(p.getByLabel('Emergency contact name')).toHaveValue('Sam Rsvp');
+  await p.getByLabel('How severe?').selectOption('severe');
+  await p.getByLabel('Accessibility needs (optional)').fill('Step-free access');
+  await p.getByRole('button', { name: 'Save profile' }).click();
+  await expect(p.getByText('✓ Saved. Your profile is set up.')).toBeVisible();
+  await expect(p.getByRole('heading', { name: 'Hacker profile' })).toBeVisible();
+  const { rows } = await f.pool.query(
+    `select emergency_name, emergency_phone, looking_for_team, dietary_notes, overnight, team_status, allergies, allergy_severity, accessibility
+       from participants where email = $1`,
+    [email],
+  );
+  expect(rows).toEqual([
+    {
+      emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100', looking_for_team: true, dietary_notes: 'Halal',
+      overnight: 'unsure', team_status: 'looking', allergies: 'Peanuts', allergy_severity: 'severe', accessibility: 'Step-free access',
+    },
+  ]);
+  await p.goto('/me');
   await expect(p.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
-  const { rows } = await f.pool.query('select emergency_name, emergency_phone, looking_for_team from participants where email = $1', [email]);
-  expect(rows).toEqual([{ emergency_name: 'Sam Rsvp', emergency_phone: '416 555 0100', looking_for_team: true }]);
 
   // The pass email is sent after the response; /me shows the pass once it's issued.
   const passToken = /\/p#([A-Za-z0-9_-]{32})/.exec(await consoleMailText(email, '/p#'))?.[1] ?? '';
@@ -85,19 +117,20 @@ test('T-RSVP-04 (E): someone who already has an account types their own password
   const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
-  await expect(p.getByLabel('Set a password for your Passline account')).toHaveCount(0);
-  await p.getByLabel('Emergency contact name').fill('Sam Account');
-  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
-  await p.getByLabel('Your Passline password').fill('not-my-password');
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  await expect(p.getByLabel('Set a password for your Datathon account')).toHaveCount(0);
+  await p.getByLabel('Your Datathon password').fill('not-my-password');
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
   // Next's route announcer is also role=alert (empty), so pick ours by its text.
-  await expect(p.getByRole('alert').filter({ hasText: 'isn’t your Passline password' })).toBeVisible();
+  await expect(p.getByRole('alert').filter({ hasText: 'isn’t your Datathon password' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'pending' }]);
-  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
-  await p.waitForURL('**/me');
-  await expect(p.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
+  await p.getByLabel('Your Datathon password').fill(STAFF_PASSWORD);
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  // Later skips profile setup for now; the menu still asks for it.
+  await expect(p.getByRole('heading', { name: 'You’re in, Ari' })).toBeVisible();
+  await p.getByRole('link', { name: 'Later' }).click();
+  await p.waitForURL((u) => u.pathname === '/me');
+  await expect(p.getByRole('navigation', { name: 'Hacker menu' }).getByText('Finish setting up')).toBeVisible();
   await attendee.close();
 });
 
@@ -114,11 +147,33 @@ test('T-RSVP-04 (E): a volunteer without a display name who answers Yes goes thr
   const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
-  await p.getByLabel('Emergency contact name').fill('Sam Volunteer');
-  await p.getByLabel('Emergency contact phone').fill('416 555 0100');
-  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
-  await p.getByRole('button', { name: 'Yes, I’ll be there' }).click();
-  await p.waitForURL((u) => u.pathname === '/onboarding' && u.searchParams.get('next') === '/me');
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  await p.getByLabel('Your Datathon password').fill(STAFF_PASSWORD);
+  await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
+  await p.waitForURL((u) => u.pathname === '/onboarding' && u.searchParams.get('next') === '/me/profile');
+  await attendee.close();
+});
+
+test('T-RSVP-08 (E): past the deadline the link says so and only offers to give the spot away', async ({ browser }) => {
+  const { rows } = await f.pool.query<{ id: string }>(
+    `insert into events (slug, name, venue, starts_at, ends_at, rsvp_deadline)
+     values ($1, 'Late Fest', 'Hall', now() + interval '2 days', now() + interval '3 days', now() - interval '1 day') returning id`,
+    [`${f.slug}-late`],
+  );
+  const token = generateToken();
+  const email = `lou-${f.slug}@example.test`;
+  await f.pool.query(
+    `insert into participants (event_id, email, first_name, search_text, status, source, rsvp_token_hash, rsvp_sent_at)
+     values ($1, $2, 'Lou', 'lou', 'pending', 'sheet', $3, now() - interval '10 days')`,
+    [rows[0]?.id, email, sha256hex(token)],
+  );
+  const attendee = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const p = await attendee.newPage();
+  await p.goto(`/rsvp#${token}`);
+  await expect(p.getByText(/The RSVP deadline \(.+\) has passed/)).toBeVisible();
+  await expect(p.getByRole('button', { name: 'Yes, I’m coming' })).toHaveCount(0);
+  await p.getByRole('button', { name: 'No, give my spot away' }).click();
+  await expect(p.getByRole('heading', { name: 'Thanks for letting us know' })).toBeVisible();
+  expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'withdrawn' }]);
   await attendee.close();
 });

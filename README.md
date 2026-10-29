@@ -17,7 +17,7 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 | `/login` | Staff and participants | Sign in with your email and password. Use **Forgot or never set your password?** to set or reset it by email. First staff sign-in asks for a display name. |
 | `/admin/<slug>` | Organizers | The event's control panel (tabs below). |
 | `/scan/<slug>` | Organizers + volunteers | The scanner. Also reachable from the admin tabs ("Scanner ↗"). |
-| `/p#<token>` | Participants | Their pass: name, event, QR code, optional photo upload. They get this link in their email. |
+| `/p#<token>` | Participants | Their pass: name, event and QR code. They get this link in their email. |
 | `/me` | Participants | My passes: upcoming events and links to open passes. |
 | `/rsvp#<token>` | Applicants | Answer Yes or No to an RSVP invitation. |
 
@@ -42,7 +42,7 @@ Everything is scoped to one **event**, identified by its slug in the URL (`demo`
 2. Point the camera at a pass. Results:
    - 🟢 **Green (ADMIT / SERVE / RECORDED):** let them through. It clears by itself.
    - 🟠 **Amber:** needs action, e.g. *old code* (ask for their newest email), *not checked in yet* (send them to the Door), *checkpoint closed*, *no result* (network hiccup: rescan, don't admit yet). Tap to dismiss.
-   - 🔴 **Red:** stop, e.g. *already scanned* (with who and when; compare the photo), *pass cancelled*, *not accepted*, *wrong event*, *full*, *unknown code*. Tap to dismiss.
+   - 🔴 **Red:** stop, e.g. *already scanned* (with who and when; escalate to an organizer), *pass cancelled*, *not accepted*, *wrong event*, *full*, *unknown code*. Tap to dismiss.
 3. **Manual search:** for a broken screen or a lost email. Search by name (accents optional: `zoe` finds Zoë) and record the scan.
 4. **Undo:** you can void your own scan for 2 minutes; give a reason. Organizers can void any scan from the Participants tab.
 5. **OFFLINE banner:** no connection, so scanning is disabled. Use the printed roster (see the launch checklist) until it's back.

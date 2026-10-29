@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { toFileLabel } from '@/lib/domain/file-label';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
@@ -7,6 +8,7 @@ import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
 import { ProviderError, type EmailProvider } from './provider';
 import { renderPassEmail, type RenderedEmail } from './templates/pass';
+import { renderProfileReminderEmail } from './templates/profile-reminder';
 import { renderRsvpEmail } from './templates/rsvp';
 import { renderTeamInviteEmail } from './templates/team-invite';
 
@@ -62,32 +64,36 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
   let providerId: string;
   try {
     // 1. Reload the participant; stop if they were deleted, or (for a pass) are no longer accepted,
-    // or (for an RSVP, F13) already are.
+    // or (for an RSVP or its reminder, F13) already are.
     const { data: p, error } = await opts.db
       .from('participants')
-      .select('first_name, email, status, deleted_at, events(name, venue, starts_at, timezone)')
+      .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(name, venue, starts_at, timezone)')
       .eq('id', row.participant_id)
       .single();
     if (error) throw new Error(`participant load failed (${error.code})`);
     const accepted = p.status === 'accepted';
-    if (p.deleted_at !== null || (row.kind === 'rsvp' ? accepted : !accepted)) {
+    const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
+    if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) {
       await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
       return 'cancelled';
     }
     const event = { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
 
     let email: RenderedEmail;
-    if (row.kind === 'rsvp') {
+    if (rsvp) {
       // 2. A fresh RSVP token, stored (hash only) BEFORE the send, like a pass (I-10); older links stop working.
-      // Only while this job is still ours: an answer that cancelled it since the claim stops the resend.
+      // Only while this job is still ours (an answer that cancelled it since the claim stops the resend) and,
+      // for a reminder, while they can still answer. It answers when the invitation closes.
       const token = generateToken();
-      const { data: stillOurs, error: rsvpError } = await opts.db.rpc('set_rsvp_token', { p_outbox_id: row.id, p_token_hash: sha256hex(token) });
+      const { data: stored, error: rsvpError } = await opts.db.rpc('set_rsvp_token', { p_outbox_id: row.id, p_token_hash: sha256hex(token) });
       if (rsvpError) throw new Error(`set_rsvp_token failed (${rsvpError.code})`);
-      if (!stillOurs) {
+      const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
+      if (!closes.success) {
         await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
         return 'cancelled';
       }
-      email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}` });
+      const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
+      email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
     } else if (row.kind === 'team_invite') {
       const { data: invite, error: inviteError } = await opts.db.from('team_invites')
         .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
@@ -98,7 +104,14 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
         return 'cancelled';
       }
       email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
-    } else {
+    } else if (row.kind === 'profile_reminder') {
+      // F14 (v0.9): only while their profile still isn't finished.
+      if (p.emergency_name !== null && p.overnight !== null && p.team_status !== null) {
+        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+        return 'cancelled';
+      }
+      email = renderProfileReminderEmail({ firstName: p.first_name, event: event.name, appOrigin: opts.appOrigin });
+    } else if (row.kind === 'pass_issued' || row.kind === 'pass_reissued') {
       // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
       const passId = randomUUID();
       const token = passToken(opts.passSecret, passId);
@@ -109,7 +122,11 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
       });
       if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
       const passUrl = `${opts.appOrigin}/p#${token}`;
-      email = renderPassEmail({ firstName: p.first_name, event, passUrl, qrPng: await renderQrPng(passUrl) });
+      email = renderPassEmail({ firstName: p.first_name, event, passUrl, qrPng: await renderQrPng(passUrl), profileUrl: `${opts.appOrigin}/me/profile` });
+    } else {
+      // A kind this drainer doesn't know is never sent, least of all as a pass.
+      await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
+      return 'cancelled';
     }
 
     // 3. Send.

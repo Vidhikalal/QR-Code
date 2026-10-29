@@ -6,7 +6,7 @@ import { db } from '@/lib/db/server';
 import { myEvent } from '@/lib/me/profile';
 
 export const menuMetadata = (title: string): Metadata => ({
-  title: `${title} · Passline`,
+  title: `${title} · Datathon`,
   referrer: 'no-referrer',
   robots: { index: false, follow: false },
 });

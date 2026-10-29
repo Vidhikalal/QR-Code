@@ -32,6 +32,9 @@ const lookupSchema = z.object({
   hasAccount: z.boolean(),
   profile: z.object({ dietaryNotes: z.string().nullable(), linkedinUrl: z.string().nullable(), profilePublic: z.boolean() }),
   event: z.object({ name: z.string(), venue: z.string(), startsAt: z.string(), timezone: z.string() }),
+  // v0.9: when the invitation stops taking a Yes, and whether it has (never for the accepted).
+  closesAt: z.string().nullable().transform((at) => at && new Date(at).toISOString()),
+  closed: z.boolean(),
 });
 
 const field = z.string().max(1000).optional(); // lengths are checked by parseProfileInput
@@ -40,7 +43,8 @@ const rsvpBody = z
     token: z.string().max(512),
     going: z.boolean().optional(),
     password: z.string().max(200).optional(),
-    // v0.6 Yes form (F13 step 4): emergency contact (required on Yes), networking profile, dietary notes.
+    // Optional since v0.9 (the Yes form sends only the password; the profile is set up after, F14). Still
+    // accepted, and checked, from older pages.
     emergencyName: field,
     emergencyPhone: field,
     emergencyRelation: field,
@@ -56,8 +60,8 @@ const rsvpBody = z
 // a password (v0.7.2): someone without an account sets one (the emailed link proved the address); someone
 // with an account enters theirs, checked like a sign-in with its own per-email limit (only the token holder
 // gets here, so burning /login's tries can't block a Yes). Either way they end up signed in, and an existing
-// account's password is never changed here. Yes also needs the emergency contact; everything is checked
-// before anything changes (no account is made for a refused answer). JSON bodies only: a cross-site form
+// account's password is never changed here. Everything is checked before anything changes (no account is
+// made for a refused answer). JSON bodies only: a cross-site form
 // can't send one, so no other site can post a Yes and sign a visitor into someone else's account.
 export function createRsvpHandler(deps: RsvpDeps) {
   return async (request: Request): Promise<Response> => {
@@ -81,9 +85,11 @@ export function createRsvpHandler(deps: RsvpDeps) {
     const { going, password = '' } = body.data;
     if (going === undefined) {
       // The prefill holds the Sheet's dietary notes and LinkedIn, never the email or the emergency contact.
-      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile });
+      return json({ firstName: found.firstName, event: found.event, status: found.status, hasAccount: found.hasAccount, profile: found.profile, closesAt: found.closesAt, closed: found.closed });
     }
-    const profile = going ? parseProfileInput(body.data, { requireEmergency: true }) : null;
+    // Past the deadline (F13, v0.9): refused before any account is made or signed into.
+    if (going && found.closed) return json({ error: 'closed' }, 409);
+    const profile = going ? parseProfileInput(body.data, { requireEmergency: false }) : null;
     if (profile && !profile.ok) return json({ error: 'invalid_profile', field: profile.field }, 400);
 
     if (going && password === '') return json({ error: 'password_required' }, 400);
@@ -116,6 +122,7 @@ export function createRsvpHandler(deps: RsvpDeps) {
     });
     if (respondError) throw new Error(`rsvp_respond failed (${respondError.code})`);
     if (code === 'NOT_FOUND') return json({ state: 'not_found' }, 404);
+    if (code === 'CLOSED') return json({ error: 'closed' }, 409); // the deadline passed since the lookup
     // Never send inline (SPEC §2 Outbox): the pass email goes out after the response.
     if (code === 'GOING') deps.scheduleDrain(deps.drain);
     // A new account whose sign-in fails here keeps its answer: they're told to sign in (signedIn: false).

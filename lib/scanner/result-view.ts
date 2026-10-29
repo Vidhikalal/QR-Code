@@ -29,7 +29,6 @@ export interface ResultView {
   /** Shown bold, e.g. dietary notes at a meal. */
   emphasis?: string;
   name?: string;
-  photoUrl?: string | null;
   dismiss: { autoMs: number } | 'tap';
   action?: 'manual-search' | 'pick-checkpoint';
   sound: 'chime' | 'buzz' | 'double';
@@ -50,24 +49,27 @@ function clock(iso: string, timeZone: string): string {
 
 export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
   if (outcome.kind === 'malformed') {
-    return { tone: 'amber', icon: '?', headline: 'Not a Passline code', dismiss: { autoMs: MALFORMED_MS }, sound: 'double' };
+    return { tone: 'amber', icon: '?', headline: 'Not a Datathon code', dismiss: { autoMs: MALFORMED_MS }, sound: 'double' };
   }
   if (outcome.kind === 'network') return problem('amber', '!', 'NO RESULT: do not admit yet. Rescan.');
   if (outcome.kind === 'rate_limited') return problem('amber', '!', 'Slow down', { detail: 'Too many scans. Wait a moment, then rescan.' });
 
   const r = outcome.data;
-  const who = r.participant ? { name: r.participant.displayName, photoUrl: r.participant.photoUrl } : {};
+  const who = r.participant ? { name: r.participant.displayName } : {};
 
   switch (r.code) {
     case 'ACCEPTED': {
       const headline = HEADLINE[ctx.checkpointKind] + (r.replayed ? ' (confirmed)' : '');
-      const dietary = ctx.checkpointKind === 'meal' ? r.participant?.dietaryNotes : null;
+      // At a meal: the allergy first (v0.9), then the dietary notes.
+      const p = ctx.checkpointKind === 'meal' ? r.participant : undefined;
+      const allergy = p?.allergies ? `ALLERGY${p.allergySeverity ? ` (${p.allergySeverity.toUpperCase()})` : ''}: ${p.allergies}` : null;
+      const emphasis = [allergy, p?.dietaryNotes].filter(Boolean).join(' · ');
       return {
         tone: 'green',
         icon: '✓',
         headline,
         ...who,
-        ...(dietary ? { emphasis: dietary } : {}),
+        ...(emphasis ? { emphasis } : {}),
         dismiss: { autoMs: GREEN_MS },
         sound: 'chime',
       };
@@ -78,7 +80,7 @@ export function viewFor(outcome: Outcome, ctx: ViewContext): ResultView {
       if (prev?.scannedByMe && ageS < 60) return problem('amber', '⟳', `You scanned this ${ageS} s ago`, who);
       const when = prev ? ` ${clock(prev.scannedAt, ctx.timezone)}` : '';
       const by = prev ? ` by ${prev.scannedByName ?? 'another volunteer'}` : '';
-      return problem('red', '✕', `ALREADY SCANNED${when}${by}`, { ...who, detail: 'Check the photo' });
+      return problem('red', '✕', `ALREADY SCANNED${when}${by}`, who);
     }
     case 'NOT_FOUND':
       return ctx.method === 'nfc'

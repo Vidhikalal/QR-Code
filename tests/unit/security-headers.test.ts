@@ -22,7 +22,7 @@ describe('security headers (SPEC §14.12)', () => {
     expect(directive(csp, 'default-src')).toBe("default-src 'self'");
   });
 
-  it('T-SEC-06: Supabase is reachable for auth (connect) and signed photos (img), nothing else', () => {
+  it('T-SEC-06: Supabase is reachable for auth (connect) and storage images (img), nothing else', () => {
     const csp = get(prod, 'Content-Security-Policy');
     expect(directive(csp, 'connect-src')).toBe(`connect-src 'self' ${SUPABASE}`);
     expect(directive(csp, 'img-src')).toBe(`img-src 'self' blob: data: ${SUPABASE}`);

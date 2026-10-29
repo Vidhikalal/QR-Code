@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { motion, useReducedMotion } from 'motion/react';
 import { usePathname } from 'next/navigation';
 import { useSyncExternalStore } from 'react';
 import { nfcSupported } from '@/lib/scanner/nfc';
-import styles from './admin.module.css';
 
 const TABS = [
   ['', 'Dashboard'],
@@ -21,21 +21,67 @@ const subscribeNever = () => () => undefined;
 
 export function AdminNav({ slug }: { slug: string }) {
   const pathname = usePathname();
+  const reduced = useReducedMotion();
   const base = `/admin/${slug}`;
-  // §11: the Tools page (badge linker and tag writer) needs Web NFC (Chrome on Android); elsewhere the tab isn't shown.
+  // §11: the Tools page (the tag writer) needs Web NFC (Chrome on Android); elsewhere the tab isn't shown.
   const nfc = useSyncExternalStore(subscribeNever, nfcSupported, () => false);
   const tabs = nfc ? [...TABS, ['/tools', 'Tools'] as const] : TABS;
   return (
-    <nav aria-label="Admin" className={styles.nav}>
+    <nav aria-label="Admin" className="flex [justify-content:safe_center] items-center flex-nowrap gap-[10px] [overflow:auto_hidden]
+          max-w-full
+ min-w-0 [scrollbar-width:thin]
+
+          [scrollbar-color:color-mix(in_srgb,_var(--accent)_30%,_transparent)_transparent]">
       {tabs.map(([path, label]) => {
         const href = base + path;
         return (
-          <Link key={label} href={href} className={styles.tab} aria-current={pathname === href ? 'page' : undefined}>
+          <Link key={label} href={href} className="tw-admin-tab relative inline-flex items-center min-h-[48px] p-[0px_16px] text-muted-foreground no-underline
+
+          [border-bottom:2px_solid_transparent] whitespace-nowrap [flex:0_0_auto] justify-center
+
+          rounded-t-lg text-[1rem] font-semibold
+
+          [transition:color_180ms_var(--ease),_background-color_180ms_var(--ease),_border-color_180ms_var(--ease)]
+
+          [padding-inline:18px] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
+
+          max-[600.001px]:[padding-inline:12px] [&[aria-current='page']]:text-accent
+
+          [&[aria-current='page']]:font-bold [&[aria-current='page']]:[border-bottom-color:var(--accent)]
+
+          [&[aria-current='page']]:[background:color-mix(in_srgb,_var(--accent)_8%,_transparent)]
+
+          [&:hover]:text-fg [&:hover]:[background:color-mix(in_srgb,_var(--accent)_6%,_transparent)]
+
+          [&:focus-visible]:z-[1] [&:focus-visible]:[outline:2px_solid_var(--accent)]
+
+          [&:focus-visible]:[outline-offset:-3px]" aria-current={pathname === href ? 'page' : undefined}>
             {label}
+            {pathname === href && <motion.span aria-hidden="true" className="absolute inset-x-0 bottom-[-2px] h-0.5 bg-primary" layoutId={reduced ? undefined : 'admin-active-tab'} transition={{ duration: reduced ? 0 : 0.16, ease: 'easeOut' }} />}
           </Link>
         );
       })}
-      <Link href={`/scan/${slug}`} className={styles.tab}>
+      <Link href={`/scan/${slug}`} className="tw-admin-tab relative inline-flex items-center min-h-[48px] p-[0px_16px] text-muted-foreground no-underline
+
+          [border-bottom:2px_solid_transparent] whitespace-nowrap [flex:0_0_auto] justify-center
+
+          rounded-t-lg text-[1rem] font-semibold
+
+          [transition:color_180ms_var(--ease),_background-color_180ms_var(--ease),_border-color_180ms_var(--ease)]
+
+          [padding-inline:18px] max-[600.001px]:min-h-[44px] max-[600.001px]:text-[0.875rem]
+
+          max-[600.001px]:[padding-inline:12px] [&[aria-current='page']]:text-accent
+
+          [&[aria-current='page']]:font-bold [&[aria-current='page']]:[border-bottom-color:var(--accent)]
+
+          [&[aria-current='page']]:[background:color-mix(in_srgb,_var(--accent)_8%,_transparent)]
+
+          [&:hover]:text-fg [&:hover]:[background:color-mix(in_srgb,_var(--accent)_6%,_transparent)]
+
+          [&:focus-visible]:z-[1] [&:focus-visible]:[outline:2px_solid_var(--accent)]
+
+          [&:focus-visible]:[outline-offset:-3px]">
         Scanner ↗
       </Link>
     </nav>

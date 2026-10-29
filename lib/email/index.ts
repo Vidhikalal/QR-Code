@@ -15,5 +15,5 @@ export function getProvider(): EmailProvider {
 }
 
 export function emailFrom(): string {
-  return env().EMAIL_FROM ?? 'Passline <passes@localhost>';
+  return env().EMAIL_FROM ?? 'Datathon <passes@localhost>';
 }
