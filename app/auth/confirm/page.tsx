@@ -1,12 +1,13 @@
+
+import { Entrance } from '@/components/motion';
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { safeNextPath } from '@/lib/auth/next-path';
 import { supabaseForRequest } from '@/lib/auth/session';
-import styles from '../../login/login.module.css';
 import { ConfirmForm } from './confirm-form';
 
-export const metadata: Metadata = { title: 'Set your password · Passline', referrer: 'no-referrer', robots: { index: false } };
+export const metadata: Metadata = { title: 'Set your password · Datathon', referrer: 'no-referrer', robots: { index: false } };
 
 const linkSchema = z.object({ token_hash: z.string().min(1).max(200), type: z.enum(['invite', 'recovery']) });
 
@@ -25,9 +26,11 @@ async function confirm(formData: FormData) {
 export default async function ConfirmPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const { type = '', next } = await searchParams;
   return (
-    <main className={styles.page}>
-      <h1>Set your Passline password</h1>
+    <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[48px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
+      <h1>Set your Datathon password</h1>
       <ConfirmForm action={confirm} type={type} next={safeNextPath(next, '/me')} />
-    </main>
+    </main></Entrance>
   );
 }

@@ -11,7 +11,7 @@ import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
 import { parseSheetId } from '@/lib/domain/sheet';
 import { generateJoinCode, parseTeamName, parseTrackNames } from '@/lib/domain/team';
 import { syncSheet } from '@/lib/ingest/sync';
-import { PHOTO_BUCKET, signedPhotoUrl } from '@/lib/storage/photos';
+import { PHOTO_BUCKET } from '@/lib/storage/photos';
 
 type Db = SupabaseClient<Database>;
 type Params = Record<string, string>;
@@ -307,9 +307,7 @@ export function createAdminApi(deps: AdminDeps) {
           isTest: p.is_test,
           applicantId: p.external_id,
           dietaryNotes: p.dietary_notes,
-          hasPhoto: p.photo_path !== null,
           hasBadge: p.has_badge,
-          photoUpdatedAt: p.photo_updated_at,
           passState: p.pass_state,
           rsvpSentAt: p.rsvp_sent_at,
           liveScans: p.live_scans,
@@ -354,8 +352,6 @@ export function createAdminApi(deps: AdminDeps) {
           allergies: p.allergies,
           allergySeverity: p.allergy_severity,
           accessibility: p.accessibility,
-          photoUrl: p.photo_path ? await signedPhotoUrl(db, p.photo_path) : null,
-          photoUpdatedAt: p.photo_updated_at,
         },
         scans: scans.map((s) => ({
           id: s.id,
@@ -832,12 +828,12 @@ export function createAdminApi(deps: AdminDeps) {
           kind,
           toCsv(
             [
-              'first_name', 'last_name', 'email', 'status', 'source', 'is_test', 'dietary_notes', 'checked_in_at_local', 'has_photo', 'applicant_id',
+              'first_name', 'last_name', 'email', 'status', 'source', 'is_test', 'dietary_notes', 'checked_in_at_local', 'applicant_id',
               'overnight', 'team_status', 'allergies', 'allergy_severity', // v0.9: catering and rooms
             ],
             data.map((p) => [
               p.first_name, p.last_name, p.email, p.status, p.source, p.is_test, p.dietary_notes,
-              local(checkedInAt.get(p.id) ?? null), p.photo_path !== null, p.external_id,
+              local(checkedInAt.get(p.id) ?? null), p.external_id,
               p.overnight, p.team_status, p.allergies, p.allergy_severity,
             ]),
           ),

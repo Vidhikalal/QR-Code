@@ -1,5 +1,8 @@
 'use client';
 
+import { Button } from '@/components/ui/button';
+import { Alert } from '@/components/ui/alert';
+
 import { createBrowserClient } from '@supabase/ssr';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -19,7 +22,6 @@ import { LinkSheet, type LinkState } from './link-sheet';
 import { ManualSearch, type Row } from './manual-search';
 import { ResultScreen } from './result-screen';
 import { ScannedHere } from './scanned-here';
-import styles from './scanner.module.css';
 import { CAMERA_KEY, checkpointKey, INPUT_KEY, KIND_LABEL, NFC_KEY, readPref, writePref, type Checkpoint, type InputMode } from './types';
 import { UndoDialog } from './undo-dialog';
 
@@ -388,50 +390,70 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
   return (
     <main
-      className={styles.root}
+      className="tw-scanner-root min-h-[100dvh] flex flex-col [background:var(--bg-deep)] text-fg"
       onPointerDown={unlockAudio}
       data-camera={mode === 'nfc' || linking ? 'off' : camera}
       data-scanning={scanningPaused ? 'paused' : 'on'}
       data-active-at={activeAt ?? undefined}
     >
-      <header className={styles.banner} data-kind={checkpoint?.kind ?? 'none'} data-testid="checkpoint-banner">
-        <span className={styles.bannerText}>
-          <span className={styles.bannerKind}>
+      <header className="sticky top-0 z-[5] flex items-center gap-[14px] p-[16px_22px] text-white font-bold
+
+          [border-bottom:1px_solid_rgba(255,_255,_255,_0.14)] [box-shadow:rgba(0,_0,_0,_0.18)_0px_8px_28px]
+
+          [&[data-kind='door']]:[background:rgb(23,_71,_166)] [&[data-kind='meal']]:[background:rgb(154,_52,_18)]
+
+          [&[data-kind='session']]:[background:rgb(107,_33,_168)]
+
+          [&[data-kind='custom']]:[background:rgb(8,_103,_94)] [&[data-kind='none']]:[background:rgb(37,_43,_59)]" data-kind={checkpoint?.kind ?? 'none'} data-testid="checkpoint-banner">
+        <span className="flex-1 min-w-0">
+          <span className="block text-[11px] font-extrabold opacity-[0.8] uppercase tracking-[0.12em] mb-[3px]">
             {checkpoint ? `${KIND_LABEL[checkpoint.kind]}${checkpoint.isOpen ? '' : ' · closed'}` : props.eventName}
           </span>
-          <span className={styles.bannerName}>{checkpoint?.name ?? 'No checkpoint selected'}</span>
+          <span className="block text-[21px] leading-[1.3] overflow-hidden text-ellipsis whitespace-nowrap">{checkpoint?.name ?? 'No checkpoint selected'}</span>
         </span>
-        <button type="button" className={styles.bannerButton} onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
+        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/22" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
           Change
-        </button>
+        </Button>
       </header>
 
       {offline && (
-        <div className={styles.offline} role="alert">
+        <Alert className="[background:rgb(127,_29,_29)] text-white p-[12px_16px] font-bold text-center
+
+          [border-bottom:1px_solid_rgba(255,_255,_255,_0.12)]" asChild><div  role="alert">
           ⚠ OFFLINE: use paper list
-        </div>
+        </div></Alert>
       )}
 
-      <div className={styles.viewport}>
-        <video ref={videoRef} className={styles.video} style={mode === 'nfc' || linking ? { display: 'none' } : undefined} playsInline muted aria-label="Camera view" />
+      <div className="relative h-[60dvh] min-h-[320px] [background:rgb(8,_11,_18)] overflow-hidden [border-bottom-width:1px]
+
+          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
+        <video ref={videoRef} className="block w-full h-full object-cover" style={mode === 'nfc' || linking ? { display: 'none' } : undefined} playsInline muted aria-label="Camera view" />
         {mode === 'nfc' ? (
-          <div className={styles.viewportMessage}>
+          <div className="absolute [inset:0px] grid [place-items:center] p-[32px] text-center
+
+          [background:radial-gradient(rgba(36,_48,_66,_0.6),_transparent_70%),_rgb(12,_16,_26)] text-fg">
             <p>📶 NFC badges: the camera is off. Hold a badge flat against the back of the phone.</p>
             {nfc.state === 'off' && (
-              <button type="button" onClick={() => void nfc.start()}>
+              <Button type="button" onClick={() => void nfc.start()}>
                 Start badge reader
-              </button>
+              </Button>
             )}
           </div>
         ) : (
           camera !== 'starting' &&
           camera !== 'ready' && (
-            <div className={styles.viewportMessage} role="alert">
+            <Alert className="absolute [inset:0px] grid [place-items:center] p-[32px] text-center
+
+          [background:radial-gradient(rgba(36,_48,_66,_0.6),_transparent_70%),_rgb(12,_16,_26)] text-fg" asChild><div  role="alert">
               <p>📷 {CAMERA_HELP[camera]}</p>
-            </div>
+            </div></Alert>
           )
         )}
-        <div className={styles.status} aria-live="polite">
+        <div className="absolute left-[16px] right-[16px] bottom-[16px] p-[12px_16px] [background:rgba(8,_11,_18,_0.88)]
+
+          [border-width:1px] [border-style:solid] [border-color:rgba(255,_255,_255,_0.14)] rounded-card
+
+          [backdrop-filter:blur(12px)] text-[13px] [color:rgb(226,_232,_240)]" aria-live="polite">
           {busy
             ? 'Checking…'
             : mode === 'nfc'
@@ -450,39 +472,41 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         </div>
       </div>
 
-      <div className={styles.actions}>
-        <button ref={searchButton} type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
+      <div className="flex gap-[12px] p-[20px_24px] flex-wrap [background:var(--bg-deep)] [&_button]:flex-1
+
+          [&_button]:min-h-[52px]">
+        <Button ref={searchButton} type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
           Manual search
-        </button>
-        <button ref={peopleButton} type="button" className={styles.secondary} onClick={() => setPeopleOpen(true)} disabled={offline || !checkpoint}>
+        </Button>
+        <Button ref={peopleButton} type="button" variant="outline" onClick={() => setPeopleOpen(true)} disabled={offline || !checkpoint}>
           Scanned here
-        </button>
+        </Button>
         {showUndo && (
-          <button type="button" className={styles.secondary} onClick={() => setUndoOpen(true)}>
+          <Button type="button" variant="outline" onClick={() => setUndoOpen(true)}>
             Undo last
-          </button>
+          </Button>
         )}
         {nfc.supported && mode && (
-          <div className={styles.inputSwitch} role="group" aria-label="Scan with">
-            <button type="button" className={mode === 'camera' ? undefined : styles.secondary} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
+          <div className="flex gap-[12px] [flex:1_1_100%]" role="group" aria-label="Scan with">
+            <Button type="button" variant={mode === 'camera' ? 'default' : 'outline'} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
               Camera
-            </button>
-            <button type="button" className={mode === 'nfc' ? undefined : styles.secondary} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
+            </Button>
+            <Button type="button" variant={mode === 'nfc' ? 'default' : 'outline'} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
               NFC badges
-            </button>
+            </Button>
           </div>
         )}
       </div>
-      {nfc.supported && needsTap && <p className={styles.notice}>Tap the screen once so the phone can vibrate on each scan.</p>}
+      {nfc.supported && needsTap && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">Tap the screen once so the phone can vibrate on each scan.</p>}
       {mode === 'nfc' && !linking && nfc.error && (
-        <p className={styles.notice} role="alert">
+        <Alert className="p-[0px_24px_16px] text-muted-foreground text-[14px]" asChild><p  role="alert">
           ✕ {nfc.error}
-        </p>
+        </p></Alert>
       )}
       {notice && (
-        <p className={styles.notice} role="status">
+        <Alert className="p-[0px_24px_16px] text-muted-foreground text-[14px]" asChild role="status"><p  role="status">
           {notice}
-        </p>
+        </p></Alert>
       )}
 
       {pickerOpen && checkpoints && (

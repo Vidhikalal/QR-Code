@@ -10,15 +10,11 @@ export interface PassLookup {
     firstName: string;
     status: string;
     deleted: boolean;
-    photoPath: string | null;
-    photoUpdatedAt: string | null;
     /** §6.5 badge profile opt-in. */
     profilePublic: boolean;
     hasLinkedin: boolean;
   };
   event: { name: string; venue: string; startsAt: string; timezone: string };
-  /** A live door scan exists, so the photo is locked. */
-  checkedIn: boolean;
 }
 
 export function passState(lookup: PassLookup | null): PassPageState {

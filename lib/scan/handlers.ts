@@ -11,7 +11,6 @@ import { SCAN_CODES, VOID_CODES } from '@/lib/domain/scan-codes';
 import { searchQuery } from '@/lib/domain/search';
 import { sha256hex } from '@/lib/domain/token';
 import { UNDO_WINDOW_MS } from '@/lib/scanner/undo';
-import { signedPhotoUrl, signedPhotoUrls } from '@/lib/storage/photos';
 import { scanRequestSchema } from './schema';
 
 type Db = SupabaseClient<Database>;
@@ -69,7 +68,6 @@ async function staffOfScan(db: Db, scanId: string | undefined, userId: string): 
 const participantSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  photoPath: z.string().nullable(),
   status: z.string(),
   dietaryNotes: z.string().nullable().optional(),
   allergies: z.string().nullable().optional(),
@@ -89,7 +87,7 @@ const scanResultSchema = z.object({
 });
 
 // POST /api/scan (SPEC §9.1, F6). Every decision is made by record_scan() (I-2); this handler only
-// authenticates, rate-limits, hashes the token (I-3), signs the photo URL and logs the attempt.
+// authenticates, rate-limits, hashes the token (I-3) and logs the attempt.
 export function createScanHandler(deps: ApiDeps) {
   return async (request: Request): Promise<Response> => {
     const user = await deps.authenticate(request);
@@ -155,7 +153,6 @@ export function createScanHandler(deps: ApiDeps) {
           // the event, so another event's attendee would otherwise show theirs here), and a replay only to current staff.
           dietaryNotes: health ? (participant.dietaryNotes ?? null) : null,
           ...(health && { allergies: participant.allergies ?? null, allergySeverity: participant.allergySeverity ?? null }),
-          photoUrl: participant.photoPath ? await signedPhotoUrl(deps.db, participant.photoPath) : null,
         },
       }),
       serverTime: new Date().toISOString(),
@@ -283,14 +280,12 @@ export function createSearchHandler(deps: ApiDeps) {
       .in('participant_id', data.map((r) => r.id));
     if (badgeError) throw new Error(`badges load failed (${badgeError.code})`);
     const linked = new Set(badges.map((b) => b.participant_id));
-    const photos = await signedPhotoUrls(deps.db, data.flatMap((r) => (r.photo_path ? [r.photo_path] : [])));
     return json({
       results: data.map((r) => ({
         id: r.id,
         displayName: `${r.first_name} ${r.last_name}`.trim(),
         status: r.status,
         email: staff.role === 'organizer' ? r.email : maskEmail(r.email),
-        photoUrl: r.photo_path ? (photos.get(r.photo_path) ?? null) : null,
         scannedHere: r.scanned_here,
         hasBadge: linked.has(r.id),
       })),

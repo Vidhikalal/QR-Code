@@ -151,7 +151,7 @@ test('T-NFC-28: a badge the server refuses shows a red notice, never a green scr
   const status = page.getByRole('status');
   await expect(status).toHaveCount(1);
   await expect(status).toHaveText(`✕ Badge ${serialOf(uid)} is linked to someone else. Ask an organizer to move it.`);
-  await expect(status).toHaveClass(/alertBad/);
+  await expect(status).toHaveAttribute('data-tone', 'bad');
   await expect(page.getByTestId('scan-result')).toHaveCount(0);
   expect(await nfcActive(page)).toBe(0);
 });

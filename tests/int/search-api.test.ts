@@ -71,6 +71,9 @@ describe('manual search (SPEC §10.4)', () => {
     await f.checkIn(f.p.A, f.token.A);
     const rows = (await api.search(vol1, f.slug, 'ada fixture', f.cp.D)).body.results as Array<{ id: string; scannedHere: boolean }>;
     expect(rows.find((r) => r.id === f.p.A)?.scannedHere).toBe(true);
+    expect(Object.keys(rows.find((r) => r.id === f.p.A) ?? {}).sort()).toEqual([
+      'displayName', 'email', 'hasBadge', 'id', 'scannedHere', 'status',
+    ].sort());
     const lunch = (await api.search(vol1, f.slug, 'ada fixture', f.cp.L)).body.results as Array<{ id: string; scannedHere: boolean }>;
     expect(lunch.find((r) => r.id === f.p.A)?.scannedHere).toBe(false);
   });

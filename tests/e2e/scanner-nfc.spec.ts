@@ -79,7 +79,7 @@ test('T-NFC-10: a linked badge scans through the real API; repeats, unreadable t
   expect(JSON.parse(bodies[0] ?? '{}')).toMatchObject({ method: 'nfc', badgeUid: uid });
 
   await nfcTap(page, ''); // a tag that reports no UID
-  await expect(result).toContainText('Not a Passline code');
+  await expect(result).toContainText('Not a Datathon code');
   await expect(result).toBeHidden({ timeout: 3000 });
 
   await context.setOffline(true);

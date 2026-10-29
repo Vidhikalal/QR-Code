@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.10.1 · **Owner:** Ade · **Last updated:** 2026-10-27
+> **Status:** Draft v0.11 · **Owner:** Ade · **Last updated:** 2026-10-29
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -76,7 +76,6 @@ The following are out of scope for v1:
 | Action | Anonymous | Pass holder (has token) | Volunteer | Organizer |
 |--------|:-:|:-:|:-:|:-:|
 | View own pass page (`/p#token`) | — | ✅ | — | — |
-| Upload/replace own photo (until checked in) | — | ✅ | — | — |
 | Scan at a checkpoint of their event | — | — | ✅ | ✅ |
 | Manual search + manual scan | — | — | ✅ (masked email) | ✅ (full email) |
 | Void own scan ≤ 120 s old | — | — | ✅ | ✅ |
@@ -134,7 +133,6 @@ Google Form ──► Google Sheet ──(Apps Script onEdit, HMAC-signed POST)�
 | QR generation | `qrcode` (npm) | Server PNG for email; client canvas on pass page |
 | QR scanning | Library behind a `QrScanner` interface (§17 A7) | Swappable |
 | Validation | `zod` at every boundary | Request bodies, Sheet rows, env vars |
-| Image processing | `sharp` | Resize, auto-orient, strip metadata |
 | Tests | Vitest (unit + integration), Playwright (e2e), pgTAP optional | See §14 |
 
 ### Architectural principles
@@ -205,8 +203,8 @@ create table participants (
   search_text      text not null,              -- normalized by app: see §10.4
   dietary_notes    text check (length(dietary_notes) <= 500),
   linkedin_url     text check (linkedin_url ~ '^https://(www\.)?linkedin\.com/in/[A-Za-z0-9_%-]+/?$'),
-  photo_path       text,
-  photo_updated_at timestamptz,
+  photo_path       text,                      -- retained only to delete existing photos
+  photo_updated_at timestamptz,               -- retained only to delete existing photos
   status           participant_status not null,
   source           text not null check (source in ('sheet','walk_in','seed')),
   is_test          boolean not null default false,
@@ -332,7 +330,7 @@ end $$;
 - **Cross-event scans are impossible**, enforced by the composite foreign keys (T-SCAN-22).
 - **Exactly one door checkpoint per event** is enforced by `checkpoints_one_door`.
 - **Never hard-delete scans.** Void them instead.
-- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, Discord username and website (v0.9.2), emergency contact (v0.6), the profile setup answers (v0.9) and photo (deleting the photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct. The tombstone also takes them out of their team (v0.7).
+- **Participant deletion is a tombstone.** Set `deleted_at`, set `first_name = 'Deleted'`, `last_name = ''`, `email = 'deleted+<id>@invalid'`, set `search_text = ''`, and null out dietary notes, LinkedIn, Discord username and website (v0.9.2), emergency contact (v0.6), the profile setup answers (v0.9) and any legacy photo (deleting the existing photo object from storage). Revoke the pass with reason `deleted`. Delete the badge link. Scans remain, so aggregate counts stay correct. The tombstone also takes them out of their team (v0.7).
 - **Any view** MUST be created `with (security_invoker = true)`, and `select` on it MUST be revoked from `anon` and `authenticated`. Views otherwise run with owner privileges and bypass RLS.
 - **Any function** in `public` MUST have `revoke all ... from public, anon, authenticated` and `grant execute ... to service_role`. Postgres grants EXECUTE to PUBLIC by default. SECURITY DEFINER functions MUST `set search_path = public, pg_temp` (T-SEC-08).
 
@@ -491,7 +489,7 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 
 - **UID:** the Web NFC `serialNumber` (e.g. `04:A1:B2:C3:D4:E5:F6`), normalized by `normalizeUid()` (`lib/domain/badge.ts`) to lowercase hex without separators, 4–10 bytes: `^([0-9a-f]{2}){4,10}$`. Anything else is `MALFORMED` on the client and `400` on the server.
 - **Tag payload:** one NDEF URL record, exactly `${BADGE_ORIGIN}/profile/<uid>?tap`. `?tap` is ignored; it is kept so tags written by the earlier datathon-badges app keep working. `BADGE_ORIGIN` defaults to `NEXT_PUBLIC_APP_ORIGIN`. The writer refuses an origin that isn't `https://`, so `localhost` is never written onto a physical tag.
-- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works once staff link it (v0.10; before, its holder could claim it), and the photo check plus once-per-checkpoint rule limit what a clone can do. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
+- **DECISION: a UID is not a secret.** Any phone can read it, and it can be cloned onto writable tags. This is an accepted risk: the QR pass stays the primary credential, a badge only works once staff link it (v0.10; before, its holder could claim it), and the once-per-checkpoint rule limits what a clone can do; volunteers escalate suspected misuse to an organizer. I-3 does not apply to UIDs, but UIDs still never go into `audit_log.detail`.
 - **DECISION (v0.10, reverses v0.5): staff link badges; attendees don't.** Self-claim ("This is my badge", `claim_badge()`) is gone: an unlinked badge's UID is in its URL, so anyone could claim a badge they didn't hold. Staff pick the hacker from the hacker list and tap the badge on an Android phone (Web NFC): organizers on the Participants page (§11), any staff in the scanner's Manual search (§10.4). Both call `POST /api/events/:slug/badges` (`link_badge()`) and show the outcome as a notice (`linkNotice()`: the UID when linked or taken, the person's name when they're no longer in the event), never a green screen (I-1). Only accepted attendees are offered; `link_badge()` itself still accepts any undeleted participant of the event (a non-accepted link scans `NOT_ACCEPTED` and shows no profile). **Organizers unlink** a badge on the Participants page (`unlink_badge()`: `UNLINKED` or `NOT_FOUND`, the same lock as `link_badge()`, audit `badge.unlink` with `{}`); the chip itself is never changed or locked, so it can be linked again. An unlinked badge's page says staff link badges at the check-in desk. `badge.claim` audit rows from v0.5–v0.9.2 stay. (v0.5 history: attendees claimed their badge with `claim_badge()`, audited `badge.claim`.)
 - **Links are per event.** One badge per participant; a badge can be reused at a later event. `link_badge()` (staff, v0.10: Participants page and scanner Manual search) returns `LINKED`, `NOT_FOUND` (participant not in this event, or deleted) or `BADGE_TAKEN` (a volunteer tried to take a badge linked to someone else; an organizer's link moves it). Links in one event are serialized (an advisory lock), so simultaneous swaps can't deadlock. Revoking a pass and deleting a participant both remove their badge link.
 - **Profile:** **DECISION (v0.9, reverses v0.3): public.** Anyone who taps a badge sees what its holder shares, without signing in; sharing is on by default (`profile_public` defaults to true) and the holder can switch it off on `/me/profile` or their pass page. `proxy.ts` still refreshes the session on `/profile` (so the holder is recognized) but never sends anyone to sign in there. `badge_profile(uid, viewer_id?, viewer_email?)` looks at the newest link of an **accepted**, undeleted participant in an event that ended at most 30 days ago (otherwise null) and returns `{ allowed: true, public: false }` or `{ allowed: true, public: true, firstName, lastName, linkedinUrl, discord, websiteUrl }` to every viewer. The v0.9 migration switched sharing on only for people who had never seen the choice (no `rsvp.yes`, `profile.update`, `profile.visibility` or `badge.claim` in the audit log, and no pass); everyone else kept theirs. It never returns email, dietary notes, allergies, status or photo. **v0.6:** when the viewer's email is the linked participant's own, it also returns `self: true` and the event `slug`, and the page sends them to their hacker menu `/me` (F14) instead of their own profile. The page is rendered per request (never cached), so opting out takes effect immediately. LinkedIn comes from the Sheet until the attendee sets their own (v0.5: `normalizeLinkedIn()` turns `linkedin.com/in/x` and similar into `https://www.linkedin.com/in/x`; blank clears it), on their Hacker profile page (and, v0.6 to v0.8, the RSVP Yes form). `save_hacker_profile()` (v0.6; `save_badge_profile()` is kept for now but unused by the app) changes only the signed-in person's own accepted row, sets `linkedin_set_at` when the LinkedIn actually changes, and audits `profile.update` without PII; from then on the Sheet no longer changes their LinkedIn (F3). **v0.9.2:** the same page takes an optional Discord username (`normalizeDiscord()`: `@` and case dropped, 2–32 of `a-z 0-9 _ .`, no `..`) and an optional website (`normalizeWebsite()`: `http(s)` only, `https://` added when no scheme is typed (a port is not a scheme), no credentials, a host with a dot; the field takes 200 characters and the stored form at most 300, room for `https://` and percent-encoding); blank clears either. LinkedIn, Discord and website each carry their rule as an HTML `pattern`, so the browser refuses a typo before the form is sent (a server refusal reloads the form and loses what was typed); every stored value passes its pattern. The badge page shows the Discord name with a **Copy** button (Discord has no public link for a username) and the website as a `nofollow ugc` link labelled with its address. Neither comes from the Sheet.
@@ -566,22 +564,14 @@ returning o.*;
 
 **Known edge (accepted):** if the provider accepted the send but marking the row `sent` failed, the retry rotates the pass and sends a second email. Only the newest code works. This is safe, just noisy.
 
-### F5 — Pass page & photo
+### F5 — Pass page
 
 1. The participant opens `/p#<token>`. Client JS reads `location.hash` and POSTs `{ token }` to `/api/pass`.
 2. The response carries `state`:
-   - `active`: first name, event name/venue/local time, photo status, and whether the photo is locked. The page renders the QR client-side with the §6.2 settings.
+   - `active`: first name, event name/venue/local time and badge-profile sharing state. The page renders the QR client-side with the §6.2 settings.
    - `replaced`: "This pass was replaced. Check your most recent email."
    - `cancelled`: "This pass is no longer valid. Contact the organizers."
    - Not found: a generic "Pass not found". Do not distinguish further (no enumeration).
-3. Photo upload goes to `POST /api/pass/photo` (multipart: token + file).
-   - Accept JPEG/PNG/WebP up to 8 MB, verified by **magic bytes**, not extension or claimed MIME type. The file input uses `accept="image/jpeg,image/png,image/webp"` (§17 A3).
-   - Process with `sharp`: auto-orient with `.rotate()`, crop and resize to a 512×512 cover, encode JPEG q80. Metadata is stripped by default. **GPS EXIF MUST be absent** in the output.
-   - Store at `photos/<event_id>/<participant_id>.jpg` in a **private** bucket. Set `photo_path` and `photo_updated_at`.
-   - Locked after door check-in (`409 PHOTO_LOCKED`). Limit: 10 uploads per pass per hour.
-   - Staff see photos only through signed URLs with a 300 s expiry.
-
-**Known limitation:** someone holding a forwarded token could upload their own photo before the event. The photo is a speed-bump, not proof of identity. Organizers can see `photo_updated_at`.
 
 ### F6 — Door check-in
 
@@ -857,7 +847,7 @@ type ScanCode = 'ACCEPTED' | 'ALREADY_SCANNED' | 'NOT_FOUND' | 'REVOKED' | 'NOT_
   | 'WRONG_EVENT' | 'NOT_CHECKED_IN' | 'CHECKPOINT_CLOSED' | 'CAPACITY_REACHED'
   | 'FORBIDDEN' | 'CHECKPOINT_NOT_FOUND' | 'CLIENT_ID_CONFLICT';
 { code: ScanCode, replayed?: boolean, voided?: boolean,
-  participant?: { id, displayName, photoUrl: string | null /*signed, 300 s*/, status, dietaryNotes?: string | null,
+  participant?: { id, displayName, status, dietaryNotes?: string | null,
     allergies?: string | null, allergySeverity?: string | null /*v0.9: meal checkpoints, ACCEPTED only*/ },
   previous?: { scannedAt, scannedByName, scannedByMe: boolean },
   reissued?: boolean, revokeReason?: string, otherEvent?: string, capacity?: number,
@@ -869,7 +859,7 @@ type ScanCode = 'ACCEPTED' | 'ALREADY_SCANNED' | 'NOT_FOUND' | 'REVOKED' | 'NOT_
   - `401`: no session.
   - `429`: rate limited (120 scans/min per staff member, or more than 30 `NOT_FOUND` per staff member in 5 min, §15).
   - `5xx`: the client shows NETWORK/SERVER, never green.
-- The handler converts `photoPath` to a signed URL, logs `scan_attempts` (with latency), and never logs the token.
+- The handler ignores legacy `photoPath` returned by SQL, logs `scan_attempts` (with latency), and never logs the token.
 
 ### 9.2 `POST /api/ingest/sheet` (HMAC)
 
@@ -899,14 +889,13 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
 | `POST /api/pass` | token in body; 30 req/min/IP | Pass page data (F5) |
-| `POST /api/pass/photo` | token in multipart | Photo upload (F5) |
 | `GET /api/events/:slug/participants/search?q=` | staff | Manual lookup (§10.4) |
 | `POST /api/scans/:id/void` | staff | F11 |
 | `POST /api/email/drain` | `Authorization: Bearer DRAIN_SECRET` or organizer session | F4 |
 | `/api/admin/*` | organizer | Checkpoints, staff, participants, sync, export |
 | `POST /api/events/:slug/badges` | staff | Link a badge: `{ participantId, uid }` → `{ code }` (§6.5); used by the Participants page (§11) and the scanner's Manual search (§10.4, v0.10) |
 | `DELETE /api/admin/:slug/participants/:id/badge` | organizer | v0.10: unlink their badge → `{ code: 'UNLINKED' }`, or 404 `{ code: 'NOT_FOUND' }` (no badge, or not in this event) (§6.5) |
-| `GET /api/events/:slug/checkpoints/:id/scans` | staff of the event | Who was scanned at that checkpoint (v0.8): live scans of undeleted people, newest first (at most 1000), `{ role, scans: [{ id, displayName, isTest, scannedAt, method, scannedByName, canRemove }] }`; names only, no emails or photos; 404 for another event's checkpoint. `canRemove` only decides whether to offer Remove; removing is `POST /api/scans/:id/void` (§10.6, §11) |
+| `GET /api/events/:slug/checkpoints/:id/scans` | staff of the event | Who was scanned at that checkpoint (v0.8): live scans of undeleted people, newest first (at most 1000), `{ role, scans: [{ id, displayName, isTest, scannedAt, method, scannedByName, canRemove }] }`; names only, no emails; 404 for another event's checkpoint. `canRemove` only decides whether to offer Remove; removing is `POST /api/scans/:id/void` (§10.6, §11) |
 | `PATCH /api/pass` | token in body; 30 req/min/IP | Badge profile opt-in: `{ token, profilePublic }` |
 | `GET /profile/:uid` | anyone (v0.9) | Badge profile page (§6.5); an unlinked badge says staff link badges at the check-in desk (v0.10; no self-claim) |
 | `POST /api/cron` (also `GET`, v0.10.1, for Vercel Cron) | `Authorization: Bearer DRAIN_SECRET` | v0.9: `run_rsvp_jobs()` (deadline, reminders, F13), then drain the outbox even if the jobs failed; `{ jobs, claimed }`. Every 5 minutes from the scheduler (F4) |
@@ -942,16 +931,16 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 
 ### 10.2 Result screen
 
-Every state needs an icon, a text label and a color, never color alone. Names are at least 32 px, and the photo is at least 160 px.
+Every state needs an icon, a text label and a color, never color alone. Names are at least 32 px.
 
 | Code | Color | Headline | Dismiss |
 |------|-------|----------|---------|
-| ACCEPTED (door) | green ✓ | **ADMIT** + name + photo | auto 2.5 s |
+| ACCEPTED (door) | green ✓ | **ADMIT** + name | auto 2.5 s |
 | ACCEPTED (meal) | green ✓ | **SERVE** + name + allergy with severity (v0.9, first) and dietary notes (bold if present) | auto 2.5 s |
 | ACCEPTED (session/custom) | green ✓ | **RECORDED** + name | auto 2.5 s |
 | ACCEPTED `replayed` | green ✓ | same as ACCEPTED, "(confirmed)" | auto 2.5 s |
 | ALREADY_SCANNED, `scannedByMe` and < 60 s ago | amber ⟳ | "You scanned this 8 s ago" | tap |
-| ALREADY_SCANNED otherwise | red ✕ | "ALREADY SCANNED 12:03 PM by Maya": check the photo | tap |
+| ALREADY_SCANNED otherwise | red ✕ | "ALREADY SCANNED 12:03 PM by Maya" | tap |
 | NOT_FOUND | red ✕ | "UNKNOWN CODE": use manual search | tap |
 | NOT_FOUND via NFC | red ✕ | "UNKNOWN BADGE": scan their QR instead | tap |
 | REVOKED, reissued | amber ! | "OLD CODE": ask for their newest email | tap |
@@ -988,7 +977,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
   4. Replace every non-alphanumeric character with a space, collapse spaces, and trim.
   - `search_text = toSearchText(first + ' ' + last)`.
 - Query: minimum 2 normalized chars. Match `search_text % q OR search_text LIKE '%' || q || '%'`, order by `similarity` descending, limit 10, same event only.
-- Each row shows: name, photo, status badge, email (**masked for volunteers**: `a***@gmail.com`; full for organizers), whether they already have a live scan at the selected checkpoint, and (v0.10) whether a badge is linked (`hasBadge`).
+- Each row shows: name, status badge, email (**masked for volunteers**: `a***@gmail.com`; full for organizers), whether they already have a live scan at the selected checkpoint, and (v0.10) whether a badge is linked (`hasBadge`).
 - "Record scan" calls `/api/scan` with `method: 'manual'`.
 - **Link badge (v0.10, Android Chrome only):** accepted rows get **Link badge** (**Replace badge** when one is linked). It closes the search and opens a sheet, "Tap the badge to link it to {name}". The scanner's one reader is used: while the sheet is open a tap links (never also recorded as a scan, and it is fed to the 3 s dedupe so a repeated report isn't either), and QR and NFC scanning are paused. In Camera mode the sheet releases the camera while it is open (A10) and starts the reader from that tap, then restores the camera without changing the saved input. The outcome stays in the sheet until **Done**.
 
@@ -1015,7 +1004,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 | Page | Contents |
 |------|----------|
 | Dashboard | Live counts per checkpoint (10 s poll). Door check-in rate. Meals served vs checked in. Arrivals chart (15-min buckets). Outbox pending/failed. `NOT_FOUND` spike alert. **Warning if within 30 min of `starts_at` and the door is closed.** |
-| Participants | Search/filter by status, pass state, photo, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". **Add attendee**: a walk-in, or **Not RSVPed yet** for a pending applicant (F12, v0.7.1). **Revoke RSVP** (v0.9.1, e.g. after a test; confirm first) on anyone invited or answered: their link stops working, waiting email is cancelled, any pass is cancelled (`status_change`, so a Yes to a new RSVP issues a fresh one) and the badge unlinked, and they are pending with no RSVP sent; profile and account stay (`revoke_rsvp()`, audit `rsvp.reset` with `{}`). Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6), and their profile setup answers (v0.9). **Badges (v0.10):** rows show "Badge linked"; accepted rows get **Link badge** / **Replace badge** where Web NFC exists (Android Chrome; no button elsewhere): a dialog "Tap the badge to link it to {name}" runs the reader only until one good tap, then `POST /api/events/:slug/badges` (an organizer's link moves a badge linked to someone else) and the outcome is the page's status message (`linkNotice()`), never a green screen. If Chrome refuses NFC, the dialog's **Start badge reader** retries. **Unlink badge** (confirm first): the badge stops scanning and showing their profile until staff link it again (`DELETE …/participants/:id/badge`); a badge already gone (moved, or the attendee said No) says "That badge was already unlinked". |
+| Participants | Search/filter by status, pass state, scans. Tick applicants and **Send RSVP** (F13); pending rows show "RSVP sent". **Add attendee**: a walk-in, or **Not RSVPed yet** for a pending applicant (F12, v0.7.1). **Revoke RSVP** (v0.9.1, e.g. after a test; confirm first) on anyone invited or answered: their link stops working, waiting email is cancelled, any pass is cancelled (`status_change`, so a Yes to a new RSVP issues a fresh one) and the badge unlinked, and they are pending with no RSVP sent; profile and account stay (`revoke_rsvp()`, audit `rsvp.reset` with `{}`). Actions: resend pass (confirm: "their old code will stop working"), revoke, add walk-in, mark test, delete (tombstone), view scan history, void a scan. The detail shows the hacker's emergency contact, with a `tel:` link (v0.6), and their profile setup answers (v0.9). **Badges (v0.10):** rows show "Badge linked"; accepted rows get **Link badge** / **Replace badge** where Web NFC exists (Android Chrome; no button elsewhere): a dialog "Tap the badge to link it to {name}" runs the reader only until one good tap, then `POST /api/events/:slug/badges` (an organizer's link moves a badge linked to someone else) and the outcome is the page's status message (`linkNotice()`), never a green screen. If Chrome refuses NFC, the dialog's **Start badge reader** retries. **Unlink badge** (confirm first): the badge stops scanning and showing their profile until staff link it again (`DELETE …/participants/:id/badge`); a badge already gone (moved, or the attendee said No) says "That badge was already unlinked". |
 | Checkpoints | CRUD, open/close toggle, capacity, requires_checkin, sort order. Deleting a checkpoint with scans is blocked. **People** (v0.8): who was scanned there, newest first, with **Remove** (a void with a reason, F11). |
 | Staff | Invite by email + role, list, remove. |
 | Sync | "Sync now" dry-run diff, then Apply (imports applicants only, F3). Last sync time. |
@@ -1038,10 +1027,9 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
   5. QR image,
   6. "Open your pass" link (`/p#token`),
   7. tips (turn brightness up; a screenshot is fine; this code is personal),
-  8. an optional "Add a photo for faster check-in" link (same pass page),
-  9. (v0.9) a "Set up your profile" button to `/me/profile` with what it asks, and links to the Discord, the hacker package and the Google Group (constants in `lib/email/links.ts`; Discord and the package point to the event site until the real links are known),
-  10. organizer contact,
-  11. privacy line (v0.9: photos, dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event).
+  8. (v0.9) a "Set up your profile" button to `/me/profile` with what it asks, and links to the Discord, the hacker package and the Google Group (constants in `lib/email/links.ts`; Discord and the package point to the event site until the real links are known),
+  9. organizer contact,
+  10. privacy line (v0.9: dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event).
 - **Plain-text part** includes the pass link and all the facts above.
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
@@ -1203,24 +1191,24 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-MAIL-13 | Console provider sends a pass for "Hack Day" / "Ada" three times, and 10 in parallel | `qr/Hack-Day-Ada.png`, `-2`, `-3`, byte-identical to the inline image; 10 parallel sends → 10 files; Resend request body never contains the label | U |
 | T-MAIL-14 | `toFileLabel` with accents, punctuation, `../`, empty input, 100-char names | `Cafe-Night-Zoe`; no `/`, `\\` or `..` survive; `pass` fallback; ≤ 80 chars | U |
 
-### 14.5 Pass page & photo — `T-PASS`
+### 14.5 Pass page — `T-PASS`
 | ID | Scenario | Expected | L |
 |----|----------|----------|---|
 | T-PASS-01 | Open `/p#<token>` | name, event, QR shown; server request log has no token (the request is `POST /api/pass`, and `/p` is fetched without the fragment) | E |
 | T-PASS-02 | Garbage token; valid-format but unknown token | same generic "Pass not found" response body and timing class | I |
 | T-PASS-03 | Rotated token; revoked (withdrawn) token | `replaced`; `cancelled` | I |
-| T-PASS-04 | Upload a JPEG with GPS EXIF + orientation 6 | output 512×512 JPEG, no EXIF GPS, visually upright (golden image) | I |
-| T-PASS-05 | PNG, WebP; 8 MB file; 8 MB + 1 byte | ok, ok, ok, 413 | I |
-| T-PASS-06 | PDF renamed `.jpg`; SVG | 415 (magic-byte check) | I |
-| T-PASS-07 | Upload after door check-in | 409 `PHOTO_LOCKED` | I |
-| T-PASS-08 | Public bucket URL for the photo | 400/403; signed URL works and expires after 300 s | I |
-| T-PASS-09 | 11th upload within an hour | 429 | I |
-| T-PASS-10 | Real iPhone: pick a HEIC photo from the library | upload succeeds (arrives as JPEG) | M |
+| T-PASS-04 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-05 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-06 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-07 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-08 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-09 | Removed in v0.11 with participant photos | — | — |
+| T-PASS-10 | Removed in v0.11 with participant photos | — | — |
 
 ### 14.6 Scan decision logic — `T-SCAN` (call `record_scan` directly via SQL and via `/api/scan`)
 | ID | Scenario | Expected |
 |----|----------|----------|
-| T-SCAN-01 | A at D | `ACCEPTED`; 1 live row; `method=qr`; `scanned_at` = server time (± 2 s), unaffected by a client time of 1999 |
+| T-SCAN-01 | A at D | `ACCEPTED`; 1 live row; `method=qr`; `scanned_at` = server time (± 2 s), unaffected by a client time of 1999; HTTP participant fields limited to §9.1 |
 | T-SCAN-02 | A at D again | `ALREADY_SCANNED`; `previous.scannedByName`; `scannedByMe` true for same staff, false for vol2 |
 | T-SCAN-03 | Random well-formed token | `NOT_FOUND` |
 | T-SCAN-04 | Rv old token | `REVOKED`, `reissued: true`, `revokeReason: 'rotated'` |
@@ -1277,7 +1265,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCUI-09 | Undo visible at 0–120 s, hidden after (fake timers) | as stated | E |
 | T-SCUI-10 | Session expired mid-shift | redirect to login, then back to the same slug + checkpoint | E |
 | T-SCUI-11 | `<video>` has `playsinline` and `muted` | yes | E |
-| T-SCUI-12 | ALREADY_SCANNED with `scannedByMe` 8 s ago vs 90 s ago vs by vol2 | amber vs red vs red | E |
+| T-SCUI-12 | ALREADY_SCANNED with `scannedByMe` 8 s ago vs 90 s ago vs by vol2 | amber vs red vs red; red shows the scan time and staff name, with no additional hint | E |
 | T-SCUI-14 | Scanned here at R after vol1 scanned N and vol2 scanned Rv (v0.8); Remove N with "Test scan" | both listed; Remove only on N; N drops off, Rv stays | E |
 | T-SCUI-13 | Device matrix (§14.13) | all pass | M |
 
@@ -1290,7 +1278,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SRCH-04 | 30 matching names | 10 results | I |
 | T-SRCH-05 | Name in E2 only, searched from E1 | not returned | I |
 | T-SRCH-06 | Volunteer vs organizer | masked vs full email | I |
-| T-SRCH-07 | Result shows scan state at the selected checkpoint | yes | E |
+| T-SRCH-07 | Result shows scan state at the selected checkpoint | yes; HTTP row fields limited to §10.4 | I+E |
 
 ### 14.10 Admin — `T-ADM`
 | ID | Scenario | Expected | L |
@@ -1328,7 +1316,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC-06 | Response headers | CSP present; `frame-ancestors 'none'`; `Permissions-Policy: camera=(self)`; HSTS in prod | E |
 | T-SEC-07 | Every view | `security_invoker = true`; no grant to anon/authenticated | I |
 | T-SEC-08 | Every `SECURITY DEFINER` function in `public` | `proconfig` contains `search_path`; no EXECUTE for anon/authenticated/PUBLIC | I |
-| T-PRIV-01 | Retention job at `ends_at + 30 d` | photos deleted from storage, `photo_path` null, `dietary_notes` null, emergency contact null (v0.6), allergies and accessibility null (v0.9) | I |
+| T-PRIV-01 | Retention job at `ends_at + 30 d` | existing photos deleted from storage, `photo_path` null, `dietary_notes` null, emergency contact null (v0.6), allergies and accessibility null (v0.9) | I |
 | T-PRIV-02 | Retention job run twice | idempotent | I |
 | T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name, emergency contact or token | I |
 
@@ -1343,7 +1331,7 @@ Scanners:
 Codes:
 - email on a phone at 100% brightness
 - the same at 30% brightness
-- a screenshot in the Photos app
+- a screenshot in the phone’s image library
 - a printed code on paper
 - a code with about 10% covered by tape (tests ECC M)
 - a code shown in Gmail iOS dark mode
@@ -1459,7 +1447,6 @@ Target: at least 95% of attempts under 3 s.
   | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
   | RSVP Yes password checks per email (v0.7.2; its own bucket) | 10 / 15 min (then refused like a wrong password) |
   | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
-  | Photo uploads per pass | 10 / h |
 - **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, linking badges, the Tools page) need Chrome on Android and are hidden elsewhere. Opening a badge's profile works on any phone: it only opens the badge's URL.
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
@@ -1469,7 +1456,7 @@ Target: at least 95% of attempts under 3 s.
 - **Privacy:**
   - The Google Form MUST include a collection notice covering what is collected, why (event admission, food, attendance analytics), who sees it (club organizers and volunteers), and retention.
   - Follow the college's student-organization data policies.
-  - Retention: photos, dietary notes, emergency contacts (v0.6), allergies and accessibility needs (v0.9) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
+  - Retention: existing photos, dietary notes, emergency contacts (v0.6), allergies and accessibility needs (v0.9) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
   - The badge profile (v0.9) is public and on by default; participants switch it off or on on their pass page or `/me/profile`, where they can also set their LinkedIn (v0.5). Anyone who taps their badge sees only their name and the links they set: LinkedIn, Discord username and website (v0.9.2). The Google Form's notice should say so.
 - **Logging:**
@@ -1508,7 +1495,7 @@ Target: at least 95% of attempts under 3 s.
 | `NOT_FOUND` | Manual search by name; check for an email typo in the Sheet; organizer adds a walk-in if they're legit |
 | UNKNOWN BADGE | Scan their QR (or manual search). Then link the badge: Manual search → their name → **Link badge** → tap the badge (Android) |
 | `REVOKED` + reissued | Ask them to open their **newest** email; organizer can resend on the spot |
-| `ALREADY_SCANNED` by someone else | Compare the photo; escalate to an organizer |
+| `ALREADY_SCANNED` by someone else | Escalate to an organizer |
 | `WRONG_EVENT` | Organizer decides |
 | Network down | Switch to the paper roster; after recovery, an organizer enters paper check-ins through manual scan |
 | Wrong checkpoint used by a volunteer | Volunteer voids within 120 s; otherwise an organizer voids with reason "Wrong checkpoint" |
@@ -1527,7 +1514,7 @@ Target: at least 95% of attempts under 3 s.
 |---|-----------|----------|
 | A1 | Resend supports inline (`cid:`) attachments and an idempotency-key header | Attach the QR as a regular PNG and rely on the outbox for dedupe |
 | A2 | Installable `onEdit` fires once for a multi-cell paste with the full range, and does not fire for script/API edits | Adjust the script; Sync now remains the backstop |
-| A3 | iOS Safari hands the page a JPEG when `accept` excludes HEIC | Add server-side HEIC handling or instruct users |
+| A3 | Obsolete in v0.11 with participant photos | — |
 | A4 | Screen Wake Lock API available on target iOS/Android versions | Instruct volunteers to extend auto-lock |
 | A5 | Vercel plan limits (function duration, cron frequency) and Supabase `pg_cron` + `pg_net` availability fit the F4 drain | Pick whichever scheduler is available; the `after()` + button path still works. **Checked (2026-10-26):** the cloud DB has no pg_cron. **v0.10.1 (2026-10-27):** the app moved from Coolify to Vercel Pro, which allows a cron every 5 minutes; `vercel.json` schedules `/api/cron` every 5 minutes and `/api/retention` daily, functions run in `pdx1` next to the Supabase project (`us-west-2`). |
 | A6 | The provider's rate limit handles bursts of about 300 sends | Throttle the drain batch size |
@@ -1549,7 +1536,7 @@ Each slice ends with its tests green in CI and a short demo.
 | **S1** Core DB | §5 schema, `issue_pass`, `record_scan`, `void_scan`, deny-all RLS, fixtures | T-SCAN-*, T-CONC-*, T-SEC-01/02/07/08 |
 | **S2** Passes & email | tokens, QR render, outbox, drainer, console mailer, templates | T-TOK-*, T-MAIL-01..11 |
 | **S3** Sheet bridge | ingest endpoint, transitions, Apps Script, Sync now | T-ING-*, T-GAS-* |
-| **S4** Pass page | `/p`, `/api/pass`, photo pipeline, storage | T-PASS-* |
+| **S4** Pass page | `/p`, `/api/pass` | T-PASS-* |
 | **S5** Scanner | staff auth + invites, `/scan`, result UI, manual search, undo | T-SCUI-*, T-SRCH-*, T-SEC-04 |
 | **S6** Admin | dashboard, participants, checkpoints, staff, export | T-ADM-*, T-ANA-* |
 | **S7** Hardening | headers, rate limits, retention, load test, device matrix, dry run | T-SEC-03/05/06, T-PRIV-*, T-PERF-*, T-DEV, T-MAIL-12 |
@@ -1582,6 +1569,7 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+- **v0.11 (2026-10-29)** — Participant photos removed from the pass page, upload API, scanner results and manual search, participant admin/detail/CSV and emails (§3, §4, F5, §6.5, §9.1, §9.3, §10.2, §10.4, §11, §12, §15, §16, §18). Database columns and SQL functions remain unchanged (§5, §8); the private bucket, retention and tombstone cleanup still delete existing uploads. A3 is obsolete (§17). Tests (§14): T-PASS-04..10 retired; T-PASS-01/03, T-SCAN-01, T-SCUI-03/12, T-SRCH-07, T-ADM-05, T-ANA-04, T-SEC-04/06, admin response contracts and fixtures updated; photo-only processing/unit and upload/e2e cases removed. T-PRIV-01 and the T-NFC-12 no-photo contract remain.
 - **v0.1 (2026-09-23)** — Initial draft.
 - **v0.3 (2026-10-16)** — NFC badges merged in from the datathon-badges app (G6, §5.2, §6.5, §8 note, §9, §10.5, §11, T-NFC-*, S8, `BADGE_ORIGIN`): badge check-in through `record_badge_scan()`, staff-linked badges per event, opt-in badge profile at `/profile/<uid>`, and a tag writer. Activity tap counts map onto checkpoints (once per participant). Not carried over: tap-to-sign-in, self-claimed profiles, unlimited tap counters. Badge profiles require a signed-in attendee or staff account of the same event (T-NFC-12/14/18); onboarding is staff-only.
 - **v0.4 (2026-10-16)** — Accounts and RSVP. The Sheet only imports applicants (F3; `REVOKED`/`IGNORED_CLEAR` removed); organizers send RSVPs and a Yes accepts (F13, new `rsvp` outbox kind). Email + password sign-in replaces magic links; invite and reset links go through `/auth/confirm` and `/set-password`; no public sign-up (F9). Pass tokens are derived from `PASS_TOKEN_SECRET` and the pass id so `/me` can show them (§6.1, DECISION). New tests T-TOK-10, T-RSVP-01..05, T-AUTH-01..04, T-ME-01; T-ING rewritten; S9.

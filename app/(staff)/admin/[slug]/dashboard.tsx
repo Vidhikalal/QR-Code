@@ -1,8 +1,11 @@
 'use client';
 
+import { Alert } from '@/components/ui/alert';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+
 import { useCallback, useEffect, useState } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
-import styles from './admin.module.css';
 import { adminUrl, errorText, useApi } from './api';
 import { ArrivalsChart, type ArrivalBucket } from './arrivals-chart';
 
@@ -58,27 +61,71 @@ export function Dashboard({ slug }: { slug: string }) {
     <>
       <h1>Dashboard</h1>
       {error && (
-        <p className={`${styles.alert} ${styles.alertWarn}`} role="status">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]" asChild role="status"><p  role="status">
           ! Couldn’t refresh: {error} Showing data from {formatEventDateTime(data.generatedAt, tz)}.
-        </p>
+        </p></Alert>
       )}
       {data.alerts.doorClosed && (
-        <p className={`${styles.alert} ${styles.alertBad}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild><p  role="alert">
           ⚠ The door is closed and the event starts {formatEventDateTime(data.event.startsAt, tz)}. Open it on the Checkpoints tab.
-        </p>
+        </p></Alert>
       )}
       {data.alerts.notFound.map((a) => (
-        <p key={a.staffUserId} className={`${styles.alert} ${styles.alertBad}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--bad,_#f87171)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#f87171_6%,_var(--card))]" asChild key={a.staffUserId}><p  role="alert">
           ⚠ {a.displayName ?? 'A staff member'} got {a.count} “unknown code” results in 5 minutes and is being rate-limited.
-        </p>
+        </p></Alert>
       ))}
       {data.outbox.failed > 0 && (
-        <p className={`${styles.alert} ${styles.alertWarn}`} role="alert">
+        <Alert className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-md [background:var(--card)] text-fg text-[13px]
+
+          leading-[1.65] [overflow-wrap:anywhere]
+
+          [&&]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
+
+          [&&]:[background:color-mix(in_srgb,_#fbbf24_6%,_var(--card))]" asChild><p  role="alert">
           ! {data.outbox.failed} pass email{data.outbox.failed === 1 ? '' : 's'} failed to send. Resend from Participants.
-        </p>
+        </p></Alert>
       )}
 
-      <div className={styles.tiles}>
+      <div className="grid [grid-template-columns:repeat(auto-fit,_minmax(min(100%,_210px),_1fr))] gap-[14px]
+
+          max-[600.001px]:[grid-template-columns:repeat(2,_minmax(0px,_1fr))] max-[600.001px]:gap-[10px]
+
+          max-[360.001px]:[grid-template-columns:minmax(0px,_1fr)]">
         <Tile id="accepted" label="Accepted" value={data.accepted} />
         <Tile id="checked-in" label="Checked in" value={data.checkedIn} hint={`${pct(data.checkInRate)} of accepted`} />
         <Tile id="no-shows" label="Not arrived" value={data.noShows} />
@@ -86,36 +133,43 @@ export function Dashboard({ slug }: { slug: string }) {
       </div>
 
       <h2>Checkpoints</h2>
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Checkpoint</th>
-              <th>Kind</th>
-              <th>State</th>
-              <th className={styles.num}>Scans</th>
-              <th className={styles.num}>Fill</th>
-              <th className={styles.num}>Meal uptake</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="tw-admin-tableWrap overflow-x-auto [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card shadow-panel max-[600.001px]:max-w-full">
+        <Table className="tw-admin-table [&_.tw-admin-num]:text-right! [&_.tw-admin-actions]:flex [&_.tw-admin-actions]:items-center [&_.tw-admin-actions]:gap-1 [&_.tw-admin-actions_button]:px-2 [&_.tw-admin-actions_button]:text-xs [&_.tw-admin-badge]:text-xs">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Checkpoint</TableHead>
+              <TableHead>Kind</TableHead>
+              <TableHead>State</TableHead>
+              <TableHead className="tw-admin-num text-right! tabular-nums">Scans</TableHead>
+              <TableHead className="tw-admin-num text-right! tabular-nums">Fill</TableHead>
+              <TableHead className="tw-admin-num text-right! tabular-nums">Meal uptake</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {data.checkpoints.map((c) => (
-              <tr key={c.id}>
-                <td>{c.name}</td>
-                <td>{c.kind}</td>
-                <td>
-                  <span className={`${styles.badge} ${c.isOpen ? styles.badgeOk : ''}`}>{c.isOpen ? '● Open' : '○ Closed'}</span>
-                </td>
-                <td className={styles.num}>
+              <TableRow key={c.id}>
+                <TableCell>{c.name}</TableCell>
+                <TableCell>{c.kind}</TableCell>
+                <TableCell>
+                  <Badge className={`tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap max-w-full [font-family:inherit] ${c.isOpen ? `tw-admin-badgeOk
+                [&.tw-admin-badgeOk]:[border-color:color-mix(in_srgb,_var(--ok,_#4ade80)_40%,_var(--line))]
+                [&.tw-admin-badgeOk]:[background:color-mix(in_srgb,_var(--ok,_#4ade80)_10%,_var(--card))]
+                [&.tw-admin-badgeOk]:[color:var(--ok,_#4ade80)]` : ''}`}>{c.isOpen ? '● Open' : '○ Closed'}</Badge>
+                </TableCell>
+                <TableCell className="tw-admin-num text-right! tabular-nums">
                   {c.liveScans}
                   {c.capacity ? ` / ${c.capacity}` : ''}
-                </td>
-                <td className={styles.num}>{pct(c.fill)}</td>
-                <td className={styles.num}>{c.kind === 'meal' ? pct(c.uptake) : '—'}</td>
-              </tr>
+                </TableCell>
+                <TableCell className="tw-admin-num text-right! tabular-nums">{pct(c.fill)}</TableCell>
+                <TableCell className="tw-admin-num text-right! tabular-nums">{c.kind === 'meal' ? pct(c.uptake) : '—'}</TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       <h2>Door arrivals per 15 minutes</h2>
@@ -124,40 +178,62 @@ export function Dashboard({ slug }: { slug: string }) {
       {data.sessionRanking.length > 0 && (
         <>
           <h2>Session attendance</h2>
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Session</th>
-                  <th className={styles.num}>Attended</th>
-                  <th className={styles.num}>Capacity</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="tw-admin-tableWrap overflow-x-auto [background:var(--card)] [border-width:1px] [border-style:solid]
+
+          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+          [border-left-color:var(--line)] rounded-card shadow-panel max-[600.001px]:max-w-full">
+            <Table className="tw-admin-table [&_.tw-admin-num]:text-right! [&_.tw-admin-actions]:flex [&_.tw-admin-actions]:items-center [&_.tw-admin-actions]:gap-1 [&_.tw-admin-actions_button]:px-2 [&_.tw-admin-actions_button]:text-xs [&_.tw-admin-badge]:text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Session</TableHead>
+                  <TableHead className="tw-admin-num text-right! tabular-nums">Attended</TableHead>
+                  <TableHead className="tw-admin-num text-right! tabular-nums">Capacity</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {data.sessionRanking.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.name}</td>
-                    <td className={styles.num}>{s.liveScans}</td>
-                    <td className={styles.num}>{s.capacity ?? '—'}</td>
-                  </tr>
+                  <TableRow key={s.id}>
+                    <TableCell>{s.name}</TableCell>
+                    <TableCell className="tw-admin-num text-right! tabular-nums">{s.liveScans}</TableCell>
+                    <TableCell className="tw-admin-num text-right! tabular-nums">{s.capacity ?? '—'}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </>
       )}
 
-      <p className={styles.muted}>Updated {formatEventDateTime(data.generatedAt, tz)} · refreshes every 10 s</p>
+      <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Updated {formatEventDateTime(data.generatedAt, tz)} · refreshes every 10 s</p>
     </>
   );
 }
 
 function Tile(props: { id: string; label: string; value: number; hint?: string }) {
   return (
-    <div className={styles.tile} data-testid={`kpi-${props.id}`}>
-      <span className={styles.tileLabel}>{props.label}</span>
-      <span className={styles.tileValue}>{props.value.toLocaleString('en-US')}</span>
-      {props.hint && <span className={styles.tileHint}>{props.hint}</span>}
+    <div className="tw-admin-tile
+
+          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_6%,_transparent),_transparent_60%_),_var(--card)]
+
+          [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+
+          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card p-[20px] relative flex
+
+          flex-col items-start min-w-0 min-h-[150px] overflow-hidden shadow-panel
+
+          [transition:border-color_180ms_var(--ease),_transform_180ms_var(--ease)] max-[600.001px]:p-[16px_14px]
+
+          max-[600.001px]:min-h-[132px]
+
+          [&:hover]:[border-color:color-mix(in_srgb,_var(--accent)_40%,_var(--line))]
+
+          [&:hover]:[transform:translateY(-2px)]" data-testid={`kpi-${props.id}`}>
+      <span className="block text-[11px] text-muted-foreground font-semibold tracking-[0.11em] leading-[1.5] uppercase">{props.label}</span>
+      <span className="block text-[clamp(34px,_3.5vw,_44px)] font-bold tabular-nums mt-[20px] text-fg tracking-[-0.055em]
+
+          leading-[1] max-[600.001px]:text-[34px] max-[600.001px]:mt-[16px]">{props.value.toLocaleString('en-US')}</span>
+      {props.hint && <span className="block text-[12px] text-muted-foreground mt-[12px] leading-[1.5]">{props.hint}</span>}
     </div>
   );
 }

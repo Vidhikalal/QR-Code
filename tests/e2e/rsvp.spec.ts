@@ -48,9 +48,11 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
   await expect(p.getByLabel('Dietary notes')).toHaveCount(0); // v0.8.2: the Sheet's, for organizers only
   await expect(p.getByLabel('Emergency contact name')).toHaveCount(0); // v0.9: set up after the Yes
-  await p.getByLabel('Set a password for your Passline account').fill('rae-event-password');
+  await p.getByLabel('Set a password for your Datathon account').fill('rae-event-password');
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
-  // v0.9: straight on to profile setup (F14).
+  // Profile setup (F14) is offered after the Yes, not forced.
+  await expect(p.getByRole('heading', { name: 'You’re in, Rae' })).toBeVisible();
+  await p.getByRole('link', { name: 'Set up my hacker profile' }).click();
   await p.waitForURL('**/me/profile');
   await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
   await p.getByLabel('Emergency contact name').fill('Sam Rsvp');
@@ -116,16 +118,19 @@ test('T-RSVP-04 (E): someone who already has an account types their own password
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
-  await expect(p.getByLabel('Set a password for your Passline account')).toHaveCount(0);
-  await p.getByLabel('Your Passline password').fill('not-my-password');
+  await expect(p.getByLabel('Set a password for your Datathon account')).toHaveCount(0);
+  await p.getByLabel('Your Datathon password').fill('not-my-password');
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
   // Next's route announcer is also role=alert (empty), so pick ours by its text.
-  await expect(p.getByRole('alert').filter({ hasText: 'isn’t your Passline password' })).toBeVisible();
+  await expect(p.getByRole('alert').filter({ hasText: 'isn’t your Datathon password' })).toBeVisible();
   expect((await f.pool.query('select status from participants where email = $1', [email])).rows).toEqual([{ status: 'pending' }]);
-  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
+  await p.getByLabel('Your Datathon password').fill(STAFF_PASSWORD);
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
-  await p.waitForURL('**/me/profile');
-  await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
+  // Later skips profile setup for now; the menu still asks for it.
+  await expect(p.getByRole('heading', { name: 'You’re in, Ari' })).toBeVisible();
+  await p.getByRole('link', { name: 'Later' }).click();
+  await p.waitForURL((u) => u.pathname === '/me');
+  await expect(p.getByRole('navigation', { name: 'Hacker menu' }).getByText('Finish setting up')).toBeVisible();
   await attendee.close();
 });
 
@@ -143,7 +148,7 @@ test('T-RSVP-04 (E): a volunteer without a display name who answers Yes goes thr
   const p = await attendee.newPage();
   await p.goto(`/rsvp#${token}`);
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
-  await p.getByLabel('Your Passline password').fill(STAFF_PASSWORD);
+  await p.getByLabel('Your Datathon password').fill(STAFF_PASSWORD);
   await p.getByRole('button', { name: 'Yes, I’m coming' }).click();
   await p.waitForURL((u) => u.pathname === '/onboarding' && u.searchParams.get('next') === '/me/profile');
   await attendee.close();

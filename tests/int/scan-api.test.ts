@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateToken } from '@/lib/domain/token';
-import { passClient } from '../fixtures/pass';
 import { scanApi } from '../fixtures/scan-api';
 import { signInAs } from '../fixtures/staff';
 import { createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -32,20 +31,13 @@ describe('POST /api/scan (SPEC §9.1)', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('T-SCAN-01: ACCEPTED with serverTime, a signed photo URL, and a scan_attempts row with latency and no token', async () => {
-    const photo = await passClient().upload(
-      f.token.A,
-      await (await import('sharp')).default({ create: { width: 32, height: 32, channels: 3, background: '#888' } }).jpeg().toBuffer(),
-    );
-    expect(photo.status).toBe(200);
+  it('T-SCAN-01: ACCEPTED with serverTime and a scan_attempts row with latency and no token', async () => {
     const before = Date.now();
     const { status, body } = await api.scan(vol1, qr(f.cp.D, f.token.A, { clientScannedAt: '1999-01-01T00:00:00Z' }));
     expect(status).toBe(200);
     expect(body).toMatchObject({ code: 'ACCEPTED', replayed: false, participant: { id: f.p.A, displayName: 'Ada Fixture', status: 'accepted' } });
     expect(Math.abs(Date.parse(String(body.serverTime)) - before)).toBeLessThan(5000);
-    const participant = body.participant as Record<string, unknown>;
-    expect(participant).not.toHaveProperty('photoPath');
-    expect((await fetch(String(participant.photoUrl))).status).toBe(200);
+    expect(body.participant).toEqual({ id: f.p.A, displayName: 'Ada Fixture', status: 'accepted', dietaryNotes: null, allergies: null, allergySeverity: null });
 
     const { rows } = await f.pool.query<{ result_code: string; latency_ms: number; event_id: string; participant_id: string }>(
       'select result_code, latency_ms, event_id, participant_id from scan_attempts where staff_user_id = $1',

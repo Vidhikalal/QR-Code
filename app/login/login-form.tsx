@@ -1,8 +1,12 @@
 'use client';
 
+import { Alert } from '@/components/ui/alert';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+
 import { useActionState, useState } from 'react';
 import { sendPasswordLink, signIn } from './actions';
-import styles from './login.module.css';
 
 export function LoginForm({ next }: { next: string }) {
   const [forgot, setForgot] = useState(false);
@@ -13,44 +17,56 @@ export function LoginForm({ next }: { next: string }) {
 
   if (forgot && linkState && 'sent' in linkState) {
     return (
-      <p role="status" className={styles.ok}>
-        ✓ Check your email. If that address can use Passline, we sent a link to set your password.
-      </p>
+      <Alert className="text-ok" asChild role="status"><p role="status" >
+        ✓ Check your email. If that address can sign in here, we sent a link to set your password.
+      </p></Alert>
     );
   }
   if (forgot) {
     return (
-      <form className={styles.form} action={linkAction}>
+      <form className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]" action={linkAction}>
         <input type="hidden" name="next" value={next} />
-        <label htmlFor="email">Email</label>
-        <input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={styles.input} />
-        <button type="submit" disabled={sending}>
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" name="email" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="min-h-12 w-full" />
+        <Button type="submit" disabled={sending}>
           {sending ? 'Sending…' : 'Email me a link to set my password'}
-        </button>
-        <button type="button" className={styles.linkButton} onClick={() => setForgot(false)}>
+        </Button>
+        <Button type="button" variant="link" className="whitespace-normal font-normal" onClick={() => setForgot(false)}>
           Back to sign-in
-        </button>
+        </Button>
       </form>
     );
   }
   return (
-    <form className={styles.form} action={signInAction}>
+    <form className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]" action={signInAction}>
       <input type="hidden" name="next" value={next} />
-      <label htmlFor="email">Email</label>
-      <input id="email" name="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className={styles.input} />
-      <label htmlFor="password">Password</label>
-      <input id="password" name="password" type="password" autoComplete="current-password" required className={styles.input} />
+      <Label htmlFor="email">Email</Label>
+      <Input id="email" name="email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} className="min-h-12 w-full" />
+      <Label htmlFor="password">Password</Label>
+      <Input id="password" name="password" type="password" autoComplete="current-password" required className="min-h-12 w-full" />
       {signInState && 'error' in signInState && (
-        <p role="alert" className={styles.error}>
+        <Alert className="text-bad" asChild><p role="alert" >
           ✕ Wrong email or password.
-        </p>
+        </p></Alert>
       )}
-      <button type="submit" disabled={signingIn}>
+      <Button type="submit" disabled={signingIn}>
         {signingIn ? 'Signing in…' : 'Sign in'}
-      </button>
-      <button type="button" className={styles.linkButton} onClick={() => setForgot(true)}>
+      </Button>
+      <Button type="button" variant="link" className="whitespace-normal font-normal" onClick={() => setForgot(true)}>
         Forgot or never set your password?
-      </button>
+      </Button>
     </form>
   );
 }

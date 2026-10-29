@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { generateToken, sha256hex } from '@/lib/domain/token';
+import { PHOTO_BUCKET, photoPath } from '@/lib/storage/photos';
 import { adminClient, obj } from '../fixtures/admin-api';
 import { onlyEmailTo, tokenFromEmail } from '../fixtures/mail';
 import { signInAs } from '../fixtures/staff';
@@ -72,6 +73,10 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
   });
 
   it('T-ADM-05: delete → tombstone per §5.1; counts unchanged; old token → REVOKED (deleted); no PII in audit', async () => {
+    const path = photoPath(f.e1.id, f.p.B);
+    const { error: uploadError } = await c.db.storage.from(PHOTO_BUCKET).upload(path, Buffer.from([0xff, 0xd8, 0xff, 0xd9]), { contentType: 'image/jpeg', upsert: true });
+    expect(uploadError).toBeNull();
+    await f.pool.query('update participants set photo_path = $2, photo_updated_at = now() where id = $1', [f.p.B, path]);
     await f.pool.query(
       `update participants set emergency_name = 'Sam Lee', emergency_phone = '555 0100', emergency_relation = 'Parent',
          overnight = 'yes', allergies = 'Peanuts', allergy_severity = 'severe', team_status = 'solo', accessibility = 'Ramp' where id = $1`,
@@ -81,6 +86,9 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
     const before = await f.pool.query<{ n: number }>('select count(*)::int as n from scans where event_id = $1 and voided_at is null', [f.e1.id]);
     const res = await c.call('deleteParticipant', org, { slug: f.slug, id: f.p.B }, { method: 'DELETE' });
     expect(res.status).toBe(200);
+    const { data: objects, error: listError } = await c.db.storage.from(PHOTO_BUCKET).list(f.e1.id);
+    expect(listError).toBeNull();
+    expect(objects?.map((o) => o.name)).not.toContain(`${f.p.B}.jpg`);
     const { rows } = await f.pool.query(
       `select first_name, last_name, email, search_text, dietary_notes, linkedin_url, photo_path,
               emergency_name, emergency_phone, emergency_relation, deleted_at is not null as deleted,
@@ -160,10 +168,18 @@ describe('participants admin (SPEC §11, F12, §5.1)', () => {
   it('§11: list filters by status and no-shows; detail includes scan history with voided scans', async () => {
     const waitlisted = await c.call('listParticipants', org, { slug: f.slug }, { query: { status: 'waitlisted' } });
     expect((obj(waitlisted.body).participants as Array<{ id: string }>).map((p) => p.id)).toEqual([f.p.C]);
+    expect(Object.keys((obj(waitlisted.body).participants as Array<object>)[0] ?? {}).sort()).toEqual([
+      'applicantId', 'checkedIn', 'dietaryNotes', 'email', 'firstName', 'hasBadge', 'id',
+      'isTest', 'lastName', 'liveScans', 'passState', 'rsvpSentAt', 'source', 'status',
+    ].sort());
     const scan = await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.T });
     await f.voidScan(scan.scanId ?? '', f.staff.org1);
     const detail = await c.call('getParticipant', org, { slug: f.slug, id: f.p.T });
     expect(obj(detail.body).participant).toMatchObject({ id: f.p.T, firstName: 'Tess', isTest: true });
+    expect(Object.keys(obj(obj(detail.body).participant)).sort()).toEqual([
+      'accessibility', 'allergies', 'allergySeverity', 'applicantId', 'dietaryNotes', 'email',
+      'emergency', 'firstName', 'id', 'isTest', 'lastName', 'linkedinUrl', 'overnight', 'source', 'status', 'teamStatus',
+    ].sort());
     expect(obj(detail.body).scans).toEqual([expect.objectContaining({ checkpointName: 'Raffle', voided: true, voidReason: 'Test scan' })]);
     const noShows = await c.call('listParticipants', org, { slug: f.slug }, { query: { noShow: '1' } });
     const ids = (obj(noShows.body).participants as Array<{ id: string }>).map((p) => p.id);

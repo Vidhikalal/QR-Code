@@ -18,7 +18,6 @@ export interface ScanResult {
   participant?: {
     id: string;
     displayName: string;
-    photoPath: string | null;
     status: string;
     dietaryNotes?: string | null;
     allergies?: string | null;

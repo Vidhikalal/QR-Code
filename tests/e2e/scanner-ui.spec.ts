@@ -19,7 +19,7 @@ test.afterAll(async () => {
   await f.close();
 });
 
-const ada = { id: 'p-ada', displayName: 'Ada Fixture', photoUrl: null, status: 'accepted', dietaryNotes: null };
+const ada = { id: 'p-ada', displayName: 'Ada Fixture', status: 'accepted', dietaryNotes: null };
 
 async function openScanner(page: Page, checkpoint = 'Door') {
   await page.goto(`/scan/${f.slug}`);

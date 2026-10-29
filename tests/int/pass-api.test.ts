@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 describe('POST /api/pass (SPEC F5)', () => {
-  it('T-PASS-01: an active token returns first name, event, photo state; nothing else about the person', async () => {
+  it('T-PASS-01: an active token returns first name and event; nothing else about the person', async () => {
     const res = await c.lookup({ token: f.token.A });
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -24,12 +24,10 @@ describe('POST /api/pass (SPEC F5)', () => {
       state: 'active',
       firstName: 'Ada',
       event: { name: f.e1.name, venue: 'Fixture Hall', startsAt: expect.any(String), timezone: 'America/Toronto' },
-      photo: { url: null, updatedAt: null },
-      photoLocked: false,
       profile: { public: true, hasLinkedin: false }, // §6.5 badge profile: on by default since v0.9
     });
     await f.checkIn(f.p.A, f.token.A);
-    expect(await (await c.lookup({ token: f.token.A })).json()).toMatchObject({ photoLocked: true });
+    expect(await (await c.lookup({ token: f.token.A })).json()).toEqual(body);
   });
 
   it('T-PASS-02: a garbage token and an unknown well-formed token get the identical generic response', async () => {

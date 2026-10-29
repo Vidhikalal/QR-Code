@@ -8,7 +8,7 @@ Code for every slice in SPEC §18 is done and tested locally. What's left is **s
 
 ### Supabase (production project)
 - [ ] Create the project in the region closest to Toronto (§17 A9), e.g. `ca-central-1` or `us-east-1`.
-- [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket.
+- [ ] Apply the migrations from your machine: `supabase link --project-ref <ref>` then `supabase db push`. This creates every table, function, grant and the private `photos` bucket (retained for deleting legacy uploads).
 - [ ] Auth → URL configuration: set Site URL to `https://<your-domain>` and add `https://<your-domain>/auth/confirm**` to the redirect URLs. Point the invite and recovery email templates at `https://<your-domain>/auth-email/invite.html` and `recovery.html`, and turn off public sign-ups. Keep "Secure email change" on (Passline trusts an account's email for `/me` and invites).
 - [ ] Auth → SMTP: **set up custom SMTP** (e.g. Resend's SMTP). Supabase's built-in mailer only sends a few emails per hour, which isn't enough for volunteers signing in on event day.
 - [ ] Copy the project URL, anon key and service-role key for the Vercel env.
@@ -61,9 +61,6 @@ The live app runs on Vercel (Pro), and `vercel.json` schedules both jobs as Verc
 ### Email: T-MAIL-12
 Check each of Gmail web, Gmail iOS in **dark mode**, Apple Mail, Outlook web and the college email:
 - [ ] The email lands in the inbox, not spam.  - [ ] The QR scans straight off the screen.
-
-### Pass page: T-PASS-10
-- [ ] On a real iPhone, add a photo from the library (a HEIC original) → the upload succeeds.
 
 ### Device matrix: T-DEV / T-SCUI-13 (target ≥ 95% of scans under 3 s)
 Scanners: iPhone Safari (current iOS and one version back) and Android Chrome (a recent phone and an old or cheap one).

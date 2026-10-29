@@ -17,7 +17,7 @@ export function renderRsvpEmail(input: RsvpEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
   const by = input.closesAt ? formatEventDateTime(input.closesAt, input.event.timezone) : null;
   const deadline = by ? `Please reply by ${by}. No reply by then counts as a no, and your spot goes to someone on the waitlist.` : null;
-  const yes = "If you say yes, you'll set a password for your Passline account and we'll email your check-in pass. Then set up your profile (emergency contact, overnight stay, allergies, team).";
+  const yes = "If you say yes, you'll set a password for your Datathon account and we'll email your check-in pass. Then set up your profile (emergency contact, overnight stay, allergies, team).";
   const e = {
     first: escapeHtml(input.firstName),
     event: escapeHtml(input.event.name),

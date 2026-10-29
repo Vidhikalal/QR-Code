@@ -1,9 +1,11 @@
 'use client';
 
+import { NativeDialog } from '@/components/ui/native-dialog';
+import { Button } from '@/components/ui/button';
+
 import { useEffect, useRef } from 'react';
 import type { linkNotice } from '@/lib/domain/badge';
 import type { NfcState } from '@/lib/scanner/nfc';
-import styles from './scanner.module.css';
 
 export type LinkState = { kind: 'waiting'; unreadable?: boolean } | { kind: 'saving' } | { kind: 'result'; notice: ReturnType<typeof linkNotice> };
 
@@ -24,9 +26,9 @@ export function LinkSheet(props: {
   }, []);
 
   return (
-    <dialog
+    <NativeDialog
       ref={ref}
-      className={styles.dialog}
+      className="tw-scanner-dialog p-[28px] w-[min(92vw,_460px)] [box-shadow:rgba(0,_0,_0,_0.45)_0px_28px_90px] [&_h2]:m-[0px_0px_12px] [&_h2]:text-[24px] [&_h2]:tracking-[-0.035em] [&_p]:text-muted-foreground [&_p]:leading-[1.6]"
       aria-labelledby="link-title"
       onCancel={(e) => {
         e.preventDefault();
@@ -43,20 +45,20 @@ export function LinkSheet(props: {
       <div aria-live="polite" aria-atomic="true">
         {props.state.kind === 'waiting' && props.state.unreadable && <p>Couldn’t read that badge. Hold it still and tap again.</p>}
         {props.state.kind === 'saving' && <p>Linking badge…</p>}
-        {props.state.kind === 'result' && <p className={styles.linkNotice} data-tone={props.state.notice.tone}>{props.state.notice.text}</p>}
-        {props.state.kind === 'waiting' && props.readerError && <p className={styles.linkNotice} data-tone="bad">✕ {props.readerError}</p>}
+        {props.state.kind === 'result' && <p className="[overflow-wrap:anywhere] [&[data-tone='bad']]:text-bad" data-tone={props.state.notice.tone}>{props.state.notice.text}</p>}
+        {props.state.kind === 'waiting' && props.readerError && <p className="[overflow-wrap:anywhere] [&[data-tone='bad']]:text-bad" data-tone="bad">✕ {props.readerError}</p>}
         {props.state.kind === 'waiting' && props.readerState === 'starting' && <p>Starting badge reader…</p>}
       </div>
-      <div className={styles.dialogActions}>
+      <div className="flex gap-[10px] justify-end flex-wrap mt-[20px]">
         {props.state.kind === 'waiting' && props.readerState === 'off' && (
-          <button type="button" className={styles.secondary} onClick={props.onStart}>
+          <Button type="button" variant="outline" onClick={props.onStart}>
             Start badge reader
-          </button>
+          </Button>
         )}
-        <button type="button" className={styles.secondary} onClick={props.onClose} autoFocus>
+        <Button type="button" variant="outline" onClick={props.onClose} autoFocus>
           {props.state.kind === 'result' ? 'Done' : 'Cancel'}
-        </button>
+        </Button>
       </div>
-    </dialog>
+    </NativeDialog>
   );
 }

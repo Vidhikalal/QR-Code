@@ -30,7 +30,7 @@ describe('CSV export (SPEC §11, §13)', () => {
     expect(String(res.body).startsWith('﻿')).toBe(true);
     const rows = lines(res.body);
     expect(rows[0]).toBe(
-      '"first_name","last_name","email","status","source","is_test","dietary_notes","checked_in_at_local","has_photo","applicant_id","overnight","team_status","allergies","allergy_severity"',
+      '"first_name","last_name","email","status","source","is_test","dietary_notes","checked_in_at_local","applicant_id","overnight","team_status","allergies","allergy_severity"',
     );
     expect(rows.some((r) => r.startsWith(`"'=HYPERLINK(""http://x"")"`))).toBe(true);
     expect(rows.find((r) => r.startsWith('"Ada"'))).toMatch(/"accepted","seed","false","Vegetarian","\w{3}, \w{3} \d+ · /);

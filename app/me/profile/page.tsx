@@ -1,3 +1,11 @@
+
+import { Entrance } from '@/components/motion';
+import { Card } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -6,9 +14,6 @@ import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
 import { PHONE_PATTERN } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
-import formStyles from '../../login/login.module.css';
-import styles from '../../profile/[uid]/profile.module.css';
-import me from '../me.module.css';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
 
@@ -89,25 +94,37 @@ export default async function HackerProfilePage(props: {
   const networkingError = ['INVALID_LINKEDIN', 'INVALID_DISCORD', 'INVALID_WEBSITE'].includes(notices.error ?? '');
 
   return (
-    <main className={styles.page}>
-      <div className={styles.top}>
-        <Link className={me.back} href="/me">
+    <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
+
+          [:where(&)_>_*]:mb-0">
+      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
+
+          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
+        <Link className="inline-flex items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
           ← Menu
         </Link>
-        <span className={styles.context}>{m.event.name}</span>
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
+
+          uppercase">{m.event.name}</span>
       </div>
       <h1>{m.profileDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {!m.profileDone && <p className={styles.meta}>A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
+      {!m.profileDone && <p className="m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
 
-      <section aria-label="Profile setup" className={styles.card}>
-        <form action={saveSetup} className={formStyles.form}>
+      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-label="Profile setup" >
+        <form action={saveSetup} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <h2>Emergency contact</h2>
-          <p className={styles.meta}>Who we call if something happens to you.</p>
-          <label htmlFor="emergencyName">Emergency contact name</label>
-          <input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className={formStyles.input} />
-          <label htmlFor="emergencyPhone">Emergency contact phone</label>
-          <input
+          <p className="m-0 text-muted-foreground text-[14px]">Who we call if something happens to you.</p>
+          <Label htmlFor="emergencyName">Emergency contact name</Label>
+          <Input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className="min-h-12 w-full" />
+          <Label htmlFor="emergencyPhone">Emergency contact phone</Label>
+          <Input
             id="emergencyPhone"
             name="emergencyPhone"
             type="tel"
@@ -117,69 +134,90 @@ export default async function HackerProfilePage(props: {
             title="A phone number: digits, spaces and + ( ) - ."
             autoComplete="off"
             defaultValue={m.emergency?.phone ?? ''}
-            className={formStyles.input}
+            className="min-h-12 w-full"
           />
-          <label htmlFor="emergencyRelation">Relationship (optional)</label>
-          <input
+          <Label htmlFor="emergencyRelation">Relationship (optional)</Label>
+          <Input
             id="emergencyRelation"
             name="emergencyRelation"
             maxLength={60}
             placeholder="Parent, partner, friend…"
             autoComplete="off"
             defaultValue={m.emergency?.relation ?? ''}
-            className={formStyles.input}
+            className="min-h-12 w-full"
           />
 
           <h2>The event</h2>
-          <fieldset className={me.choices}>
+          <fieldset className="grid gap-[2px] m-0 p-0 [border-width:0px] [border-style:none] [border-color:currentcolor] min-w-0
+
+          [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
             <legend>Staying overnight?</legend>
             {OVERNIGHT.map(([value, label]) => (
-              <label key={value} className={me.choice}>
+              <Label key={value} className="flex gap-[10px] items-center min-h-[44px] [&_input]:[flex:0_0_auto] [&_input]:w-[22px]
+
+          [&_input]:h-[22px]">
                 <input type="radio" name="overnight" value={value} required defaultChecked={m.overnight === value} />
                 {label}
-              </label>
+              </Label>
             ))}
           </fieldset>
-          <fieldset className={me.choices}>
+          <fieldset className="grid gap-[2px] m-0 p-0 [border-width:0px] [border-style:none] [border-color:currentcolor] min-w-0
+
+          [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
             <legend>Your team</legend>
             {TEAM.map(([value, label]) => (
-              <label key={value} className={me.choice}>
+              <Label key={value} className="flex gap-[10px] items-center min-h-[44px] [&_input]:[flex:0_0_auto] [&_input]:w-[22px]
+
+          [&_input]:h-[22px]">
                 <input type="radio" name="teamStatus" value={value} required defaultChecked={m.teamStatus === value} />
                 {label}
-              </label>
+              </Label>
             ))}
           </fieldset>
 
           <h2>Health and access</h2>
-          <AllergyFields allergies={m.allergies ?? ''} severity={m.allergySeverity ?? ''} inputClass={formStyles.input} hintClass={styles.meta} />
-          <label htmlFor="accessibility">Accessibility needs (optional)</label>
-          <textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className={me.textarea} />
+          <AllergyFields allergies={m.allergies ?? ''} severity={m.allergySeverity ?? ''} inputClass={`min-h-[48px] p-[0px_12px] [font:inherit] [background:var(--raised)] text-fg [border-width:1px]
+                [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
+                [border-bottom-color:var(--field)] [border-left-color:var(--field)] rounded-control
+                [&:is(select)]:min-w-0 [&:is(select)]:w-full`} hintClass={" m-0 text-muted-foreground text-[14px]"} />
+          <Label htmlFor="accessibility">Accessibility needs (optional)</Label>
+          <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
           {error && !networkingError && (
-            <p role="alert" className={formStyles.error}>
+            <Alert className="text-bad" asChild><p role="alert" >
               {error}
-            </p>
+            </p></Alert>
           )}
           {notices.saved === 'setup' && (
-            <p role="status" className={formStyles.ok}>
+            <Alert className="text-ok" asChild role="status"><p role="status" >
               ✓ Saved. Your profile is set up.
-            </p>
+            </p></Alert>
           )}
-          <button type="submit">Save profile</button>
+          <Button type="submit">Save profile</Button>
         </form>
-      </section>
+      </section></Card>
 
-      <section aria-labelledby="networking" className={styles.card}>
+      <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="networking" >
         <h2 id="networking">Networking</h2>
-        <div className={me.field}>
-          <p className={me.label}>Name</p>
-          <p className={styles.name}>{`${m.firstName} ${m.lastName}`.trim()}</p>
+        <div className="grid gap-[4px]">
+          <p className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase">Name</p>
+          <p className="text-[28px] font-semibold leading-[1.2]">{`${m.firstName} ${m.lastName}`.trim()}</p>
         </div>
-        {m.badge ? <p className={me.chip}>✓ Badge linked.</p> : <p className={styles.meta}>No badge yet. Staff link badges at the check-in desk.</p>}
-        <form action={saveNetworking} className={formStyles.form}>
+        {m.badge ? <p className="inline-flex items-center gap-[6px] [align-self:flex-start] p-[4px_10px] rounded-sm
+
+          [background:color-mix(in_srgb,_var(--accent)_12%,_var(--card))] text-ok text-[14px]
+
+          [&[data-tone='muted']]:[background:var(--raised)] [&[data-tone='muted']]:text-muted-foreground">✓ Badge linked.</p> : <p className="m-0 text-muted-foreground text-[14px]">No badge yet. Staff link badges at the check-in desk.</p>}
+        <form action={saveNetworking} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+
+          [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
+
+          [&_h2]:[border-top-style:solid] [&_h2]:[border-top-color:var(--line)] [&_h2]:text-[18px]
+
+          [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
-          <label htmlFor="linkedin">LinkedIn (optional)</label>
-          <input
+          <Label htmlFor="linkedin">LinkedIn (optional)</Label>
+          <Input
             id="linkedin"
             name="linkedin"
             inputMode="url"
@@ -189,10 +227,10 @@ export default async function HackerProfilePage(props: {
             autoComplete="url"
             placeholder="linkedin.com/in/yourname"
             defaultValue={m.linkedinUrl ?? ''}
-            className={formStyles.input}
+            className="min-h-12 w-full"
           />
-          <label htmlFor="discord">Discord username (optional)</label>
-          <input
+          <Label htmlFor="discord">Discord username (optional)</Label>
+          <Input
             id="discord"
             name="discord"
             maxLength={33}
@@ -204,10 +242,10 @@ export default async function HackerProfilePage(props: {
             autoComplete="off"
             placeholder="yourname"
             defaultValue={m.discordUsername ?? ''}
-            className={formStyles.input}
+            className="min-h-12 w-full"
           />
-          <label htmlFor="website">Website (optional)</label>
-          <input
+          <Label htmlFor="website">Website (optional)</Label>
+          <Input
             id="website"
             name="website"
             inputMode="url"
@@ -217,25 +255,25 @@ export default async function HackerProfilePage(props: {
             autoComplete="url"
             placeholder="yourname.dev"
             defaultValue={m.websiteUrl ?? ''}
-            className={formStyles.input}
+            className="min-h-12 w-full"
           />
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+          <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
             <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
             Show my name and these links to anyone who taps my badge
-          </label>
+          </Label>
           {networkingError && (
-            <p role="alert" className={formStyles.error}>
+            <Alert className="text-bad" asChild><p role="alert" >
               {error}
-            </p>
+            </p></Alert>
           )}
           {notices.saved === '1' && (
-            <p role="status" className={formStyles.ok}>
+            <Alert className="text-ok" asChild role="status"><p role="status" >
               ✓ Saved.
-            </p>
+            </p></Alert>
           )}
-          <button type="submit">Save links</button>
+          <Button type="submit">Save links</Button>
         </form>
-      </section>
-    </main>
+      </section></Card>
+    </main></Entrance>
   );
 }

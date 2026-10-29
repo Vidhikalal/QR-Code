@@ -20,7 +20,7 @@ test.afterAll(async () => {
   await f.close();
 });
 
-test('T-SCUI-06: a QR encoding https://example.com shows "Not a Passline code" and makes zero /api/scan requests', async ({ page }) => {
+test('T-SCUI-06: a QR encoding https://example.com shows "Not a Datathon code" and makes zero /api/scan requests', async ({ page }) => {
   let scans = 0;
   page.on('request', (r) => {
     if (new URL(r.url()).pathname === '/api/scan') scans += 1;
@@ -28,7 +28,7 @@ test('T-SCUI-06: a QR encoding https://example.com shows "Not a Passline code" a
   await page.goto(`/scan/${f.slug}`);
   await chooseCheckpoint(page, 'Door');
   const result = page.getByTestId('scan-result');
-  await expect(result).toContainText('Not a Passline code');
+  await expect(result).toContainText('Not a Datathon code');
   await expect(result).toHaveAttribute('data-tone', 'amber');
   await expect(result).toHaveAttribute('data-dismiss', 'auto');
   await expect(result).toBeHidden({ timeout: 3000 });

@@ -19,7 +19,7 @@ export interface RenderedEmail {
   inlineImages: InlineImage[];
 }
 
-// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, tips, photo link, profile setup and
+// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, tips, profile setup and
 // the event's links (v0.9), organizer contact, privacy line. The QR is an inline cid: attachment, never a data: URI.
 export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
@@ -32,7 +32,7 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     profile: escapeHtml(input.profileUrl),
   };
   const setupWhat = 'your emergency contact, whether you’re staying overnight, allergies, your team and any accessibility needs';
-  const privacy = 'Photos, dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event.';
+  const privacy = 'Dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event.';
 
   const html = `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5">
@@ -46,7 +46,6 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
 <li>A screenshot of this code works fine.</li>
 <li>This code is personal. Don't share it.</li>
 </ul>
-<p><a href="${e.url}">Add a photo for faster check-in</a> (optional).</p>
 <p><strong>Next: set up your profile.</strong> Tell us ${setupWhat}.</p>
 <p><a href="${e.profile}" style="display:inline-block;padding:12px 20px;background:#111111;color:#ffffff;border-radius:10px;text-decoration:none">Set up your profile</a></p>
 <ul>
@@ -69,8 +68,6 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     `Open your pass (shows your QR code): ${input.passUrl}`,
     '',
     'Tips: turn your screen brightness up at the door. A screenshot of the code works fine. This code is personal; don\'t share it.',
-    '',
-    `Add a photo for faster check-in (optional): ${input.passUrl}`,
     '',
     `Next: set up your profile. Tell us ${setupWhat}: ${input.profileUrl}`,
     '',

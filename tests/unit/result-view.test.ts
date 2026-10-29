@@ -10,13 +10,13 @@ const ctx = (kind: ViewContext['checkpointKind'] = 'door'): ViewContext => ({
   timezone: 'America/Toronto',
   now,
 });
-const participant = { id: 'p1', displayName: 'Ada Lovelace', photoUrl: 'https://x/p.jpg', status: 'accepted', dietaryNotes: null };
+const participant = { id: 'p1', displayName: 'Ada Lovelace', status: 'accepted', dietaryNotes: null };
 const server = (data: Partial<ScanResponse> & { code: ScanCode }) => ({ kind: 'server' as const, data: { serverTime: now.toISOString(), ...data } });
 
 describe('result screen mapping (SPEC §10.2)', () => {
   it('T-SCUI-03: ACCEPTED headlines per checkpoint kind, green, auto-dismiss 2.5 s, chime', () => {
     expect(viewFor(server({ code: 'ACCEPTED', participant }), ctx('door'))).toMatchObject({
-      tone: 'green', icon: '✓', headline: 'ADMIT', name: 'Ada Lovelace', photoUrl: 'https://x/p.jpg', dismiss: { autoMs: 2500 }, sound: 'chime',
+      tone: 'green', icon: '✓', headline: 'ADMIT', name: 'Ada Lovelace', dismiss: { autoMs: 2500 }, sound: 'chime',
     });
     const meal = viewFor(server({ code: 'ACCEPTED', participant: { ...participant, dietaryNotes: 'Vegan, nut allergy' } }), ctx('meal'));
     expect(meal).toMatchObject({ tone: 'green', headline: 'SERVE', emphasis: 'Vegan, nut allergy' });
@@ -39,7 +39,7 @@ describe('result screen mapping (SPEC §10.2)', () => {
     const old = viewFor(server({ code: 'ALREADY_SCANNED', participant, previous: { scannedAt: at(90), scannedByName: 'Me', scannedByMe: true } }), ctx());
     expect(old).toMatchObject({ tone: 'red', icon: '✕', headline: 'ALREADY SCANNED 12:01 PM by Me', dismiss: 'tap', sound: 'buzz' });
     const other = viewFor(server({ code: 'ALREADY_SCANNED', participant, previous: { scannedAt: at(17), scannedByName: 'Maya', scannedByMe: false } }), ctx());
-    expect(other).toMatchObject({ tone: 'red', headline: 'ALREADY SCANNED 12:03 PM by Maya', detail: 'Check the photo', photoUrl: 'https://x/p.jpg' });
+    expect(other).toEqual({ tone: 'red', icon: '✕', headline: 'ALREADY SCANNED 12:03 PM by Maya', name: 'Ada Lovelace', dismiss: 'tap', sound: 'buzz' });
   });
 
   it('T-SCUI-03: every problem code has its §10.2 tone, icon, text and requires a tap', () => {
@@ -66,7 +66,7 @@ describe('result screen mapping (SPEC §10.2)', () => {
   });
 
   it('T-SCUI-06: MALFORMED is amber "?" and auto-dismisses after 1.5 s', () => {
-    expect(viewFor({ kind: 'malformed' }, ctx())).toMatchObject({ tone: 'amber', icon: '?', headline: 'Not a Passline code', dismiss: { autoMs: 1500 } });
+    expect(viewFor({ kind: 'malformed' }, ctx())).toMatchObject({ tone: 'amber', icon: '?', headline: 'Not a Datathon code', dismiss: { autoMs: 1500 } });
   });
 
   it('I-1: nothing but a server ACCEPTED is ever green', () => {
