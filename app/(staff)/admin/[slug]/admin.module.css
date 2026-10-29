@@ -1,6 +1,6 @@
 .shell { min-height: 100dvh; }
 .header { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px 0; }
-.nav { display: flex; gap: 4px; overflow-x: auto; }
+
 .tab { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; white-space: nowrap; }
 .tab[aria-current='page'] { color: var(--fg); font-weight: 700; border-bottom-color: var(--accent); }
 
@@ -288,16 +288,22 @@
 
 .nav {
   display: flex;
-  align-items: stretch;
-  gap: 6px;
+  justify-content: safe center;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+
   overflow-x: auto;
   overflow-y: hidden;
+  max-width: 100%;
+  min-width: 0;
+
   scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
+    scrollbar-color: color-mix(in srgb, var(--accent) 20%, transparent) transparent;
 }
 
 .tab {
-  position: relative;
+    padding: 10px 16px;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -307,7 +313,7 @@
   border-radius: 8px 8px 0 0;
   border-bottom: 2px solid transparent;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 0.95rem;
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
@@ -1399,10 +1405,23 @@
   padding: 16px 18px;
   border-top: 1px solid var(--line);
   vertical-align: middle;
+  font: inherit;
 }
 
 .tracksTable tbody tr {
   transition: background-color 150ms ease;
+  font: inherit;
+}
+
+.tracksTable,
+.tracksTable table,
+.tracksTable th,
+.tracksTable td,
+.tracksTable input,
+.tracksTable select,
+.trackRow,
+.trackNameInput {
+  font: inherit;
 }
 
 .tracksTable tbody tr:hover {
@@ -1421,6 +1440,7 @@
   background: transparent;
   box-shadow: none;
   outline: none;
+  
 }
 
 .trackRow input,
@@ -2769,4 +2789,93 @@
   }
 }
 
+.input,
+.input option {
+  font-family: inherit;
+}
 
+/* Overall admin layout — wider desktop view */
+.main {
+  width: 100%;
+  max-width: 1500px;
+  margin-inline: auto;
+  padding: clamp(24px, 3vw, 44px);
+  box-sizing: border-box;
+}
+
+/* More room for the event header and navigation */
+.headerInner {
+  width: 100%;
+  max-width: 1500px;
+  box-sizing: border-box;
+  margin-inline: auto;
+  padding-inline: clamp(16px, 3vw, 44px);
+}
+
+/* More readable page headings */
+.main h1 {
+  font-size: clamp(32px, 2.8vw, 42px);
+}
+
+/* More comfortable section headings */
+.main h2 {
+  font-size: 20px;
+}
+
+/* Slightly larger navigation */
+.tab {
+  min-height: 48px;
+  padding-inline: 18px;
+  font-size: 1rem;
+}
+
+/* Keep horizontal navigation scrolling */
+.nav {
+  display: flex;
+  justify-content: safe center;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 30%, transparent) transparent;
+}
+
+.tab {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Preserve mobile spacing */
+@media (max-width: 600px) {
+  .main {
+    padding: 22px 14px 32px;
+  }
+
+  .headerInner {
+    padding-inline: 2px;
+  }
+
+  .tab {
+    min-height: 44px;
+    padding-inline: 12px;
+    font-size: 0.875rem;
+  }
+  
+}
+
+.infoForm,
+.infoFooter {
+  max-width: 1100px;
+}
+
+.exportNotice {
+  max-width: 1100px;
+}
+
+.exportSection {
+  max-width: 1200px;
+}
