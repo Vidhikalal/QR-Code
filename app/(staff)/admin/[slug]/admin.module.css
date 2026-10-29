@@ -2019,3 +2019,328 @@
 .teamCard .teamHeaderForm .field {
   gap: 6px;
 }
+
+/* Staff styling */
+
+.staffPage {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+  padding-bottom: 32px;
+}
+
+.staffHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 8px 0;
+}
+
+.staffHeader h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 3vw, 2.3rem);
+  letter-spacing: -0.045em;
+}
+
+.staffEyebrow {
+  margin: 0 0 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.staffDescription {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.staffCount {
+  display: grid;
+  gap: 3px;
+  flex-shrink: 0;
+  min-width: 112px;
+  padding: 14px 18px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.staffCount span:first-child {
+  font-size: 1.65rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.staffCount span:last-child {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.staffSection {
+  min-width: 0;
+  padding: 22px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.staffSectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.staffSectionHeading h2 {
+  margin: 0;
+  font-size: 1.08rem;
+  letter-spacing: -0.02em;
+}
+
+.staffSectionCount {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.staffInviteForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(150px, 0.8fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.staffInviteForm .field {
+  min-width: 0;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.staffInviteForm .input {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  border-radius: 9px;
+}
+
+.staffInviteButton {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.staffInviteButton:hover {
+  opacity: 0.88;
+}
+
+.staffInviteButton:active {
+  transform: translateY(1px);
+}
+
+.staffPage button:focus-visible,
+.staffPage input:focus-visible,
+.staffPage select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.staffTable {
+  width: 100%;
+}
+
+.staffTable th {
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.staffTable td,
+.staffTable th {
+  padding: 14px 12px;
+  vertical-align: middle;
+}
+
+.staffPerson {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.staffPerson strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.staffAvatar {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg);
+  font-size: 0.9rem;
+  font-weight: 750;
+}
+
+.staffYou {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.staffRole {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.staffOrganizer {
+  color: var(--fg);
+  background: var(--card);
+  border-color: var(--accent);
+}
+
+.staffVolunteer {
+  color: var(--muted);
+  background: transparent;
+}
+
+.staffActionsHeading,
+.staffActionsCell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.staffInviteEmail {
+  overflow-wrap: anywhere;
+  font-size: 0.87rem;
+}
+
+.staffEmpty {
+  margin: 0;
+  padding: 24px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .staffHeader {
+    align-items: stretch;
+  }
+
+  .staffCount {
+    min-width: 84px;
+    padding: 12px;
+  }
+
+  .staffInviteForm {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .staffInviteForm .field:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .staffInviteButton {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .staffSection {
+    padding: 16px;
+  }
+
+  .staffSectionHeading {
+    align-items: flex-start;
+  }
+
+  .staffTable td,
+  .staffTable th {
+    padding: 12px 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .staffHeader {
+    flex-wrap: wrap;
+  }
+
+  .staffCount {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .staffSectionHeading {
+    flex-direction: column;
+  }
+
+  .staffTable {
+    min-width: 460px;
+  }
+
+  .staffTable td,
+  .staffTable th {
+    font-size: 0.8rem;
+  }
+}
+
+
+.staffInviteForm input,
+.staffInviteForm select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--fg);
+}
+
+.staffInviteForm input::placeholder {
+  font-family: inherit;
+  color: var(--muted);
+}
+
+.staffInviteForm select option {
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--card);
+}
+
