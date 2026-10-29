@@ -43,7 +43,18 @@ async function lookupToken(db: Db, token: string): Promise<PassLookup | null> {
 
 export async function withinLimit(db: Db, key: string, windowSeconds: number, limit: number): Promise<boolean> {
   const { data, error } = await db.rpc('rate_limit_hit', { p_key: key, p_window_seconds: windowSeconds, p_limit: limit });
-  if (error) throw new Error(`rate_limit_hit failed (${error.code})`);
+
+  //if (error) throw new Error(`rate_limit_hit failed (${error.code})`);
+  if (error) {
+  console.error('rate_limit_hit RPC error:', {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+  });
+
+  throw new Error(`rate_limit_hit failed (${error.code}: ${error.message})`);
+}
   return data;
 }
 

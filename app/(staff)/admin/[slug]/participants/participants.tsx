@@ -49,6 +49,7 @@ export function Participants({ slug }: { slug: string }) {
   const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
   const picked = invitable.filter((r) => selected.has(r.id));
 
+
   const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (status) params.set('status', status);
@@ -198,7 +199,13 @@ export function Participants({ slug }: { slug: string }) {
                           Revoke
                         </button>
                       )}
-                      <button type="button" className={`${styles.secondary} ${styles.small}`} aria-pressed={r.isTest} onClick={() => void toggleTest(r)}>
+                      <button
+                        type="button"
+                        className={`${styles.secondary} ${styles.small}`}
+                        aria-label={`${r.isTest ? 'Unmark' : 'Mark'} ${fullName(r)} as a test participant`}
+                        aria-pressed={r.isTest}
+                        onClick={() => void toggleTest(r)}
+                      >
                         {r.isTest ? 'Unmark test' : 'Mark test'}
                       </button>
                       <button type="button" className={`${styles.danger} ${styles.small}`} onClick={() => setPending({ kind: 'delete', row: r })}>
@@ -288,8 +295,8 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
       notRsvped
         ? `✓ Added ${firstName} as not RSVPed yet. Tick them and press Send RSVP to email the invitation.`
         : !checkInNow || scanCode === 'ACCEPTED'
-        ? `✓ Added ${firstName}${checkInNow ? ' and checked them in' : ''}.`
-        : `! Added ${firstName}, but check-in failed (${scanCode ?? 'unknown'}). Is the door open?`,
+          ? `✓ Added ${firstName}${checkInNow ? ' and checked them in' : ''}.`
+          : `! Added ${firstName}, but check-in failed (${scanCode ?? 'unknown'}). Is the door open?`,
     );
   }
 

@@ -60,6 +60,7 @@ export function CheckpointPicker(props: {
                 type="button"
                 className={styles.choice}
                 aria-pressed={cp.id === props.currentId}
+                
                 onClick={() => pick(cp)}
               >
                 <span aria-hidden="true">{KIND_ICON[cp.kind]}</span>

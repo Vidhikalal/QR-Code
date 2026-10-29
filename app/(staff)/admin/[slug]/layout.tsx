@@ -19,13 +19,23 @@ export default async function AdminLayout({ children, params }: { children: Reac
   if (!staff) forbidden();
   const { data: event, error } = await db().from('events').select('name').eq('id', staff.eventId).single();
   if (error) throw new Error(`event load failed (${error.code})`);
+ 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
-        <div className={styles.eventName}>{event.name}</div>
+        <div className={styles.headerInner}>
+          <div className={styles.brandLine}>
+            <span className={styles.brandMark}>P/</span>
+            <span className={styles.brandLabel}>PASSLINE</span>
+            <span className={styles.headerDivider} aria-hidden="true" />
+            <span className={styles.consoleLabel}>EVENT CONSOLE</span>
+          </div>
+          <div className={styles.eventName}>{event.name}</div>
+        </div>
         <AdminNav slug={slug} />
       </header>
       <main className={styles.main}>{children}</main>
     </div>
   );
+
 }

@@ -76,13 +76,13 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
           Close
         </button>
       </div>
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+<div className={styles.detailProfile}>
         {p.photoUrl ? (
           <Image className={styles.photo} src={p.photoUrl} alt={`Photo of ${name}`} width={160} height={160} unoptimized />
         ) : (
           <div className={styles.photo} role="img" aria-label="No photo" />
         )}
-        <dl style={{ margin: 0 }}>
+       <dl className={styles.detailInfo}>
           <dt className={styles.muted}>Email</dt>
           <dd>{p.email}</dd>
           <dt className={styles.muted}>Status</dt>
@@ -117,7 +117,7 @@ export function ParticipantDetail(props: { slug: string; id: string; onClose: ()
           {message}
         </p>
       )}
-      <h3>Scan history</h3>
+     <h3 className={styles.scanHeading}>Scan history</h3>
       {detail.scans.length === 0 ? (
         <p className={styles.muted}>No scans.</p>
       ) : (

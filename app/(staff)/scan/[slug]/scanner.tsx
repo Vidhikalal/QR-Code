@@ -80,6 +80,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerRef = useRef<BarcodeScanner | null>(null);
   const deduper = useRef(createDeduper());
+  const recordingRef = useRef(false);
   const resultSeq = useRef(0);
   const checkpoint = checkpoints?.find((c) => c.id === checkpointId) ?? null;
 
@@ -135,11 +136,16 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     }
   }, [timezone]);
 
-  const record = useCallback(
-    async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'badgeUid'>) => {
-      if (!checkpoint) return;
-      setBusy(true);
-      setNotice(null);
+ 
+const record = useCallback(
+  async (part: Pick<ScanRequest, 'method' | 'token' | 'participantId' | 'badgeUid'>) => {
+    if (!checkpoint || recordingRef.current) return;
+
+    recordingRef.current = true;
+    setBusy(true);
+    setNotice(null);
+
+    try {
       // A new physical scan gets a new clientScanId; submitScan's retries reuse it (§10.2).
       const outcome = await submitScan({
         checkpointId: checkpoint.id,
@@ -147,12 +153,14 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         clientScanId: crypto.randomUUID(),
         clientScannedAt: new Date().toISOString(),
       });
-      setBusy(false);
+
       if (outcome.kind === 'unauthorized') return toLogin();
+
       if (outcome.kind === 'offline') {
         setNetworkDown(true);
         return show({ kind: 'network' }, checkpoint, part.method);
       }
+
       if (outcome.kind === 'response') {
         const { data } = outcome;
         if (data.code === 'ACCEPTED' && data.scanId && !data.voided) {
@@ -161,10 +169,16 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         }
         return show({ kind: 'server', data }, checkpoint, part.method);
       }
+
       show({ kind: outcome.kind }, checkpoint, part.method);
-    },
-    [checkpoint, show, toLogin],
-  );
+    } finally {
+      recordingRef.current = false;
+      setBusy(false);
+    }
+  },
+  [checkpoint, show, toLogin],
+);
+
 
   const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || undoOpen || peopleOpen || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);

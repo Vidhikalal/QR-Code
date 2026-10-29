@@ -29,8 +29,11 @@ export function ManualSearch(props: {
   const [state, setState] = useState<SearchState>({ kind: 'idle' });
   const valid = searchQuery(q) !== null;
 
-  useEffect(() => {
-    if (!valid) return;
+useEffect(() => {
+  if (!valid) {
+    setState({ kind: 'idle' });
+    return;
+  }
     let stale = false;
     const t = setTimeout(async () => {
       setState({ kind: 'loading' });
@@ -50,7 +53,13 @@ export function ManualSearch(props: {
       stale = true;
       clearTimeout(t);
     };
-  }, [q, valid, props]);
+  }, [
+  q,
+  valid,
+  props.slug,
+  props.checkpointId,
+  props.onUnauthorized,
+]);
 
   return (
     <section className={styles.sheet} aria-labelledby="search-title">

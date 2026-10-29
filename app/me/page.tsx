@@ -30,7 +30,7 @@ export default async function MePage() {
   const teamHint = !m ? '' : m.teamId ? 'You’re in a team' : !live ? '' : m.event.teamsOpen ? 'Create or join a team' : 'Opens on hackathon day';
 
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${me.dashboard}`}>
       {m ? (
         <>
           <header className={me.hero}>
