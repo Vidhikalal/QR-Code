@@ -14,6 +14,8 @@ export interface ProfileInput {
   emergencyPhone?: string;
   emergencyRelation?: string;
   overnight?: string;
+  /** The setup form's "I have allergies" toggle: on needs both fields, off clears them. Absent: as typed. */
+  hasAllergies?: boolean;
   allergies?: string;
   allergySeverity?: string;
   teamStatus?: string;
@@ -100,10 +102,12 @@ export function parseProfileInput(
     if (!oneOf(OVERNIGHT, overnight)) return { ok: false, field: 'overnight' };
     value.overnight = overnight;
   }
-  if (raw.allergies !== undefined) {
-    const text = raw.allergies.trim();
+  if (raw.hasAllergies === false) value.allergy = { text: '', severity: '' };
+  else if (raw.allergies !== undefined || raw.hasAllergies) {
+    const text = (raw.allergies ?? '').trim();
     const severity = raw.allergySeverity ?? '';
     if (text.length > 300) return { ok: false, field: 'allergies' };
+    if (text === '' && raw.hasAllergies) return { ok: false, field: 'allergies' };
     if (text === '') value.allergy = { text: '', severity: '' };
     else if (oneOf(ALLERGY_SEVERITY, severity)) value.allergy = { text, severity };
     else return { ok: false, field: 'allergySeverity' };

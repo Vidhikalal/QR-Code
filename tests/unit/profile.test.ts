@@ -104,4 +104,17 @@ describe('parseProfileInput: profile setup (SPEC F14, v0.9)', () => {
     expect(parseProfileInput({ linkedin: '' }, { requireEmergency: false })).toEqual({ ok: true, value: { linkedinUrl: '' } });
     expect(parseProfileInput({ overnight: 'maybe' }, { requireEmergency: false })).toEqual({ ok: false, field: 'overnight' });
   });
+
+  it('T-ME-12: the allergy toggle: on needs the allergy and its severity; off clears both, whatever was sent', () => {
+    const opts = { requireEmergency: true, requireSetup: true };
+    expect(parseProfileInput({ ...setup, hasAllergies: true }, opts)).toMatchObject({ ok: true, value: { allergy: { text: 'Peanuts', severity: 'severe' } } });
+    expect(parseProfileInput({ ...setup, hasAllergies: true, allergies: '  ' }, opts)).toEqual({ ok: false, field: 'allergies' });
+    expect(parseProfileInput({ ...setup, hasAllergies: true, allergies: undefined }, opts)).toEqual({ ok: false, field: 'allergies' });
+    expect(parseProfileInput({ ...setup, hasAllergies: true, allergySeverity: '' }, opts)).toEqual({ ok: false, field: 'allergySeverity' });
+    expect(parseProfileInput({ ...setup, hasAllergies: false }, opts)).toMatchObject({ ok: true, value: { allergy: { text: '', severity: '' } } });
+    expect(parseProfileInput({ ...setup, hasAllergies: false, allergies: undefined, allergySeverity: undefined }, opts)).toMatchObject({
+      ok: true,
+      value: { allergy: { text: '', severity: '' } },
+    });
+  });
 });

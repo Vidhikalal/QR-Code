@@ -59,7 +59,8 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByLabel('Emergency contact phone').fill('416 555 0100');
   await p.getByLabel('Not sure yet').check();
   await p.getByLabel('I’m looking for a team (lists my name in the teammate directory)').check();
-  await p.getByLabel('Allergies (optional)').fill('Peanuts');
+  await p.getByRole('switch', { name: 'I have allergies' }).check();
+  await p.getByLabel('What are you allergic to?').fill('Peanuts');
   // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.
   await p.getByRole('button', { name: 'Save profile' }).click();
   expect(await p.getByLabel('How severe?').evaluate((el) => (el as HTMLSelectElement).validity.valueMissing)).toBe(true);
