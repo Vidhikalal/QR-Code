@@ -271,7 +271,7 @@ function NetworkingFields({ values }: { values: ProfileValues }) {
       />
       <Label style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
         <input type="checkbox" name="public" checked={v.profilePublic} onChange={(e) => setV({ ...v, profilePublic: e.target.checked })} style={{ width: 22, height: 22 }} />
-        Show my name and these links to anyone who taps my badge
+        Show these links to anyone who taps my badge (your name is always shown)
       </Label>
     </>
   );

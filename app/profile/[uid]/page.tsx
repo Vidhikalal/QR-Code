@@ -13,7 +13,8 @@ import { normalizeEmail } from '@/lib/domain/normalize';
 import { CopyButton } from './copy-button';
 
 // SPEC §6.5: what a phone opens when it taps a badge. Public since v0.9: no sign-in needed, and
-// badge_profile() returns only what the holder shares. The holder's own tap opens their menu.
+// badge_profile() returns the holder's name and, only while they share them, their links (v0.11.3).
+// The holder's own tap opens their menu.
 // Staff link unlinked badges at check-in (v0.10). v0.9.2: Discord and website too.
 // `?tap` (on tags written by the earlier datathon-badges app) is ignored.
 export const metadata: Metadata = {
@@ -24,7 +25,7 @@ export const metadata: Metadata = {
 
 const profileSchema = z
   .union([
-    z.object({ allowed: z.literal(true), public: z.literal(false) }),
+    z.object({ allowed: z.literal(true), public: z.literal(false), firstName: z.string(), lastName: z.string() }),
     z.object({
       allowed: z.literal(true),
       public: z.literal(true),
@@ -77,15 +78,12 @@ export default async function BadgeProfilePage(props: { params: Promise<{ uid: s
             <p>Staff link badges at the check-in desk.</p>
           </>
         )}
-        {profile && !profile.public && (
-          <>
-            <h1>This attendee hasn’t shared a profile</h1>
-            <p>They can choose to share their name and links from their Datathon account.</p>
-          </>
+        {profile && (
+          <h1 className="text-[28px] font-semibold leading-[1.2]">{`${profile.firstName} ${profile.lastName}`.trim()}</h1>
         )}
+        {profile && !profile.public && <p>{profile.firstName} keeps their links private.</p>}
         {profile?.public && (
           <>
-            <h1 className="text-[28px] font-semibold leading-[1.2]">{`${profile.firstName} ${profile.lastName}`.trim()}</h1>
             {profile.linkedinUrl && (
               <Button className="self-start" asChild><a  href={profile.linkedinUrl} rel="noopener noreferrer">
                 View LinkedIn profile

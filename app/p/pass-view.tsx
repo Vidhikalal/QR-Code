@@ -228,7 +228,7 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
         body: JSON.stringify({ token, profilePublic: next }),
       });
       if (res.ok) {
-        setMessage({ tone: 'ok', text: next ? 'Your badge profile is shared.' : 'Your badge profile is hidden.' });
+        setMessage({ tone: 'ok', text: next ? 'Your links are shared on your badge.' : 'Your links are hidden. People who tap your badge see only your name.' });
       } else {
         setOn(!next);
         setMessage({ tone: 'bad', text: res.status === 429 ? 'Too many attempts. Please wait a minute.' : 'Couldn’t save. Please try again.' });
@@ -255,7 +255,7 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
 
           [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
-        Show my name and profile links to anyone who taps my badge
+        Show my profile links to anyone who taps my badge (your name is always shown)
       </Label>
       <p className="m-0 text-muted-foreground text-[14px]">Your LinkedIn, Discord and website are set on your Hacker profile.</p>
       <Alert className={` [&:empty]:mt-[-12px] ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">

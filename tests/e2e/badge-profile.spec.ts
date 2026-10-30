@@ -35,11 +35,13 @@ test('T-NFC-14: anyone who taps a badge sees what its holder shares, signed in o
   await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
   await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveAttribute('href', LINKEDIN);
 
-  // Opting out takes effect on the very next view (the page is never cached).
+  // Not sharing the links takes effect on the very next view (the page is never cached). v0.11.3: the name stays.
   await f.pool.query('update participants set profile_public = false where id = $1', [f.p.A]);
   await page.reload();
-  await expect(page.getByRole('heading', { name: /hasn’t shared a profile/ })).toBeVisible();
-  await expect(page.getByText('Ada')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Ada Fixture' })).toBeVisible();
+  await expect(page.getByText('Ada keeps their links private.')).toBeVisible();
+  await expect(page.getByRole('link', { name: /LinkedIn/ })).toHaveCount(0);
+  expect(await page.content()).not.toContain(LINKEDIN);
 
   // Staff link unlinked badges at the check-in desk.
   await page.goto(`/profile/${randomUid()}?tap`);
@@ -65,10 +67,10 @@ test('T-NFC-14: the pass-page opt-in sends the token only in a PATCH body', asyn
   page.on('request', (r) => seen.push({ url: r.url(), method: r.method(), body: r.postData() }));
   await f.pool.query('update participants set profile_public = false where id = $1', [f.p.B]); // on by default since v0.9
   await page.goto(`/p#${f.token.B}`);
-  const box = page.getByRole('checkbox', { name: /show my name/i });
+  const box = page.getByRole('checkbox', { name: /show my profile links/i });
   await expect(box).not.toBeChecked();
   await box.check();
-  await expect(page.getByText('✓ Your badge profile is shared.')).toBeVisible();
+  await expect(page.getByText('✓ Your links are shared on your badge.')).toBeVisible();
   await expect(box).toBeChecked();
   const { rows } = await f.pool.query('select profile_public from participants where id = $1', [f.p.B]);
   expect(rows).toEqual([{ profile_public: true }]);
@@ -105,7 +107,7 @@ test('T-NFC-21: staff link a badge; its holder sets their LinkedIn, Discord and 
   await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('linkedin.com/in/ada-claimed');
   await page.getByRole('textbox', { name: 'Discord username' }).fill('@Ada.Codes');
   await page.getByRole('textbox', { name: 'Website' }).fill('ada.dev');
-  await page.getByRole('checkbox', { name: /Show my name and these links/ }).check();
+  await page.getByRole('checkbox', { name: /Show these links/ }).check();
   await page.getByRole('button', { name: 'Save links' }).click();
   await expect(page.getByText('✓ Saved.')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'LinkedIn' })).toHaveValue('https://www.linkedin.com/in/ada-claimed');

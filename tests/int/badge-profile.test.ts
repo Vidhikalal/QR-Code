@@ -30,12 +30,12 @@ const attendee = async (participantId: string): Promise<{ id: string; email: str
 const staffViewer = (who: 'org1' | 'vol3'): Viewer => ({ id: f.staff[who], email: f.staffEmail[who] });
 
 describe('badge_profile() (SPEC §6.5)', () => {
-  it('T-NFC-12: unlinked → null; not shared → only {allowed, public:false}; shared → name + LinkedIn and nothing else', async () => {
+  it('T-NFC-12: unlinked → null; links not shared → the name only (v0.11.3); shared → name + links and nothing else', async () => {
     const b = await attendee(f.p.B);
     expect(await profileOf(randomUid(), b)).toBeNull();
     const { uid } = await f.linkBadge(f.p.A);
     await setPrivate(f.p.A);
-    expect(await profileOf(uid, b)).toEqual({ allowed: true, public: false });
+    expect(await profileOf(uid, b)).toEqual({ allowed: true, public: false, firstName: 'Ada', lastName: 'Fixture' });
 
     await setPublic(f.p.A, 'https://www.linkedin.com/in/ada-fixture');
     // toEqual: exactly these keys; never email, dietary notes ("Vegetarian"), status or photo.
@@ -83,8 +83,27 @@ describe('badge_profile() (SPEC §6.5)', () => {
     expect(await profileOf(uid, staffViewer('vol3'))).toMatchObject({ public: true, firstName: 'Xan' });
     await f.linkBadge(f.p.N, { uid });
     await setPrivate(f.p.N);
-    expect(await profileOf(uid, await attendee(f.p.B))).toEqual({ allowed: true, public: false });
-    expect(await profileOf(uid, staffViewer('vol3'))).toEqual({ allowed: true, public: false });
+    expect(await profileOf(uid, await attendee(f.p.B))).toEqual({ allowed: true, public: false, firstName: 'Nia', lastName: 'Fixture' });
+    expect(await profileOf(uid, staffViewer('vol3'))).toEqual({ allowed: true, public: false, firstName: 'Nia', lastName: 'Fixture' });
+  });
+});
+
+describe('badge_profile() when the links are not shared (SPEC §6.5, v0.11.3)', () => {
+  it('T-NFC-30: the name is always shown; links, contact, health and account details never are, to anyone', async () => {
+    const { id } = await f.addParticipant(f.e1.id);
+    const { uid } = await f.linkBadge(id);
+    await f.pool.query(
+      `update participants set profile_public = false, linkedin_url = 'https://www.linkedin.com/in/hidden', discord_username = 'hidden.user',
+         website_url = 'https://hidden.dev/', dietary_notes = 'Vegan', allergies = 'Peanuts', allergy_severity = 'severe',
+         emergency_name = 'Sam', emergency_phone = '416 555 0100', accessibility = 'Ramp', overnight = 'yes', team_status = 'solo'
+       where id = $1`,
+      [id],
+    );
+    for (const viewer of [null, await attendee(f.p.B), staffViewer('org1'), staffViewer('vol3')]) {
+      const p = await profileOf(uid, viewer);
+      expect(p, viewer?.email ?? 'signed out').toEqual({ allowed: true, public: false, firstName: 'Extra', lastName: 'Fixture' });
+      expect(JSON.stringify(p)).not.toMatch(/hidden|Vegan|Peanuts|severe|Sam|416|Ramp|@/);
+    }
   });
 });
 
@@ -122,7 +141,7 @@ describe('badge_profile() for the badge holder (SPEC F14, v0.6)', () => {
     await setPrivate(id);
     const self = await attendee(id);
     if (!self) throw new Error('no viewer');
-    expect(await profileOf(uid, { ...self, email: self.email.toUpperCase() })).toEqual({ allowed: true, public: false, self: true, slug: f.slug });
+    expect(await profileOf(uid, { ...self, email: self.email.toUpperCase() })).toEqual({ allowed: true, public: false, firstName: 'Extra', lastName: 'Fixture', self: true, slug: f.slug });
     await setPublic(id, null);
     expect(await profileOf(uid, self)).toMatchObject({ allowed: true, public: true, self: true, slug: f.slug });
     for (const viewer of [await attendee(f.p.B), staffViewer('org1'), await attendee(f.p.X), null]) {
@@ -174,7 +193,7 @@ describe('Discord and website on the badge profile (SPEC §6.5, v0.9.2)', () => 
     expect(JSON.stringify(audit.rows[0]?.detail)).not.toMatch(/ada/); // I-11: at most the sharing flag
 
     await setPrivate(id);
-    expect(await profileOf(uid, null)).toEqual({ allowed: true, public: false });
+    expect(await profileOf(uid, null)).toEqual({ allowed: true, public: false, firstName: 'Extra', lastName: 'Fixture' });
 
     expect(await save({ discord: 'ada#1234' })).toBe('INVALID_DISCORD');
     expect(await save({ website: 'javascript:alert(1)' })).toBe('INVALID_WEBSITE');
