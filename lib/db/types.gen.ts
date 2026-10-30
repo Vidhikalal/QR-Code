@@ -507,6 +507,9 @@ isOneToOne: false
 "password_link_kind":
 { Args: { "p_email": string }; Returns: string
                            },
+"prune_rate_limits":
+{ Args: never; Returns: number
+                           },
 "queue_rsvps":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_ids": (string)[] }; Returns: number
                            },

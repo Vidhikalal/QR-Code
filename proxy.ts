@@ -1,5 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { db } from '@/lib/db/server';
+import { normalizeEmail } from '@/lib/domain/normalize';
+import { emailKey, ipKey, withinLimit } from '@/lib/pass/handlers';
 
 // Next.js 16 "proxy" (formerly middleware). Refreshes the Supabase session cookie on staff pages and
 // sends signed-out visitors to /login with a way back. Authorization is NOT done here: every route
@@ -18,6 +21,21 @@ export async function proxy(request: NextRequest) {
     },
   });
   const { data } = await supabase.auth.getUser();
+
+  // SPEC §15: badge pages are public and a badge's UID is in its URL, so slow down anyone walking through UIDs.
+  // Signed in: per account (a whole venue can share one IP); signed out: per IP. Postgres-backed (serverless).
+  if (request.nextUrl.pathname.startsWith('/profile/')) {
+    const email = data.user?.email;
+    const allowed = email
+      ? await withinLimit(db(), emailKey('badge-view', normalizeEmail(email)), 60, 120)
+      : await withinLimit(db(), ipKey(request.headers, 'badge-view'), 60, 300);
+    if (!allowed) {
+      return new NextResponse('Too many badge views. Wait a minute, then try again.', {
+        status: 429,
+        headers: { 'Retry-After': '60', 'Cache-Control': 'no-store', 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+  }
 
   // Badge profiles are public (SPEC §6.5, v0.9): the session is still refreshed there, so the holder tapping
   // their own badge is recognized, but nobody is sent to sign in.

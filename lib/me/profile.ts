@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { parseProfileInput, type ProfileField, type ProfileFields, type ProfileInput } from '@/lib/domain/profile';
+import { emailKey, withinLimit } from '@/lib/pass/handlers';
 
 type Account = { id: string; email?: string | null };
 
@@ -122,6 +123,7 @@ export type SaveProfileResult =
   | 'INVALID_ALLERGY'
   | 'INVALID_TEAM_STATUS'
   | 'INVALID_ACCESSIBILITY'
+  | 'RATE_LIMITED'
   | 'NOT_FOUND';
 
 const FIELD_RESULT: Record<ProfileField, SaveProfileResult> = {
@@ -153,6 +155,9 @@ export async function saveBadgeProfile(
   if (!parsed.ok) return FIELD_RESULT[parsed.field];
   const v = parsed.value;
   if (!user.email || !z.uuid().safeParse(participantId).success) return 'NOT_FOUND';
+  // SPEC §15: 30 saves per account per 10 minutes (each one writes an audit row). Keyed by the session's email,
+  // so a forged participant id can't use up someone else's allowance.
+  if (!(await withinLimit(db, emailKey('profile-save', normalizeEmail(user.email)), 600, 30))) return 'RATE_LIMITED';
   const { data, error } = await db.rpc('save_hacker_profile', {
     p_participant_id: participantId,
     p_email: normalizeEmail(user.email),

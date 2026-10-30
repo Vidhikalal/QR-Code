@@ -93,7 +93,11 @@ export default async function EmergencyPage(props: { searchParams: Promise<{ sav
           />
           {notices.error && (
             <Alert className="text-bad" asChild><p role="alert" >
-              {notices.error === 'INVALID_CONTACT' ? '✕ Not saved. Enter a name and a phone number with at least 3 digits.' : '✕ Not saved. Reload the page and try again.'}
+              {notices.error === 'INVALID_CONTACT'
+                ? '✕ Not saved. Enter a name and a phone number with at least 3 digits.'
+                : notices.error === 'RATE_LIMITED'
+                  ? '✕ Not saved. Too many saves in a short time: wait a few minutes and try again.'
+                  : '✕ Not saved. Reload the page and try again.'}
             </p></Alert>
           )}
           {notices.saved && (

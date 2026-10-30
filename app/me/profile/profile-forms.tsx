@@ -41,6 +41,7 @@ const ERRORS: Partial<Record<SaveProfileResult, string>> = {
   INVALID_ALLERGY: '✕ Not saved. Say what you’re allergic to and how severe it is (300 characters or less), or switch allergies off.',
   INVALID_TEAM_STATUS: '✕ Not saved. Tell us about your team.',
   INVALID_ACCESSIBILITY: '✕ Not saved. Keep accessibility needs under 500 characters.',
+  RATE_LIMITED: '✕ Not saved. Too many saves in a short time: wait a few minutes and try again.',
   NOT_FOUND: '✕ Not saved. Reload the page and try again.',
 };
 

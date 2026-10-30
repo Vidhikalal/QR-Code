@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { normalizeEmail } from '@/lib/domain/normalize';
 import { generateJoinCode, normalizeJoinCode, parseTeamName } from '@/lib/domain/team';
+import { emailKey, withinLimit } from '@/lib/pass/handlers';
 import type { MyEvent } from './profile';
 
 type Db = SupabaseClient<Database>;
@@ -10,7 +11,10 @@ type Account = { id: string; email?: string | null };
 
 // SPEC F15 (v0.7): what the team_* SQL functions answer; INVALID_NAME is caught here before any call.
 const TEAM_CODES = ['CREATED', 'JOINED', 'LEFT', 'SAVED', 'IN_A_TEAM', 'NAME_TAKEN', 'BAD_CODE', 'TEAM_FULL', 'CLOSED', 'NOT_RELEASED', 'NOT_FOUND', 'INVITED', 'ALREADY_INVITED', 'NOT_LOOKING', 'DECLINED'] as const;
-export type TeamCode = (typeof TEAM_CODES)[number] | 'INVALID_NAME';
+export type TeamCode = (typeof TEAM_CODES)[number] | 'INVALID_NAME' | 'RATE_LIMITED';
+
+// SPEC §15: per account (the session's email, already in `me`), never per a forgeable participant id.
+const limited = async (db: Db, scope: string, email: string, seconds: number, max: number) => !(await withinLimit(db, emailKey(scope, email), seconds, max));
 
 // The functions act only on the row whose email is the account's, so a forged participant id changes nothing.
 function own(user: Account, participantId: string) {
@@ -40,6 +44,8 @@ export async function joinTeam(db: Db, user: Account, participantId: string, how
   }
   const joinCode = normalizeJoinCode(how.code);
   if (!joinCode) return 'BAD_CODE';
+  // 20 code joins per 10 minutes: join codes aren't secret, but they shouldn't be guessable by brute force.
+  if (await limited(db, 'team-join', me.p_email, 600, 20)) return 'RATE_LIMITED';
   return code('team_join', await db.rpc('team_join', { ...me, p_code: joinCode }));
 }
 
@@ -58,6 +64,8 @@ export async function setTeamTrack(db: Db, user: Account, participantId: string,
 export async function inviteTeammate(db: Db, user: Account, participantId: string, inviteeId: string): Promise<TeamCode> {
   const me = own(user, participantId);
   if (!me || !z.uuid().safeParse(inviteeId).success) return 'NOT_FOUND';
+  // 20 invites per hour: each one can email someone (F15 step 8).
+  if (await limited(db, 'team-invite', me.p_email, 3600, 20)) return 'RATE_LIMITED';
   return code('team_invite', await db.rpc('team_invite', { ...me, p_invitee_id: inviteeId }));
 }
 

@@ -7,6 +7,8 @@ export const RETENTION_DAYS = 30;
 
 export interface RetentionReport {
   events: Array<{ eventId: string; participants: number; photos: number }>;
+  /** Rate-limit counters older than a day, deleted (§15). */
+  rateLimitsPruned: number;
 }
 
 // SPEC §15: 30 days after an event ends, delete its photos (storage objects too), dietary notes and
@@ -18,7 +20,9 @@ export async function runRetention(db: Db, now: Date): Promise<RetentionReport> 
   const { data: events, error } = await db.from('events').select('id').lte('ends_at', cutoff);
   if (error) throw new Error(`retention events load failed (${error.code})`);
 
-  const report: RetentionReport = { events: [] };
+  const { data: pruned, error: pruneError } = await db.rpc('prune_rate_limits');
+  if (pruneError) throw new Error(`prune_rate_limits failed (${pruneError.code})`);
+  const report: RetentionReport = { events: [], rateLimitsPruned: pruned };
   for (const { id: eventId } of events) {
     const { data: people, error: peopleError } = await db
       .from('participants')

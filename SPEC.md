@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.11.1 · **Owner:** Ade · **Last updated:** 2026-10-29
+> **Status:** Draft v0.11.2 · **Owner:** Ade · **Last updated:** 2026-10-29
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -1316,9 +1316,13 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SEC-06 | Response headers | CSP present; `frame-ancestors 'none'`; `Permissions-Policy: camera=(self)`; HSTS in prod | E |
 | T-SEC-07 | Every view | `security_invoker = true`; no grant to anon/authenticated | I |
 | T-SEC-08 | Every `SECURITY DEFINER` function in `public` | `proconfig` contains `search_path`; no EXECUTE for anon/authenticated/PUBLIC | I |
+| T-SEC-09 | v0.11.2 `ipKey`: `x-vercel-forwarded-for` with a spoofed `X-Forwarded-For`; without it: a two-entry `X-Forwarded-For`, `X-Real-IP`, nothing | the same key whatever was spoofed; the first entry, then `X-Real-IP`, then `unknown`; only a hash in the key | U |
+| T-SEC-10 | v0.11.2: 31 profile saves by one account; B forging A's participant id; 21 team joins by code (the last with the right code); 21 invites | 30 `SAVED` then `RATE_LIMITED` with nothing changed; `NOT_FOUND`, A's allowance untouched; 20 `BAD_CODE` then `RATE_LIMITED`, still no team; `INVITED`, 19 `ALREADY_INVITED`, then `RATE_LIMITED` | I |
+| T-SEC-11 | v0.11.2: 301 signed-out views of a badge page from one IP; then from another IP | 300 served, then 429; served | I |
 | T-PRIV-01 | Retention job at `ends_at + 30 d` | existing photos deleted from storage, `photo_path` null, `dietary_notes` null, emergency contact null (v0.6), allergies and accessibility null (v0.9) | I |
 | T-PRIV-02 | Retention job run twice | idempotent | I |
 | T-PRIV-03 | `audit_log.detail` after the full e2e flow | contains no email, name, emergency contact or token | I |
+| T-PRIV-04 | v0.11.2: rate-limit counters 2 days and 25 hours old, and a current one; the retention run twice | the old two deleted, the current one kept; `rateLimitsPruned` 0 on the second run | I |
 
 ### 14.13 Device & venue matrix — `T-DEV` (manual, before every event)
 
@@ -1449,6 +1453,12 @@ Target: at least 95% of attempts under 3 s.
   | Password sign-ins per email | 10 / 15 min (then refused like a wrong password) |
   | RSVP Yes password checks per email (v0.7.2; its own bucket) | 10 / 15 min (then refused like a wrong password) |
   | "Forgot or never set your password?" emails per address | 3 / h (over the limit looks the same) |
+  | Hacker profile saves per account (v0.11.2) | 30 / 10 min → `RATE_LIMITED`, nothing saved |
+  | Team joins by code per account (v0.11.2) | 20 / 10 min → `RATE_LIMITED` (join codes can't be brute-forced) |
+  | Team invites per account (v0.11.2) | 20 / h → `RATE_LIMITED` (each one can send an email) |
+  | Badge-page views (`/profile/<uid>`, in `proxy.ts`, v0.11.2) | signed in: 120 / min per account; signed out: 300 / min per IP → 429 |
+
+  Per-account limits are keyed by the session's verified email (hashed), never by a participant id from the request, so nobody can use up someone else's allowance; a whole venue can share one IP, which is why signed-in limits are per account. The client IP is `x-vercel-forwarded-for` (set by Vercel; a client can't spoof it and a proxy in front can't replace it), else the first `X-Forwarded-For` entry (local dev, tests); a self-hosted deployment must sit behind a proxy that overwrites `X-Forwarded-For` (T-SEC-09). Counters whose window started more than a day ago are deleted by the daily retention run (`prune_rate_limits()`, T-PRIV-04). Floods are for the platform, not these counters: use the Vercel Firewall (rate-limit rules, Attack Challenge Mode); don't put another proxy in front of Vercel.
 - **Browsers:** iOS Safari (current and previous major version) and Chrome for Android (last two versions). Desktop Chrome, Safari and Firefox for admin. NFC features (badge scanning, linking badges, the Tools page) need Chrome on Android and are hidden elsewhere. Opening a badge's profile works on any phone: it only opens the badge's URL.
 - **Accessibility:**
   - WCAG 2.1 AA contrast,
@@ -1571,6 +1581,7 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+- **v0.11.2 (2026-10-29)** — Rate limits (§15): per account on Hacker profile saves, team joins by code and team invites (`RATE_LIMITED`, keyed by the session's email); badge pages per account when signed in and per IP when not (429 in `proxy.ts`). The client IP prefers `x-vercel-forwarded-for`. The daily retention run prunes counters older than a day (`prune_rate_limits()`, new migration). New tests T-SEC-09..11, T-PRIV-04.
 - **v0.11.1 (2026-10-29)** — Fix: on Hacker profile, saving one card (Save links or Save profile) cleared whatever was typed and not yet saved in the other. Both cards now save without a reload and keep unsaved input; a refused save keeps both (F14 step 3, §6.5). Allergies sit behind an **I have allergies** switch that makes the allergy and its severity required, and clears them when switched off (`parseProfileInput` gains `hasAllergies`). New tests T-ME-11, T-ME-12; T-RSVP-05 uses the switch.
 - **v0.11 (2026-10-29)** — Participant photos removed from the pass page, upload API, scanner results and manual search, participant admin/detail/CSV and emails (§3, §4, F5, §6.5, §9.1, §9.3, §10.2, §10.4, §11, §12, §15, §16, §18). Database columns and SQL functions remain unchanged (§5, §8); the private bucket, retention and tombstone cleanup still delete existing uploads. A3 is obsolete (§17). Tests (§14): T-PASS-04..10 retired; T-PASS-01/03, T-SCAN-01, T-SCUI-03/12, T-SRCH-07, T-ADM-05, T-ANA-04, T-SEC-04/06, admin response contracts and fixtures updated; photo-only processing/unit and upload/e2e cases removed. T-PRIV-01 and the T-NFC-12 no-photo contract remain.
 - **v0.1 (2026-09-23)** — Initial draft.

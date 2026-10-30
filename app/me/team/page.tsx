@@ -40,6 +40,7 @@ const NOTICES: Record<TeamCode, string> = {
   NOT_RELEASED: '✕ Tracks aren’t released yet.',
   NOT_FOUND: '✕ Something changed. Reload the page and try again.',
   INVALID_NAME: '✕ Give your team a name, up to 60 characters.',
+  RATE_LIMITED: '✕ Too many tries in a short time. Wait a few minutes and try again.',
 };
 
 // SPEC F15 (v0.7): create, join, leave and pick a track. The participant comes from the session, never the form.
