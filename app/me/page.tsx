@@ -1,5 +1,7 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
+import { SectionLabel } from '@/components/section-label';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
@@ -11,6 +13,7 @@ import { env } from '@/lib/env';
 import { myPasses } from '@/lib/pass/mine';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
 import { loadMe, menuMetadata } from './load';
+import { ScheduleContent } from './schedule/content';
 
 export const metadata: Metadata = menuMetadata('Menu');
 
@@ -45,7 +48,7 @@ export default async function MePage() {
 
           [&_.tw-me-hero]:[border-left-color:var(--line)] [&_.tw-me-hero]:rounded-card
 
-          [&_.tw-me-hero]:[background:linear-gradient(_125deg,_color-mix(in_srgb,_var(--accent)_7%,_transparent),_transparent_65%_),_var(--card)]
+          [&_.tw-me-hero]:bg-card
 
           [&_.tw-me-hero]:shadow-panel max-[520.001px]:[&_.tw-me-hero]:p-[20px_16px]
 
@@ -57,7 +60,7 @@ export default async function MePage() {
 
           [&_.tw-me-pass]:p-[20px] [&_.tw-me-pass]:rounded-ticket
 
-          [&_.tw-me-pass]:[box-shadow:rgba(184,_220,_255,_0.07)_0px_1px_0px_inset,_rgb(0,_0,_0)_0px_16px_40px_-24px]
+          [&_.tw-me-pass]:[box-shadow:var(--shadow-e1)]
 
           max-[520.001px]:[&_.tw-me-pass]:p-[16px] max-[520.001px]:[&_.tw-me-pass]:gap-[12px]
 
@@ -94,6 +97,10 @@ export default async function MePage() {
           [&_.tw-me-staff_>_div:hover]:[border-color:color-mix(in_srgb,_var(--accent)_35%,_var(--line))]
 
           [&_.tw-me-footer]:mt-[4px] [&_.tw-me-footer]:pt-[20px]">
+      <div className="flex min-h-11 items-center gap-3">
+        <BrandMark name={m?.event.name} className="max-w-[85%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
+      </div>
       {m ? (
         <>
           <header className="tw-me-hero grid gap-[4px] [overflow-wrap:anywhere] [&_h1]:m-[0px_0px_4px] [&_h1]:text-[32px]
@@ -103,7 +110,7 @@ export default async function MePage() {
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
             <p>{m.event.venue}</p>
           </header>
-          <p>Hi {m.firstName}.</p>
+          <p className="copy">Hi {m.firstName}.</p>
           <nav aria-label="Hacker menu" className="tw-me-nav grid gap-[16px]">
             {typeof pass === 'object' ? (
               // A plain link: the token is in the fragment (I-3), which client navigation must not touch.
@@ -191,7 +198,7 @@ export default async function MePage() {
                 warn={!m.profileDone}
               />
               <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
-              <Item href="/me/schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
+              <Item href="#schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
               <Item
                 href="/me/emergency"
                 icon={<EmergencyIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
@@ -201,6 +208,10 @@ export default async function MePage() {
               />
             </ul></Entrance>
           </nav>
+          <section aria-labelledby="schedule" className="min-w-0 pt-4 md:relative md:left-1/2 md:w-[min(1368px,calc(100vw-32px))] md:-translate-x-1/2">
+            <h2 id="schedule" className="mb-4 scroll-mt-6">Schedule</h2>
+            <ScheduleContent schedule={m.event.schedule} now={now} timezone={m.event.timezone} eventStartsAt={m.event.startsAt} />
+          </section>
         </>
       ) : (
         <h1>My events</h1>
@@ -211,7 +222,7 @@ export default async function MePage() {
           {roles.map(({ role, events: e }) => (
             <Card key={e.slug} className="[&>p]:m-0 [&>h2]:text-lg ">
               <h3>{e.name}</h3>
-              <p className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase font-normal">{role === 'organizer' ? 'Organizer' : 'Volunteer'}</p>
+              <SectionLabel className="mb-0">{role === 'organizer' ? 'Organizer' : 'Volunteer'}</SectionLabel>
               <div className="flex flex-wrap gap-[8px]">
                 {role === 'organizer' && (
                   <Button className="self-start" asChild><a  href={`/admin/${e.slug}`} aria-label={`Admin: ${e.name}`}>
@@ -226,7 +237,7 @@ export default async function MePage() {
           ))}
         </section></Entrance>
       )}
-      {!m && roles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
+      {!m && roles.length === 0 && <p className="copy">No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
       <footer className="tw-me-footer flex flex-wrap items-center justify-between gap-[12px] pt-[24px] [border-top-width:1px]
 
           [border-top-style:solid] [border-top-color:var(--line)] text-muted-foreground text-[14px] [&_p]:m-0 [&_p]:min-w-0
@@ -244,9 +255,10 @@ export default async function MePage() {
 }
 
 function Item(props: { href: string; icon: ReactNode; label: string; hint: string; warn?: boolean }) {
+  const ItemLink = props.href.startsWith('#') ? 'a' : Link;
   return (
     <li>
-      <Link className="tw-me-item flex items-center gap-[14px] min-h-[64px] p-[10px_16px] [color:inherit] no-underline
+      <ItemLink className="tw-me-item flex items-center gap-[14px] min-h-[64px] p-[10px_16px] [color:inherit] no-underline
 
           [transition:background-color_0.16s_var(--ease)] [&:hover]:[background:var(--raised)]
 
@@ -259,7 +271,7 @@ function Item(props: { href: string; icon: ReactNode; label: string; hint: strin
           {props.hint && <small data-tone={props.warn ? 'warn' : undefined}>{props.hint}</small>}
         </span>
         <ChevronIcon className="tw-me-chevron [flex:0_0_auto] w-[18px] h-[18px] text-muted-foreground" />
-      </Link>
+      </ItemLink>
     </li>
   );
 }

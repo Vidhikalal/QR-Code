@@ -10,7 +10,8 @@ import { Badge } from '@/components/ui/badge';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { linkNotice, normalizeUid } from '@/lib/domain/badge';
-import { useNfcReader } from '@/lib/scanner/nfc';
+import { useBadgeWrite } from '@/lib/scanner/badge-write';
+import { useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { adminUrl, errorText, useApi } from '../api';
 import { ConfirmDialog, Modal } from '../dialog';
 import { ParticipantDetail } from './detail';
@@ -47,7 +48,7 @@ const RESULT_TEXT: Record<string, string> = {
   ALREADY_DELETED: '! Already deleted.',
 };
 
-export function Participants({ slug }: { slug: string }) {
+export function Participants({ slug, badgeOrigin }: { slug: string; badgeOrigin: string }) {
   const api = useApi();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [status, setStatus] = useState('');
@@ -60,6 +61,7 @@ export function Participants({ slug }: { slug: string }) {
   const [badgeError, setBadgeError] = useState<string | null>(null);
   const [badgeBusy, setBadgeBusy] = useState(false);
   const linking = useRef(false);
+  const badgeWrite = useBadgeWrite(badgeOrigin);
   // F13: who gets an RSVP. Accepted people can't be picked (they're already in).
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const invitable = (rows ?? []).filter((r) => r.status !== 'accepted');
@@ -80,12 +82,13 @@ export function Participants({ slug }: { slug: string }) {
     return () => clearTimeout(t);
   }, [load]);
 
-  async function linkBadge(serial: string, row: Row) {
+  async function linkBadge(tag: NfcTag, reader: NDEFReader, row: Row) {
     if (linking.current) return;
-    const uid = normalizeUid(serial);
+    const uid = normalizeUid(tag.serial);
     if (!uid) return setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
     linking.current = true; // Android can report one tap twice
     setBadgeBusy(true);
+    const write = await badgeWrite.write(tag, reader, uid);
     nfc.stop();
     const r = await api<{ code?: string }>(`/api/events/${encodeURIComponent(slug)}/badges`, {
       method: 'POST',
@@ -93,7 +96,7 @@ export function Participants({ slug }: { slug: string }) {
     });
     setBadgeTarget(null);
     setBadgeBusy(false);
-    setMessage(linkNotice(r.ok ? r.data.code : undefined, uid, fullName(row)).text);
+    setMessage(linkNotice(r.ok ? r.data.code : undefined, uid, fullName(row), write).text);
     await load();
   }
 
@@ -101,8 +104,9 @@ export function Participants({ slug }: { slug: string }) {
     prefKey: 'passline:linker',
     defaultOn: false,
     autoStart: false,
-    onTag: ({ serial }) => {
-      if (badgeTarget) void linkBadge(serial, badgeTarget);
+    onTag: (tag, reader) => {
+      badgeWrite.observe(tag.serial);
+      if (badgeTarget) void linkBadge(tag, reader, badgeTarget);
     },
     onUnreadable: () => {
       if (badgeTarget && !linking.current) setBadgeError('Couldn’t read that badge. Hold it still and tap again.');
@@ -117,6 +121,7 @@ export function Participants({ slug }: { slug: string }) {
   }
 
   function cancelLink() {
+    badgeWrite.cancel();
     linking.current = true;
     nfc.stop();
     setBadgeTarget(null);
@@ -164,7 +169,7 @@ export function Participants({ slug }: { slug: string }) {
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+          [background:var(--surface)]
 
           shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
 
@@ -370,7 +375,7 @@ export function Participants({ slug }: { slug: string }) {
 
       {badgeTarget && (
         <Modal title="Link a badge" onCancel={cancelLink}>
-          <p>Tap the badge to link it to {fullName(badgeTarget)}.</p>
+          <p className="copy">Tap the badge to link it to {fullName(badgeTarget)}.</p>
           <div aria-live="polite">
             {badgeBusy ? <p>Linking badge…</p> : (badgeError || nfc.error) && <p className="flex items-start gap-[12px] m-[0px_0px_14px] p-[15px_17px] [border-width:1px] [border-style:solid]
 
@@ -416,7 +421,7 @@ export function Participants({ slug }: { slug: string }) {
       {pending?.kind === 'resend' && (
         <ConfirmDialog
           title={`Resend pass to ${fullName(pending.row)}?`}
-          body={<p>They’ll get a new email with a new code. Their old code will stop working.</p>}
+          body={<p className="copy">They’ll get a new email with a new code. Their old code will stop working.</p>}
           confirmLabel="Resend pass"
           onConfirm={() => void act('resend', pending.row)}
           onCancel={() => setPending(null)}
@@ -425,7 +430,7 @@ export function Participants({ slug }: { slug: string }) {
       {pending?.kind === 'revoke' && (
         <ConfirmDialog
           title={`Revoke ${fullName(pending.row)}’s pass?`}
-          body={<p>Their code will scan as “pass cancelled”. You can resend a new pass later.</p>}
+          body={<p className="copy">Their code will scan as “pass cancelled”. You can resend a new pass later.</p>}
           confirmLabel="Revoke pass"
           danger
           onConfirm={() => void act('revoke', pending.row)}
@@ -450,7 +455,7 @@ export function Participants({ slug }: { slug: string }) {
       {pending?.kind === 'delete' && (
         <ConfirmDialog
           title={`Delete ${fullName(pending.row)}?`}
-          body={<p>This removes their name, email and notes, and cancels their pass. Their scans stay in the totals. It can’t be undone.</p>}
+          body={<p className="copy">This removes their name, email and notes, and cancels their pass. Their scans stay in the totals. It can’t be undone.</p>}
           confirmLabel="Delete participant"
           danger
           typeToConfirm="DELETE"
@@ -539,7 +544,7 @@ function WalkInDialog(props: { slug: string; onDone: (message: string) => void; 
           <input type="checkbox" checked={notRsvped} onChange={(e) => setNotRsvped(e.target.checked)} /> Not RSVPed yet
         </Label>
         {notRsvped ? (
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">They’re added as an applicant and sent nothing. Send their RSVP from the list when you’re ready.</p>
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">They’re added as an applicant and sent nothing. Send their RSVP from the list when you’re ready.</p>
         ) : (
           <>
             <Label className="tw-admin-check">

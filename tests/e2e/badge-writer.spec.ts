@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { authStatePath, installFakeNfc, nfcActive, nfcTap, nfcUnreadable, nfcWrites, saveSignedInState, serialOf } from '../fixtures/e2e';
 import { createStandardFixture, randomUid, type StandardFixture } from '../fixtures/standard';
 
-// SPEC §11 Participants badge linking and Tools tag writer / §14.15. The e2e server runs with
+// SPEC §11 Participants badge linking and writing / §14.15. The e2e server runs with
 // BADGE_ORIGIN=https://badges.example.test.
 const ORG = authStatePath('badge-writer-org');
 const ORIGIN = 'https://badges.example.test';
@@ -18,40 +18,17 @@ test.afterAll(async () => {
   await f.close();
 });
 
-test('T-NFC-16: without Web NFC the Tools tab, participant linking and the write control are not shown', async ({ page }) => {
+test('T-NFC-28: Tools is gone and without Web NFC participant linking is hidden', async ({ page }) => {
   await page.goto(`/admin/${f.slug}`);
   await expect(page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Participants' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Tools' })).toHaveCount(0);
-  await page.goto(`/admin/${f.slug}/tools`);
-  await expect(page.getByRole('heading', { name: 'Write tags' })).toBeVisible();
+  const response = await page.goto(`/admin/${f.slug}/tools`);
+  expect(response?.status()).toBe(404);
   await expect(page.getByRole('heading', { name: 'Link a badge' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /writing/i })).toHaveCount(0);
   await page.goto(`/admin/${f.slug}/participants`);
   await expect(page.getByRole('row', { name: /Ada Fixture/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /^(Link|Replace) badge for / })).toHaveCount(0);
-});
-
-test('T-NFC-16: the writer writes exactly one URL record and skips a tag that already holds its link', async ({ page }) => {
-  await installFakeNfc(page);
-  await page.goto(`/admin/${f.slug}`);
-  await page.getByRole('link', { name: 'Tools' }).click();
-  await expect(page.getByRole('heading', { name: 'Write tags' })).toBeVisible();
-  await page.getByRole('button', { name: 'Start writing' }).click();
-  await expect(page.getByRole('button', { name: 'Writing: tap to stop' })).toHaveAttribute('aria-pressed', 'true');
-
-  const uid = randomUid();
-  const link = `${ORIGIN}/profile/${uid}?tap`;
-  const status = page.getByRole('status');
-  await nfcTap(page, serialOf(uid));
-  await expect(status).toContainText('Wrote the link');
-  expect(await nfcWrites(page)).toEqual([{ records: [{ recordType: 'url', data: link }] }]);
-
-  await nfcTap(page, serialOf(uid), [link]);
-  await expect(status).toContainText('already has its link');
-  expect(await nfcWrites(page)).toHaveLength(1);
-  // v0.10: linking lives on the Participants page; the Tools page has no linker even with Web NFC.
-  await expect(page.getByRole('heading', { name: 'Link a badge' })).toHaveCount(0);
-  await expect(page.getByRole('textbox', { name: 'Name' })).toHaveCount(0);
 });
 
 test('T-NFC-28: Participants links an accepted attendee’s badge, stops reading and can unlink it', async ({ page }) => {
@@ -77,16 +54,16 @@ test('T-NFC-28: Participants links an accepted attendee’s badge, stops reading
   await nfcTap(page, serialOf(uid));
   await expect(dialog).toHaveCount(0);
   await expect(status).toHaveCount(1);
-  await expect(status).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ada Fixture.`);
+  await expect(status).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ada Fixture. Its profile link is on the badge.`);
   await expect(ada.getByText('Badge linked', { exact: true })).toBeVisible();
   await expect(ada.getByRole('button', { name: 'Replace badge for Ada Fixture', exact: true })).toBeVisible();
   expect(await nfcActive(page)).toBe(0);
   const ignoredUid = randomUid();
   await nfcTap(page, serialOf(ignoredUid)); // the reader stopped: a second tap links nothing
-  await expect(status).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ada Fixture.`);
+  await expect(status).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ada Fixture. Its profile link is on the badge.`);
   expect((await f.pool.query('select participant_id from badges where uid = $1', [uid])).rows).toEqual([{ participant_id: f.p.A }]);
   expect((await f.pool.query('select participant_id from badges where uid = $1', [ignoredUid])).rows).toEqual([]);
-  expect(await nfcWrites(page)).toEqual([]);
+  expect(await nfcWrites(page)).toEqual([{ records: [{ recordType: 'url', data: `${ORIGIN}/profile/${uid}?tap` }] }]);
   expect((await f.badgeScan({ cp: f.cp.R, staff: f.staff.vol1, uid })).code).toBe('ACCEPTED');
 
   await ada.getByRole('button', { name: 'Unlink badge for Ada Fixture', exact: true }).click();
@@ -138,7 +115,7 @@ test('T-NFC-28: after Chrome refuses NFC, the link dialog can start the reader a
   await expect.poll(() => nfcActive(page)).toBe(1);
   const uid = randomUid();
   await nfcTap(page, serialOf(uid));
-  await expect(page.getByRole('status')).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ben Fixture.`);
+  await expect(page.getByRole('status')).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ben Fixture. Its profile link is on the badge.`);
 });
 
 test('T-NFC-28: a badge the server refuses shows a red notice, never a green screen', async ({ page }) => {
@@ -174,3 +151,33 @@ test('T-NFC-28: Cancel and Escape stop waiting for a badge without linking one',
     expect((await f.pool.query('select participant_id from badges where uid = $1', [uid])).rows).toEqual([]);
   }
 });
+
+for (const mode of ['existing', 'failed', 'timeout', 'different', 'close', 'multiple'] as const) {
+  test(`T-NFC-28: linking handles a ${mode} profile write`, async ({ page }) => {
+    await installFakeNfc(page);
+    if (['failed', 'timeout', 'different', 'close'].includes(mode)) await page.addInitScript((mode) => {
+      const w = window as unknown as { NDEFReader: { prototype: { write: (message: unknown, options: { signal: AbortSignal }) => Promise<void> } }; __writeAborted: boolean };
+      w.NDEFReader.prototype.write = async (_, { signal }) => {
+        if (mode === 'failed') throw new Error('read only');
+        return new Promise((_, reject) => signal.addEventListener('abort', () => {
+          w.__writeAborted = true;
+          reject(new DOMException('cancelled', 'AbortError'));
+        }));
+      };
+    }, mode);
+    await page.goto(`/admin/${f.slug}/participants`);
+    await expect(page.getByRole('link', { name: 'Tools', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: /^(Link|Replace) badge for Ada Fixture$/ }).click();
+    const uid = randomUid();
+    const url = `${ORIGIN}/profile/${uid}?tap`;
+    await nfcTap(page, serialOf(uid), mode === 'existing' ? [url] : mode === 'multiple' ? [url, url] : []);
+    if (mode === 'different') await nfcTap(page, serialOf(randomUid()));
+    if (mode === 'close') await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+    const suffix = mode === 'existing' ? '' : mode === 'multiple' ? ' Its profile link is on the badge.' : " Couldn't write its profile link: hold the badge still and tap Link badge again.";
+    await expect(page.getByRole('status')).toHaveText(`✓ Badge ${serialOf(uid)} linked to Ada Fixture.${suffix}`, { timeout: 10000 });
+    if (['timeout', 'different', 'close'].includes(mode)) expect(await page.evaluate(() => (window as unknown as { __writeAborted: boolean }).__writeAborted)).toBe(true);
+    expect(await nfcWrites(page)).toEqual(mode === 'multiple' ? [{ records: [{ recordType: 'url', data: url }] }] : []);
+    expect((await f.pool.query('select participant_id from badges where uid = $1', [uid])).rows).toEqual([{ participant_id: f.p.A }]);
+    await expect(page.getByTestId('scan-result')).toHaveCount(0);
+  });
+}

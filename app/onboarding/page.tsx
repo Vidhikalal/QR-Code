@@ -1,3 +1,4 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
 import { Label } from '@/components/ui/label';
@@ -36,8 +37,9 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
     <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[48px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
+      <BrandMark />
       <h1>What should volunteers call you?</h1>
-      <p>Other staff see this name next to your scans.</p>
+      <p className="copy">Other staff see this name next to your scans.</p>
       <form action={saveName} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]

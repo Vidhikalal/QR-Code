@@ -1,5 +1,6 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Alert } from '@/components/ui/alert';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,9 +62,9 @@ export function Info({ slug }: { slug: string }) {
           [&_textarea:focus-visible]:[outline-offset:3px]">
       <header className="p-[8px_0px] [&_h1]:m-0 [&_h1]:text-[clamp(1.8rem,_3vw,_2.3rem)] [&_h1]:tracking-[-0.045em]">
         <div>
-          <p className="m-[0px_0px_8px] text-accent text-[0.72rem] [font-weight:750] tracking-[0.12em]">EVENT MANAGEMENT</p>
+          <SectionLabel>EVENT MANAGEMENT</SectionLabel>
           <h1>Info for hackers</h1>
-          <p className="max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">
+          <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">
             Shown on each accepted hacker’s Schedule and Emergency contact pages. Plain text; line breaks are kept. In the schedule, a line like 12:00-13:00 | Lunch | Cafeteria shows as a time slot, under the line above it (e.g. Saturday, Nov 7).
           </p>
         </div>
@@ -112,7 +113,7 @@ export function Info({ slug }: { slug: string }) {
             <div className="flex items-start gap-[14px] [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
               <div>
                 <h2>Event schedule</h2>
-                <p className="max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">Timings for check-in, sessions, meals, and activities.</p>
+                <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">Timings for check-in, sessions, meals, and activities.</p>
               </div>
             </div>
             <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
@@ -139,7 +140,7 @@ export function Info({ slug }: { slug: string }) {
             <div className="flex items-start gap-[14px] [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
               <div>
                 <h2>Emergency information</h2>
-                <p className="max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">Important contacts and emergency instructions.</p>
+                <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">Important contacts and emergency instructions.</p>
               </div>
             </div>
             <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
@@ -166,7 +167,7 @@ export function Info({ slug }: { slug: string }) {
             <div className="flex items-start gap-[14px] [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
               <div>
                 <h2>RSVP deadline</h2>
-                <p className="max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">When unanswered invitations close.</p>
+                <p className="copy max-w-[680px] m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.65]">When unanswered invitations close.</p>
               </div>
             </div>
             <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
@@ -180,7 +181,7 @@ export function Info({ slug }: { slug: string }) {
           <div className="flex items-center justify-between gap-[20px] max-w-[1100px] p-[4px_0px] max-[600.001px]:items-stretch
 
           max-[600.001px]:flex-col">
-            <p className="max-w-[480px] m-0 text-muted-foreground text-[0.8rem] leading-[1.6]">Save your changes to update the information shown to hackers.</p>
+            <p className="copy max-w-[480px] m-0 text-muted-foreground text-[0.8rem] leading-[1.6]">Save your changes to update the information shown to hackers.</p>
             <div className="flex items-center gap-[10px] max-[600.001px]:w-full max-[600.001px]:[&_button]:flex-1">
               <Button type="submit" variant="secondary" className="shrink-0 max-[600px]:w-full" disabled={busy}>
                 {busy ? 'Saving…' : 'Save'}

@@ -1,5 +1,6 @@
 
 import { Entrance } from '@/components/motion';
+import { BrandMark } from '@/components/brand-mark';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
@@ -63,24 +64,18 @@ export default async function BadgeProfilePage(props: { params: Promise<{ uid: s
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
-      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">Event badge</span>
-      </div>
+      <BrandMark className="min-h-11 mb-[8px]" />
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
         {profile === null && (
           <>
             <h1>This badge isn’t linked yet</h1>
-            <p>Staff link badges at the check-in desk.</p>
+            <p className="copy">Staff link badges at the check-in desk.</p>
           </>
         )}
         {profile && !profile.public && (
           <>
             <h1>This attendee hasn’t shared a profile</h1>
-            <p>They can choose to share their name and links from their Datathon account.</p>
+            <p className="copy">They can choose to share their name and links from their Datathon account.</p>
           </>
         )}
         {profile?.public && (

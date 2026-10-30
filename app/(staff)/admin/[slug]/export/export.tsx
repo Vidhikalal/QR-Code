@@ -1,5 +1,6 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Label } from '@/components/ui/label';
 
 import { useState } from 'react';
@@ -20,9 +21,9 @@ export function Export({ slug }: { slug: string }) {
           [&_input:focus-visible]:[outline-offset:3px]">
       <header className="p-[8px_0px] [&_h1]:m-0 [&_h1]:text-[clamp(1.8rem,_3vw,_2.3rem)] [&_h1]:tracking-[-0.045em]">
         <div>
-          <p className="m-[0px_0px_8px] text-accent text-[0.72rem] [font-weight:750] tracking-[0.12em]">EVENT MANAGEMENT</p>
+          <SectionLabel>EVENT MANAGEMENT</SectionLabel>
           <h1>Export data</h1>
-          <p className="m-[7px_0px_0px] text-muted-foreground text-[0.88rem] leading-[1.65]">
+          <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.88rem] leading-[1.65]">
             Download your event data as CSV files for reporting, analysis,
             and record keeping.
           </p>
@@ -52,7 +53,7 @@ export function Export({ slug }: { slug: string }) {
       <section className="grid gap-[18px] max-w-[1200px]">
         <div className="[&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
           <h2>Available exports</h2>
-          <p className="m-[7px_0px_0px] text-muted-foreground text-[0.88rem] leading-[1.65]">
+          <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.88rem] leading-[1.65]">
             Choose the data you want to download.
           </p>
         </div>

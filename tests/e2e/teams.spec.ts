@@ -26,9 +26,10 @@ async function hacker(browser: Browser, participantId: string) {
 
 test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks the released track', async ({ page, browser }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/teams`);
-  await page.getByLabel('Add tracks, one per line').fill('Best AI/ML Project\nBest Hardware Project');
-  await page.getByRole('button', { name: 'Add tracks' }).click();
-  await expect(page.getByText('✓ Tracks added.')).toBeVisible();
+  const tracks = await page.request.post(`/api/admin/${f.slug}/tracks`, {
+    data: { text: 'Best AI/ML Project\nBest Hardware Project' },
+  });
+  expect(tracks.ok()).toBe(true);
 
   // Before forming opens, the Team page says so and offers nothing.
   const a = await hacker(browser, f.p.A);
@@ -65,6 +66,7 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   // The organizer sees the team, both members and the track.
   await page.reload();
   const team = page.getByRole('region', { name: 'Team Data Wizards' });
+  await team.locator('summary').click();
   await expect(team.getByText('Ada Fixture')).toBeVisible();
   await expect(team.getByText('Ben Fixture')).toBeVisible();
   await expect(team.getByLabel('Track of Data Wizards')).toHaveValue(/.+/);

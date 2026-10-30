@@ -27,5 +27,6 @@ export default async function ScanPage({ params }: { params: Promise<{ slug: str
   }
   const { data: event, error } = await db().from('events').select('name, timezone').eq('id', staff.eventId).single();
   if (error) throw new Error(`event load failed (${error.code})`);
-  return <Scanner slug={slug} eventName={event.name} timezone={event.timezone} appOrigin={env().NEXT_PUBLIC_APP_ORIGIN} />;
+  const { BADGE_ORIGIN, NEXT_PUBLIC_APP_ORIGIN } = env();
+  return <Scanner badgeOrigin={BADGE_ORIGIN ?? NEXT_PUBLIC_APP_ORIGIN} slug={slug} eventName={event.name} timezone={event.timezone} appOrigin={env().NEXT_PUBLIC_APP_ORIGIN} />;
 }

@@ -1,4 +1,6 @@
 
+import { SectionLabel } from '@/components/section-label';
+import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -16,6 +18,7 @@ import { PHONE_PATTERN } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
+import { SetupWalkthrough, SetupForm, SetupStep, SetupPanel } from './setup-walkthrough';
 
 export const metadata: Metadata = menuMetadata('Hacker profile');
 
@@ -67,7 +70,7 @@ async function saveSetup(formData: FormData) {
     },
     { setup: true },
   );
-  redirect(`/me/profile?${result === 'SAVED' ? 'saved=setup' : `error=${result}`}`);
+  redirect(`/me/profile?${result === 'SAVED' ? `saved=setup${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&setup=1' : ''}`}`);
 }
 
 // SPEC F14 / §6.5: the attendee's own LinkedIn, Discord username and website (v0.9.2), and badge sharing. Dietary notes come from the Sheet and only
@@ -82,36 +85,47 @@ async function saveNetworking(formData: FormData) {
     website: text(formData, 'website'),
     profilePublic: formData.get('public') === 'on',
   });
-  redirect(`/me/profile?${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
+  redirect(`/me/profile?${result === 'SAVED' ? `saved=1${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&step=links' : ''}`}`);
 }
 
 export default async function HackerProfilePage(props: {
-  searchParams: Promise<{ saved?: string; error?: string; setup?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; setup?: string; step?: string }>;
 }) {
   const notices = await props.searchParams;
   const { me: m } = await loadMyEvent('/me/profile');
   const error = ERRORS[notices.error as SaveProfileResult];
   const networkingError = ['INVALID_LINKEDIN', 'INVALID_DISCORD', 'INVALID_WEBSITE'].includes(notices.error ?? '');
 
+  // The walkthrough is the RSVP's onboarding ("Set up my hacker profile" → ?setup=1); from the menu it's the full form.
+  const walkthrough = notices.setup === '1' || notices.step === 'links';
+  const initialStep = networkingError || (notices.step === 'links' && m.profileDone) ? 4
+    : notices.error === 'INVALID_CONTACT' ? 1
+    : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 2
+    : error ? 3 : 1;
+
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
-      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
-        <Link className="inline-flex items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
+      <div className="flex items-center gap-[16px] min-h-[44px] mb-[8px]">
+        <Link className="inline-flex shrink-0 items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
           ← Menu
         </Link>
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">{m.event.name}</span>
+        <BrandMark name={m.event.name} className="max-w-[70%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>{m.profileDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {!m.profileDone && <p className="m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
+      {!m.profileDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
 
+          {notices.saved === 'setup' && (
+            <Alert className="text-ok" asChild role="status"><p role="status" >
+              ✓ Saved. Your profile is set up.
+            </p></Alert>
+          )}
+      <SetupWalkthrough key={`${notices.error ?? ''}:${notices.saved ?? ''}:${notices.step ?? ''}`} enabled={walkthrough} initialStep={initialStep}>
+      <SetupPanel>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-label="Profile setup" >
-        <form action={saveSetup} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+        <SetupForm action={saveSetup} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
 
@@ -119,8 +133,10 @@ export default async function HackerProfilePage(props: {
 
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
-          <h2>Emergency contact</h2>
-          <p className="m-0 text-muted-foreground text-[14px]">Who we call if something happens to you.</p>
+          <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
+          <SetupStep number={1}>
+          <h2 id="setup-step-1" tabIndex={-1}>Emergency contact</h2>
+          <p className="copy m-0 text-muted-foreground text-[14px]">Who we call if something happens to you.</p>
           <Label htmlFor="emergencyName">Emergency contact name</Label>
           <Input id="emergencyName" name="emergencyName" required maxLength={100} autoComplete="off" defaultValue={m.emergency?.name ?? ''} className="min-h-12 w-full" />
           <Label htmlFor="emergencyPhone">Emergency contact phone</Label>
@@ -147,7 +163,9 @@ export default async function HackerProfilePage(props: {
             className="min-h-12 w-full"
           />
 
-          <h2>The event</h2>
+          </SetupStep>
+          <SetupStep number={2}>
+          <h2 id="setup-step-2" tabIndex={-1}>The event</h2>
           <fieldset className="grid gap-[2px] m-0 p-0 [border-width:0px] [border-style:none] [border-color:currentcolor] min-w-0
 
           [&_legend]:p-0 [&_legend]:mb-[4px] [&_legend]:text-[14px] [&_legend]:font-medium">
@@ -175,7 +193,9 @@ export default async function HackerProfilePage(props: {
             ))}
           </fieldset>
 
-          <h2>Health and access</h2>
+          </SetupStep>
+          <SetupStep number={3}>
+          <h2 id="setup-step-3" tabIndex={-1}>Health and access</h2>
           <AllergyFields allergies={m.allergies ?? ''} severity={m.allergySeverity ?? ''} inputClass={`min-h-[48px] p-[0px_12px] [font:inherit] [background:var(--raised)] text-fg [border-width:1px]
                 [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
                 [border-bottom-color:var(--field)] [border-left-color:var(--field)] rounded-control
@@ -183,31 +203,31 @@ export default async function HackerProfilePage(props: {
           <Label htmlFor="accessibility">Accessibility needs (optional)</Label>
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
+          <Button type="submit">Save profile</Button>
+          </SetupStep>
           {error && !networkingError && (
             <Alert className="text-bad" asChild><p role="alert" >
               {error}
             </p></Alert>
           )}
-          {notices.saved === 'setup' && (
-            <Alert className="text-ok" asChild role="status"><p role="status" >
-              ✓ Saved. Your profile is set up.
-            </p></Alert>
-          )}
-          <Button type="submit">Save profile</Button>
-        </form>
+
+
+        </SetupForm>
       </section></Card>
 
+      </SetupPanel>
+      <SetupPanel networking>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="networking" >
-        <h2 id="networking">Networking</h2>
+        <h2 id="networking" tabIndex={-1}>Networking</h2>
         <div className="grid gap-[4px]">
-          <p className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase">Name</p>
+          <SectionLabel className="mb-0">Name</SectionLabel>
           <p className="text-[28px] font-semibold leading-[1.2]">{`${m.firstName} ${m.lastName}`.trim()}</p>
         </div>
         {m.badge ? <p className="inline-flex items-center gap-[6px] [align-self:flex-start] p-[4px_10px] rounded-sm
 
           [background:color-mix(in_srgb,_var(--accent)_12%,_var(--card))] text-ok text-[14px]
 
-          [&[data-tone='muted']]:[background:var(--raised)] [&[data-tone='muted']]:text-muted-foreground">✓ Badge linked.</p> : <p className="m-0 text-muted-foreground text-[14px]">No badge yet. Staff link badges at the check-in desk.</p>}
+          [&[data-tone='muted']]:[background:var(--raised)] [&[data-tone='muted']]:text-muted-foreground">✓ Badge linked.</p> : <p className="copy m-0 text-muted-foreground text-[14px]">No badge yet. Staff link badges at the check-in desk.</p>}
         <form action={saveNetworking} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
@@ -216,6 +236,7 @@ export default async function HackerProfilePage(props: {
 
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
+          <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
           <Label htmlFor="linkedin">LinkedIn (optional)</Label>
           <Input
             id="linkedin"
@@ -261,7 +282,7 @@ export default async function HackerProfilePage(props: {
             <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
             Show my name and these links to anyone who taps my badge
           </Label>
-          {networkingError && (
+          {(networkingError || (notices.step === 'links' && error)) && (
             <Alert className="text-bad" asChild><p role="alert" >
               {error}
             </p></Alert>
@@ -274,6 +295,8 @@ export default async function HackerProfilePage(props: {
           <Button type="submit">Save links</Button>
         </form>
       </section></Card>
+      </SetupPanel>
+      </SetupWalkthrough>
     </main></Entrance>
   );
 }

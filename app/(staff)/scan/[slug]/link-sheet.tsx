@@ -51,7 +51,7 @@ export function LinkSheet(props: {
       </div>
       <div className="flex gap-[10px] justify-end flex-wrap mt-[20px]">
         {props.state.kind === 'waiting' && props.readerState === 'off' && (
-          <Button type="button" variant="outline" onClick={props.onStart}>
+          <Button type="button" onClick={props.onStart}>
             Start badge reader
           </Button>
         )}

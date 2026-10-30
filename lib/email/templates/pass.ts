@@ -2,6 +2,7 @@ import { formatEventDateTime } from '@/lib/domain/event-time';
 import { escapeHtml } from '@/lib/domain/html';
 import { DISCORD_URL, GOOGLE_GROUP_URL, HACKER_PACKAGE_URL } from '../links';
 import type { InlineImage } from '../provider';
+import { button, details, emailPage, HEADLINE, link, list, p, qr } from './layout';
 
 export interface PassEmailInput {
   firstName: string;
@@ -19,8 +20,8 @@ export interface RenderedEmail {
   inlineImages: InlineImage[];
 }
 
-// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, tips, profile setup and
-// the event's links (v0.9), organizer contact, privacy line. The QR is an inline cid: attachment, never a data: URI.
+// SPEC §12. Body order: greeting, event, local time, venue, QR, pass link, profile setup and
+// the event's links (v0.9), privacy line. The QR is an inline cid: attachment, never a data: URI.
 export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const when = formatEventDateTime(input.event.startsAt, input.event.timezone);
   const e = {
@@ -34,28 +35,21 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
   const setupWhat = 'your emergency contact, whether you’re staying overnight, allergies, your team and any accessibility needs';
   const privacy = 'Dietary notes, allergies, accessibility needs and emergency contacts are deleted 30 days after the event.';
 
-  const html = `<!doctype html>
-<html><body style="margin:0;padding:24px;background:#ffffff;color:#111111;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5">
-<p>Hi ${e.first},</p>
-<p>You're in for <strong>${e.event}</strong>.</p>
-<p><strong>When:</strong> ${e.when}<br><strong>Where:</strong> ${e.venue}</p>
-<p><img src="cid:qr" width="300" height="300" alt="Your check-in QR code" style="display:block;background:#ffffff"></p>
-<p><a href="${e.url}">Open your pass</a></p>
-<ul>
-<li>Turn your screen brightness up at the door.</li>
-<li>A screenshot of this code works fine.</li>
-<li>This code is personal. Don't share it.</li>
-</ul>
-<p><strong>Next: set up your profile.</strong> Tell us ${setupWhat}.</p>
-<p><a href="${e.profile}" style="display:inline-block;padding:12px 20px;background:#111111;color:#ffffff;border-radius:10px;text-decoration:none">Set up your profile</a></p>
-<ul>
-<li><a href="${escapeHtml(DISCORD_URL)}">Join the Discord</a></li>
-<li><a href="${escapeHtml(HACKER_PACKAGE_URL)}">Read the hacker package</a></li>
-<li><a href="${escapeHtml(GOOGLE_GROUP_URL)}">Join the Google Group</a> for announcements</li>
-</ul>
-<p>Questions? Just reply to this email.</p>
-<p style="font-size:12px;color:#555555">We use your details only to run ${e.event}: admission, meals, attendance and emergencies. ${privacy}</p>
-</body></html>`;
+  // 264 px keeps the white card inside a 390 px phone screen; the PNG is 600 px, so it stays sharp.
+  const html = emailPage(new URL(input.passUrl).origin, 'Check-in pass', [
+    p(`Hi ${e.first},`),
+    p(`You're in for <strong>${e.event}</strong>.`, HEADLINE),
+    details([['When', e.when], ['Where', e.venue]]),
+    qr('<img src="cid:qr" width="264" height="264" alt="Your check-in QR code" style="display:block;width:264px;height:264px;background:#ffffff;border:0">'),
+    button(e.url, 'Open your pass'),
+    p(`<strong>Next: set up your profile.</strong> Tell us ${setupWhat}.`),
+    button(e.profile, 'Set up your profile', 'secondary'),
+    list([
+      link(escapeHtml(DISCORD_URL), 'Join the Discord'),
+      link(escapeHtml(HACKER_PACKAGE_URL), 'Read the hacker package'),
+      `${link(escapeHtml(GOOGLE_GROUP_URL), 'Join the Google Group')} for announcements`,
+    ]),
+  ].join('\n'), `We use your details only to run ${e.event}: admission, meals, attendance and emergencies. ${privacy}`);
 
   const text = [
     `Hi ${input.firstName},`,
@@ -67,15 +61,11 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     '',
     `Open your pass (shows your QR code): ${input.passUrl}`,
     '',
-    'Tips: turn your screen brightness up at the door. A screenshot of the code works fine. This code is personal; don\'t share it.',
-    '',
     `Next: set up your profile. Tell us ${setupWhat}: ${input.profileUrl}`,
     '',
     `Join the Discord: ${DISCORD_URL}`,
     `Read the hacker package: ${HACKER_PACKAGE_URL}`,
     `Join the Google Group for announcements: ${GOOGLE_GROUP_URL}`,
-    '',
-    'Questions? Just reply to this email.',
     '',
     `We use your details only to run ${input.event.name}: admission, meals, attendance and emergencies. ${privacy}`,
   ].join('\n');

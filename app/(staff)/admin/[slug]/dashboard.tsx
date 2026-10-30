@@ -214,7 +214,7 @@ function Tile(props: { id: string; label: string; value: number; hint?: string }
   return (
     <div className="tw-admin-tile
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_6%,_transparent),_transparent_60%_),_var(--card)]
+          [background:var(--surface)]
 
           [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 

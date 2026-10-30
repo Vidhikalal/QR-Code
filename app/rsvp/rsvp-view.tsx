@@ -1,6 +1,8 @@
 'use client';
 
+import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
+import { Typewriter } from '@/components/typewriter';
 import { Card } from '@/components/ui/card';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -102,31 +104,25 @@ export function RsvpView() {
     <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
-      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">Invitation</span>
-      </div>
+      <BrandMark name={view.kind === 'invite' ? view.invite.event.name : undefined} className="min-h-11" />
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section >
         {view.kind === 'loading' && <Alert asChild role="status"><p role="status">Loading…</p></Alert>}
         {view.kind === 'not_found' && (
           <>
             <h1>This invitation link doesn’t work</h1>
-            <p>It may have been replaced by a newer email, or the event is over.</p>
+            <p className="copy">It may have been replaced by a newer email, or the event is over.</p>
           </>
         )}
         {(view.kind === 'rate_limited' || view.kind === 'error') && (
           <>
             <h1>Couldn’t load your invitation</h1>
-            <p>{view.kind === 'rate_limited' ? 'Too many tries. Wait a minute, then reload.' : 'Check your connection, then reload.'}</p>
+            <p className="copy">{view.kind === 'rate_limited' ? 'Too many tries. Wait a minute, then reload.' : 'Check your connection, then reload.'}</p>
           </>
         )}
         {view.kind === 'going' && (
           <>
             <h1>You’re going</h1>
-            <p>We’re emailing your check-in pass. You can also see it on the Datathon site.</p>
+            <p className="copy">We’re emailing your check-in pass. You can also see it on the Datathon site.</p>
             <p>
               <Button className="self-start" asChild><a  href="/login?next=%2Fme">
                 Sign in to see your pass
@@ -137,39 +133,41 @@ export function RsvpView() {
         {view.kind === 'signed_in' && (
           <Entrance><div className="grid gap-[16px] [&>p]:m-0">
             <h1>You’re in, {view.firstName}</h1>
-            <p>Your check-in pass is on its way by email.</p>
-            <p className="text-muted-foreground text-[14px]">Set up your hacker profile: emergency contact, overnight stay, allergies and your team. You can also do it later from your menu.</p>
-            <Button asChild><a href="/me/profile">Set up my hacker profile</a></Button>
+            <p className="copy">Your check-in pass is on its way by email.</p>
+            <p className="copy text-muted-foreground text-[14px]">Set up your hacker profile: emergency contact, overnight stay, allergies and your team. You can also do it later from your menu.</p>
+            <Button asChild><a href="/me/profile?setup=1">Set up my hacker profile</a></Button>
             <Button variant="link" className="font-normal" asChild><a href="/me">Later</a></Button>
           </div></Entrance>
         )}
         {view.kind === 'not_going' && (
           <>
             <h1>Thanks for letting us know</h1>
-            <p>Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
+            <p className="copy">Your spot goes to someone on the waitlist. Changed your mind? Until the RSVP deadline, open the invitation link again to say yes.</p>
           </>
         )}
         {view.kind === 'invite' && (
           <>
-            <h1>{view.invite.event.name}</h1>
-            <p className="m-0 text-muted-foreground text-[14px]">
-              {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {view.invite.event.venue}
-            </p>
-            {view.invite.closed ? (
-              <p>
-                Hi {view.invite.firstName}. The RSVP deadline
-                {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+            <Typewriter heading={view.invite.event.name} details={
+              <p className="m-0 text-muted-foreground text-[14px]">
+                {formatEventDateTime(view.invite.event.startsAt, view.invite.event.timezone)} · {view.invite.event.venue}
               </p>
-            ) : (
-              <p>
-                Hi {view.invite.firstName}, will you be there?
-                {view.invite.status === 'accepted' && ' (You said yes.)'}
-                {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
-                {view.invite.status !== 'accepted' && view.invite.closesAt && (
-                  <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
-                )}
-              </p>
-            )}
+            }>
+              {view.invite.closed ? (
+                <>
+                  Hi {view.invite.firstName}. The RSVP deadline
+                  {view.invite.closesAt && ` (${formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)})`} has passed. Contact the organizers if you still want to come.
+                </>
+              ) : (
+                <>
+                  Hi {view.invite.firstName}, will you be there?
+                  {view.invite.status === 'accepted' && ' (You said yes.)'}
+                  {view.invite.status === 'withdrawn' && ' (You said no. You can still change your mind.)'}
+                  {view.invite.status !== 'accepted' && view.invite.closesAt && (
+                    <strong> Reply by {formatEventDateTime(view.invite.closesAt, view.invite.event.timezone)}.</strong>
+                  )}
+                </>
+              )}
+            </Typewriter>
             {view.invite.closed ? (
               // Too late for Yes; someone who hasn't answered can still give their spot away now.
               view.invite.status === 'pending' && (
@@ -201,12 +199,12 @@ export function RsvpView() {
                   void respond(true, { password: text('password') });
                 }}
               >
-                <p className="m-0 text-muted-foreground text-[14px]">Then you can set up your hacker profile: emergency contact, overnight stay, allergies and your team.</p>
+                <p className="copy m-0 text-muted-foreground text-[14px]">Then you can set up your hacker profile: emergency contact, overnight stay, allergies and your team.</p>
                 {view.invite.hasAccount ? (
                   <>
                     <Label htmlFor="password">Your Datathon password</Label>
                     <Input id="password" name="password" type="password" required maxLength={200} autoComplete="current-password" className="min-h-12 w-full" />
-                    <p className="m-0 text-muted-foreground text-[14px]">
+                    <p className="copy m-0 text-muted-foreground text-[14px]">
                       You already have a Datathon account with this email.{' '}
                       <a className="min-h-[44px] [background:none] [border-width:0px] [border-style:none] [border-color:currentcolor]
 

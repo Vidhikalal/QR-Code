@@ -1,9 +1,12 @@
-<!-- The auth server's "recovery" email (reset or first password), fetched by URL. -->
-<div style="font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 480px; color: #111">
-  <h2 style="margin: 0 0 12px">Set a new Datathon password</h2>
-  <p>Someone (hopefully you) asked to set a password for {{ .Email }}.</p>
-  <p style="margin: 24px 0">
-    <a href="{{ .RedirectTo }}#{{ .TokenHash }}" style="background: #111; color: #fff; padding: 12px 20px; border-radius: 10px; text-decoration: none; display: inline-block">Set your password</a>
-  </p>
-  <p style="color: #555; font-size: 14px">The link works once. If you didn't ask for this, ignore this email; your password stays the same.</p>
-</div>
+<!-- The auth server's "recovery" email (reset or first password), fetched by URL. Same look as lib/email/templates/layout.ts; the logo comes from the live app. -->
+<table role="none" width="100%" border="0" bgcolor="#05081a" style="border-spacing:0;background:#05081a"><tr><td align="center" style="padding:32px 16px">
+<table role="none" width="100%" border="0" style="border-spacing:0;max-width:560px;font-family:'Fira Code',Menlo,Consolas,'Courier New',monospace;font-size:15px;line-height:1.6;color:#e8f2ff">
+<tr><td style="padding:0 2px 14px"><table role="none" border="0" style="border-spacing:0"><tr><td width="36" style="padding:0;width:36px"><img src="https://nfc.yvesdonato.com/email-logo.png" width="36" height="36" alt="Sheridan Datathon" style="display:block;width:36px;height:36px;border:0"></td><td style="padding:0 0 0 10px;font-size:11px;font-weight:700;letter-spacing:0.13em;color:#e8f2ff">DATATHON</td><td style="padding:0 10px"><div style="width:1px;height:14px;background:#1e263a"></div></td><td style="padding:0;font-size:11px;font-weight:700;letter-spacing:0.13em;color:#8fa0c4">ACCOUNT</td></tr></table></td></tr>
+<tr><td bgcolor="#0a1029" style="background:#0a1029;border:1px solid #222d47;border-radius:8px;padding:28px 24px">
+<p style="margin:0 0 16px;font-size:20px;line-height:1.35;font-weight:600;color:#e8f2ff">Set a new Datathon password</p>
+<p style="margin:0 0 16px">Someone (hopefully you) asked to set a password for {{ .Email }}.</p>
+<table role="none" border="0" align="center" style="border-spacing:0;margin:4px auto 20px"><tr><td bgcolor="#34d399" style="padding:0;background:#34d399;border:1px solid #34d399;border-radius:6px"><a href="{{ .RedirectTo }}#{{ .TokenHash }}" style="display:inline-block;padding:12px 20px;font-family:'Fira Code',Menlo,Consolas,'Courier New',monospace;font-size:15px;font-weight:600;line-height:1.2;color:#03120c;text-decoration:none">Set your password</a></td></tr></table>
+<p style="margin:0;color:#8fa0c4;font-size:14px">The link works once. If you didn't ask for this, ignore this email; your password stays the same.</p>
+</td></tr>
+</table>
+</td></tr></table>

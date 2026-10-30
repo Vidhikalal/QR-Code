@@ -1,6 +1,7 @@
 
 import { Entrance } from '@/components/motion';
 import type { Metadata } from 'next';
+import { BrandMark } from '@/components/brand-mark';
 import { forbidden, redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { requireStaffBySlug } from '@/lib/auth/staff';
@@ -23,38 +24,17 @@ export default async function AdminLayout({ children, params }: { children: Reac
   return (
     <div className="min-h-[100dvh]
 
-          [background:radial-gradient(_ellipse_at_50%_0%,_color-mix(in_srgb,_var(--accent)_5%,_transparent),_transparent_55%_),_var(--bg)]">
-      <header className="sticky top-0 z-[5] [background:color-mix(in_srgb,_var(--bg-deep)_90%,_transparent)]
-
-          [border-bottom-width:1px] [border-bottom-style:solid]
-
-          [border-bottom-color:color-mix(in_srgb,_var(--accent)_20%,_var(--line))] p-[8px_16px_0px]
-
-          [backdrop-filter:blur(16px)] max-[600.001px]:[padding-inline:12px]">
+          bg-transparent">
+      {/* Glass bar from datafest-website/src/components/navigation.tsx (scrolled state). */}
+      <header className="sticky top-0 z-[5] bg-[rgba(12,19,48,0.78)] backdrop-blur-xl border-b border-[var(--edge)]
+          shadow-[inset_0_1px_0_0_rgba(184,220,255,0.10),0_10px_30px_-18px_rgba(3,5,18,0.9)] p-[8px_16px_0px]
+          max-[600.001px]:[padding-inline:12px]">
         <div className="max-w-[1500px] m-[0px_auto] p-[14px_0px_12px] w-full box-border [margin-inline:auto]
 
           [padding-inline:clamp(16px,_3vw,_44px)] max-[600.001px]:p-[12px_0px]
 
           max-[600.001px]:[padding-inline:2px]">
-          <div className="flex items-center gap-[9px] mb-[10px] max-[600.001px]:mb-[8px]">
-            <span className="grid [place-items:center] w-[25px] h-[25px] [border-width:1px] [border-style:solid]
-
-          [border-top-color:color-mix(in_srgb,_var(--accent)_50%,_transparent)]
-
-          [border-right-color:color-mix(in_srgb,_var(--accent)_50%,_transparent)]
-
-          [border-bottom-color:color-mix(in_srgb,_var(--accent)_50%,_transparent)]
-
-          [border-left-color:color-mix(in_srgb,_var(--accent)_50%,_transparent)] rounded-md text-accent
-
-          [background:color-mix(in_srgb,_var(--accent)_8%,_var(--card))] text-[11px] font-bold">D/</span>
-            <span className="text-[10px] font-bold tracking-[0.13em] text-fg">DATATHON</span>
-            <span className="w-[1px] h-[14px] [background:var(--line)]" aria-hidden="true" />
-            <span className="text-[10px] font-bold tracking-[0.13em] text-muted-foreground">EVENT CONSOLE</span>
-          </div>
-          <div className="tw-admin-eventName flex items-center gap-[10px] text-[clamp(19px,_2.5vw,_25px)] tracking-[-0.035em]
-
-          leading-[1.2]">{event.name}</div>
+          <BrandMark name={event.name} size="large" />
         </div>
         <AdminNav slug={slug} />
       </header>

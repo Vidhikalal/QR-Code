@@ -31,7 +31,7 @@ export function AllergyFields(props: { allergies: string; severity: string; inpu
         <option value="moderate">Moderate</option>
         <option value="severe">Severe: life-threatening (e.g. I carry an EpiPen)</option>
       </NativeSelect>
-      <p className={props.hintClass}>Separate from dietary preferences. Volunteers serving food see your allergy.</p>
+      <p className={`copy ${props.hintClass ?? ''}`}>Separate from dietary preferences. Volunteers serving food see your allergy.</p>
     </>
   );
 }

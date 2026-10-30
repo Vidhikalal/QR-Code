@@ -46,7 +46,7 @@ export function ArrivalsChart({ buckets }: { buckets: ArrivalBucket[] }) {
   return (
     <div className="relative
 
-          [background:linear-gradient(_145deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_55%_),_var(--card)]
+          [background:var(--surface)]
 
           [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 

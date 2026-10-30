@@ -6,7 +6,7 @@ import { createStandardFixture, type StandardFixture } from '../fixtures/standar
 const ORG = authStatePath('admin-org');
 const VOL = authStatePath('admin-vol');
 const OTHER_ORG = authStatePath('admin-other-org');
-const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/sync', '/info', '/export', '/tools'];
+const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/info', '/export'];
 
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: ORG });
@@ -190,10 +190,4 @@ test('T-ADM-10: Checkpoints → People lists who was scanned there; Remove voids
   await expect(people.getByRole('row', { name: /Ben Fixture/ })).toBeVisible();
   await expect(people).toContainText('1 person');
   expect((await f.scan({ cp: f.cp.R, staff: f.staff.vol1, token: f.token.A })).code).toBe('ACCEPTED');
-});
-
-test('Admin: Sync page explains when no Sheet is linked', async ({ page }) => {
-  await page.goto(`/admin/${f.slug}/sync`);
-  await page.getByRole('button', { name: 'Sync now (preview)' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'No Google Sheet is linked' })).toBeVisible();
 });

@@ -1,28 +1,20 @@
 'use client';
 
 import { Entrance } from '@/components/motion';
-import { Button } from '@/components/ui/button';
 
 import type { ResultView } from '@/lib/scanner/result-view';
 
-// SPEC §10.2: icon + text + colour together; names ≥ 32 px. Only green (and the
+// SPEC §10.2: icon + text + colour together; names ≥ 32 px. Flat fills (Tailwind 700 shades) keep white text above 4.5:1.
+// A plain button, not the shared Button: its hover colours must never reach this screen. Only green (and the
 // "Not a Datathon code" notice) auto-dismiss; every problem needs a tap so the volunteer notices it.
 export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; shownAt: number; onDismiss: () => void }) {
   const tap = view.dismiss === 'tap';
   return (
-    <Button
+    <button
       type="button"
-      className="fixed [inset:0px] z-[20] flex flex-col items-center justify-center gap-[16px] p-[32px] text-center
-
-          text-white [border-width:0px] [border-style:none] [border-color:currentcolor]
-
-          rounded-none font-normal w-full whitespace-normal motion-safe:active:scale-100
-
-          [&[data-tone='green']]:[background:radial-gradient(at_center_top,_rgb(22,_101,_52),_rgb(5,_46,_22)_75%)]
-
-          [&[data-tone='amber']]:[background:radial-gradient(at_center_top,_rgb(146,_64,_14),_rgb(69,_26,_3)_75%)]
-
-          [&[data-tone='red']]:[background:radial-gradient(at_center_top,_rgb(153,_27,_27),_rgb(69,_10,_10)_75%)]"
+      className="fixed inset-0 z-20 m-0 flex w-full rounded-none flex-col items-center justify-center gap-4 border-0 p-8 text-center font-mono text-base text-white whitespace-normal cursor-pointer
+        focus-visible:outline-2 focus-visible:-outline-offset-8 focus-visible:outline-white
+        data-[tone=green]:bg-[#15803d] data-[tone=amber]:bg-[#b45309] data-[tone=red]:bg-[#b91c1c]"
       data-tone={view.tone}
       data-testid="scan-result"
       data-shown-at={shownAt}
@@ -30,7 +22,7 @@ export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; s
       onClick={onDismiss}
       aria-describedby="result-hint"
     >
-      <Entrance pop><span className="tw-scanner-resultIcon text-[76px] leading-[1] [filter:drop-shadow(rgba(0,_0,_0,_0.2)_0px_8px_24px)]" aria-hidden="true">
+      <Entrance pop><span className="tw-scanner-resultIcon text-[76px] leading-[1]" aria-hidden="true">
         {view.icon}
       </span></Entrance>
       <span role="status" aria-live="assertive">
@@ -44,6 +36,6 @@ export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; s
       <span id="result-hint" className="text-[14px] opacity-[0.78] mt-[8px]">
         {tap ? 'Tap to continue' : 'Tap to skip'}
       </span>
-    </Button>
+    </button>
   );
 }

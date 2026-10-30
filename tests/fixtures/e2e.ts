@@ -39,8 +39,8 @@ export const fakeCameraArgs = (videoFile?: string) => [
 
 // Web NFC fake (CLAUDE.md mock list): a `window.NDEFReader` that tests drive with `nfcTap`. Every
 // started reader receives each tap; `write()` calls are recorded in `window.__nfcWrites`.
-export async function installFakeNfc(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+export async function installFakeNfc(page: Page, writeMode: 'success' | 'fail' | 'pending' = 'success'): Promise<void> {
+  await page.addInitScript((writeMode) => {
     const w = window as unknown as Record<string, unknown>;
     // Held weakly, like Chrome: a reader the page doesn't keep a reference to can be collected while
     // scanning, and its taps then go nowhere (the real-phone bug behind T-NFC-10's GC case).
@@ -52,10 +52,18 @@ export async function installFakeNfc(page: Page): Promise<void> {
         readers.add(ref);
         options.signal?.addEventListener('abort', () => readers.delete(ref));
       }
-      async write(message: unknown): Promise<void> {
+      async write(message: unknown, options: { signal?: AbortSignal } = {}): Promise<void> {
         writes.push(message);
+        if (writeMode === 'fail') throw new DOMException('Read only', 'NotAllowedError');
+        if (writeMode === 'pending') await new Promise<void>((_, reject) => {
+          options.signal?.addEventListener('abort', () => {
+            w.__nfcWriteAborted = true;
+            reject(new DOMException('Cancelled', 'AbortError'));
+          }, { once: true });
+        });
       }
     }
+    w.__nfcWriteAborted = false;
     w.NDEFReader = FakeNDEFReader;
     w.__nfcWrites = writes;
     w.__nfcTap = (serialNumber: string, urls: string[]) => {
@@ -67,7 +75,7 @@ export async function installFakeNfc(page: Page): Promise<void> {
     w.__nfcUnreadable = () => {
       for (const r of readers) r.deref()?.dispatchEvent(new Event('readingerror'));
     };
-  });
+  }, writeMode);
 }
 
 type NfcWindow = { __nfcTap(serial: string, urls: string[]): void; __nfcUnreadable(): void; __nfcActive(): number; __nfcWrites: unknown[] };

@@ -11,6 +11,7 @@ import { parseScannedText } from '@/lib/domain/scanned-text';
 import type { ScanRequest } from '@/lib/scan/schema';
 import { createDeduper, DEDUPE_WINDOW_MS } from '@/lib/scanner/dedupe';
 import { playFeedback, unlockAudio, useNeedsTap, vibrateRead } from '@/lib/scanner/feedback';
+import { useBadgeWrite } from '@/lib/scanner/badge-write';
 import { nfcSupported, useNfcReader, type NfcTag } from '@/lib/scanner/nfc';
 import { CameraError, createBarcodeScanner, type BarcodeScanner, type CameraFailure } from '@/lib/scanner/qr-scanner';
 import { viewFor, type Outcome, type ResultView } from '@/lib/scanner/result-view';
@@ -56,8 +57,10 @@ const CAMERA_HELP: Record<CameraFailure, string> = {
   unavailable: 'No camera found or it is in use by another app. You can still use Manual search.',
   other: "The camera couldn't start. Reload the page, or use Manual search.",
 };
+// The chosen input is a solid fill; the other stays the quiet outline.
+const PRESSED = 'aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground';
 
-export function Scanner(props: { slug: string; eventName: string; timezone: string; appOrigin: string }) {
+export function Scanner(props: { slug: string; eventName: string; timezone: string; appOrigin: string; badgeOrigin: string }) {
   const { slug, timezone, appOrigin } = props;
   const [checkpoints, setCheckpoints] = useState<Checkpoint[] | null>(null);
   const [checkpointId, setCheckpointId] = useState<string | null>(null);
@@ -66,6 +69,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   const searchButton = useRef<HTMLButtonElement>(null);
   const [linking, setLinking] = useState<Row | null>(null);
   const [linkState, setLinkState] = useState<LinkState>({ kind: 'waiting' });
+  const { write: writeBadge, cancel: cancelWrite, observe: observeTag } = useBadgeWrite(props.badgeOrigin);
   const linkAttempt = useRef<string | null>(null); // one tap per sheet, including while the request is in flight
   const linkRow = useRef<Row | null>(null); // the open sheet's person, for an answer that comes back after it closed
   // Every badge tapped while the sheet is open (serial → last seen), so Android repeating one of those taps
@@ -177,7 +181,8 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     [checkpoint, show, toLogin],
   );
 
-  const linkBadge = useCallback(async (row: Row, uid: string) => {
+  const linkBadge = useCallback(async (row: Row, uid: string, tag: NfcTag, reader: NDEFReader) => {
+    const write = await writeBadge(tag, reader, uid);
     let code: string | undefined;
     try {
       if (navigator.onLine) {
@@ -196,10 +201,10 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
     } catch {
       // A failed link stays in the sheet, never the scan result screen (I-1).
     }
-    const notice = linkNotice(code, uid, row.displayName);
+    const notice = linkNotice(code, uid, row.displayName, write);
     if (linkRow.current === row) setLinkState({ kind: 'result', notice });
     else setNotice(notice.text); // the sheet was closed while saving: still say what happened
-  }, [slug, toLogin]);
+  }, [slug, toLogin, writeBadge]);
 
   const scanningPaused = !!result || busy || offline || pickerOpen || searchOpen || !!linking || undoOpen || peopleOpen || !checkpoint;
   const onDecode = useRef<(text: string) => void>(() => undefined);
@@ -215,10 +220,12 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   }, [scanningPaused, checkpoint, appOrigin, record, show]);
 
   // NFC taps follow the QR rules: dedupe, pause while anything is on screen, MALFORMED without a request.
-  const onTag = useRef<(tag: NfcTag) => void>(() => undefined);
+  const onTag = useRef<(tag: NfcTag, reader: NDEFReader) => void>(() => undefined);
   const onUnreadable = useRef<() => void>(() => undefined);
   useEffect(() => {
-    onTag.current = ({ serial }) => {
+    onTag.current = (tag, reader) => {
+      const { serial } = tag;
+      observeTag(serial);
       if (linking) {
         linkTaps.current.set(serial, Date.now());
         if (linkAttempt.current !== null) return;
@@ -226,7 +233,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         if (!uid) return setLinkState({ kind: 'waiting', unreadable: true });
         linkAttempt.current = serial;
         setLinkState({ kind: 'saving' });
-        void linkBadge(linking, uid);
+        void linkBadge(linking, uid, tag, reader);
         return;
       }
       if (scanningPaused || !checkpoint) return;
@@ -257,14 +264,14 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
       playFeedback('double');
       setNotice('✕ Couldn’t read that badge. Hold it still and try again.');
     };
-  }, [scanningPaused, checkpoint, record, show, linking, linkBadge]);
+  }, [scanningPaused, checkpoint, record, show, linking, linkBadge, observeTag]);
 
   // NFC mode or a temporary badge link; kept running while a result is shown so Android doesn't open
   // the tag's URL. Both flows use this single reader.
   const nfc = useNfcReader({
     prefKey: NFC_KEY,
     autoStart: mode === 'nfc',
-    onTag: (tag) => onTag.current(tag),
+    onTag: (tag, reader) => onTag.current(tag, reader),
     onUnreadable: () => onUnreadable.current(),
   });
   const needsTap = useNeedsTap();
@@ -310,6 +317,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
   // Always allowed, even while saving: Chrome closes the dialog itself on a second Back/Escape anyway.
   function closeLink() {
     if (!linkRow.current) return; // already closed (Cancel, then the dialog's own close event)
+    cancelWrite();
     linkRow.current = null;
     if (mode === 'camera') {
       nfc.stop();
@@ -411,7 +419,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           </span>
           <span className="block text-[21px] leading-[1.3] overflow-hidden text-ellipsis whitespace-nowrap">{checkpoint?.name ?? 'No checkpoint selected'}</span>
         </span>
-        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/22" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
+        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/22 hover:text-white" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
           Change
         </Button>
       </header>
@@ -488,10 +496,10 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         )}
         {nfc.supported && mode && (
           <div className="flex gap-[12px] [flex:1_1_100%]" role="group" aria-label="Scan with">
-            <Button type="button" variant={mode === 'camera' ? 'default' : 'outline'} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
+            <Button type="button" variant={mode === 'camera' ? 'default' : 'outline'} className={PRESSED} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
               Camera
             </Button>
-            <Button type="button" variant={mode === 'nfc' ? 'default' : 'outline'} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
+            <Button type="button" variant={mode === 'nfc' ? 'default' : 'outline'} className={PRESSED} aria-pressed={mode === 'nfc'} onClick={() => chooseInput('nfc')}>
               NFC badges
             </Button>
           </div>

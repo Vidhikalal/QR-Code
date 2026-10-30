@@ -1,4 +1,6 @@
 
+import { SectionLabel } from '@/components/section-label';
+import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -80,15 +82,12 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
-      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
-        <Link className="inline-flex items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
+      <div className="flex items-center gap-[16px] min-h-[44px] mb-[8px]">
+        <Link className="inline-flex shrink-0 items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
           ← Menu
         </Link>
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">{m.event.name}</span>
+        <BrandMark name={m.event.name} className="max-w-[70%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>Team</h1>
       {notice && (
@@ -111,7 +110,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
               <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
               Looking for a team
             </Label>
-            <p className="m-0 text-muted-foreground text-[14px]">List my name in the teammate directory for this event.</p>
+            <p className="copy m-0 text-muted-foreground text-[14px]">List my name in the teammate directory for this event.</p>
             <Button type="submit">Save directory preference</Button>
           </form>
         </section></Card>
@@ -180,14 +179,14 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
           [border-left-color:color-mix(in_srgb,_var(--accent)_55%,_transparent)] rounded-md
 
           [background:var(--raised)]">
-            <span className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase">Join code</span>
+            <SectionLabel className="mb-0">Join code</SectionLabel>
             <strong className="text-accent text-[26px] font-semibold tracking-[0.12em]">{formatJoinCode(team.code)}</strong>
             <span className="m-0 text-muted-foreground text-[14px]">Share it with your teammates (4 people at most).</span>
           </div>
           <div className="pt-[16px] [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
             <h3>Track</h3>
             {!m.event.tracksReleased ? (
-              <p>Tracks are announced at the hackathon.</p>
+              <p className="copy">Tracks are announced at the hackathon.</p>
             ) : live && tracks.length > 0 ? (
               <form action={act} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
@@ -225,7 +224,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
 
           [border-top-width:1px] [border-top-style:solid] [border-top-color:var(--line)]">
               <input type="hidden" name="op" value="leave" />
-              {team.members.length === 1 && <p className="m-0 text-muted-foreground text-[14px]">You’re the only member: leaving deletes the team.</p>}
+              {team.members.length === 1 && <p className="copy m-0 text-muted-foreground text-[14px]">You’re the only member: leaving deletes the team.</p>}
               <Button type="submit" variant="outline">
                 Leave team
               </Button>
@@ -273,8 +272,8 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
       {open && (!team || team.members.length < 4) && (
         <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="directory-title" >
           <h2 id="directory-title">Teammate directory</h2>
-          {!team && <p className="m-0 text-muted-foreground text-[14px]">Create a team to invite them.</p>}
-          {directory.length === 0 ? <p className="m-0 text-muted-foreground text-[14px]">No one is looking for a team yet.</p> : (
+          {!team && <p className="copy m-0 text-muted-foreground text-[14px]">Create a team to invite them.</p>}
+          {directory.length === 0 ? <p className="copy m-0 text-muted-foreground text-[14px]">No one is looking for a team yet.</p> : (
             <ul className="m-0 p-0 list-none [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:justify-between
 
           [&_li]:gap-[8px_12px] [&_li]:min-h-[56px] [&_li]:p-[6px_0px] [&_p]:m-0

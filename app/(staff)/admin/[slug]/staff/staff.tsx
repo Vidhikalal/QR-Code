@@ -1,5 +1,6 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -74,9 +75,9 @@ export function Staff({ slug }: { slug: string }) {
 
           max-[480.001px]:flex-wrap [&_h1]:m-0 [&_h1]:text-[clamp(1.8rem,_3vw,_2.3rem)] [&_h1]:tracking-[-0.045em]">
           <div>
-            <p className="m-[0px_0px_8px] text-accent text-[0.72rem] [font-weight:750] tracking-[0.12em]">EVENT MANAGEMENT</p>
+            <SectionLabel>EVENT MANAGEMENT</SectionLabel>
             <h1>Staff</h1>
-            <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+            <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
               Manage your team, assign roles, and invite people to help run your event.
             </p>
           </div>
@@ -106,7 +107,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Invite a team member</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 Send an invitation by email and choose their access level.
               </p>
             </div>
@@ -198,7 +199,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Your team</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 People who currently have access to this event.
               </p>
             </div>
@@ -314,7 +315,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Pending invitations</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 Invitations waiting to be accepted.
               </p>
             </div>

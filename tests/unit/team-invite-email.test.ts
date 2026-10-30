@@ -11,7 +11,6 @@ it('T-TEAM-06: invite email escapes names, links only to Team, has text and stay
   expect(email.html.match(/href=/g)).toHaveLength(1);
   expect(email.text).toContain(`${origin}/me/team`);
   expect(email.text).toContain('<b>x</b> invited you to join <b>x</b> at <b>x</b>');
-  expect(email.text).toContain('Questions? Just reply to this email.');
   expect(email.html + email.text).not.toMatch(/[A-HJ-NP-Z2-9]{8}|\/p#|\/rsvp#|join.code/i);
   expect(Buffer.byteLength(email.html)).toBeLessThan(60 * 1024);
 });

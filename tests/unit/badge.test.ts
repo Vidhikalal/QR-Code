@@ -167,6 +167,9 @@ describe('badge UIDs (SPEC §6.5)', () => {
 
   it('T-NFC-28: linkNotice words each link_badge outcome for staff, with the badge UID and the person’s name', () => {
     expect(linkNotice('LINKED', '04a1b2c3', 'Ada Fixture')).toEqual({ tone: 'ok', text: '✓ Badge 04:A1:B2:C3 linked to Ada Fixture.' });
+    expect(linkNotice('LINKED', '04a1b2c3', 'Ada Fixture', 'written').text).toBe('✓ Badge 04:A1:B2:C3 linked to Ada Fixture. Its profile link is on the badge.');
+    expect(linkNotice('LINKED', '04a1b2c3', 'Ada Fixture', 'failed').text).toBe("✓ Badge 04:A1:B2:C3 linked to Ada Fixture. Couldn't write its profile link: hold the badge still and tap Link badge again.");
+    expect(linkNotice('BADGE_TAKEN', '04a1b2c3', 'Ada Fixture', 'written')).toEqual(linkNotice('BADGE_TAKEN', '04a1b2c3', 'Ada Fixture'));
     expect(linkNotice('BADGE_TAKEN', '04a1b2c3', 'Ada Fixture')).toEqual({
       tone: 'bad',
       text: '✕ Badge 04:A1:B2:C3 is linked to someone else. Ask an organizer to move it.',

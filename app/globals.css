@@ -15,8 +15,8 @@
   --color-ok: var(--ok);
   --color-warn: var(--warn);
   --color-bad: var(--bad);
-  --font-sans: var(--font-mono), ui-monospace, Menlo, monospace;
-  --font-code: var(--font-mono), ui-monospace, Menlo, monospace;
+  --font-sans: var(--font-geist), "Geist", system-ui, sans-serif;
+  --font-mono: var(--font-fira-code), "Fira Code", ui-monospace, Menlo, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card-foreground: var(--card-foreground);
@@ -32,13 +32,17 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  /* sheridandatathon.com: rounded-md everywhere; the aliases keep existing class names working. */
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-control: 6px; /* sheridandatathon.com: rounded-md */
-  --radius-card: 8px; /* rounded-lg */
-  --radius-ticket: 8px;
-  --shadow-panel: var(--shadow);
+  --radius-md: var(--radius);
+  --radius-control: var(--radius);
+  --radius-card: var(--radius);
+  --radius-ticket: var(--radius);
+  --radius-sm: 4px;
+  --shadow-panel: var(--shadow-e2);
+  --ease-out: var(--ease);
+  --default-transition-timing-function: var(--ease);
+  --default-transition-duration: 160ms;
 }
 @layer base {
   /* Preserve the browser defaults that the existing interface was built on. */
@@ -53,20 +57,27 @@
   /* Theme from sheridandatathon.com: navy, terminal green, Fira Code. */
   :root {
     --fg: #e8f2ff;
-    --muted-foreground: #8fa0c4;
+    --ink-soft: #8FA0C4;
+    --ink-mute: #6B7AA0;
+    /* Small labels: a 10% ink lift takes the mute role to AA on the visible ground (about rgb(10 22 66)) and on cards. */
+    --ink-label: color-mix(in srgb, var(--ink-mute) 90%, var(--fg));
+    --text-accent: #B8DCFF;
+    --muted-foreground: var(--ink-soft);
     --bg: #05081a;
     --bg-deep: #030512;
-    --card: #0a1029;
+    --surface: #0A1029;
+    --card: var(--surface);
     --raised: #0c1330;
-    --line: #b8dcff24;
-    --field: #6b7aa0;
+    --edge: rgba(184, 220, 255, 0.14);
+    --line: var(--edge);
+    --field: var(--ink-mute); /* control borders need 3:1 (WCAG 1.4.11); --edge stays for cards and hairlines */
     --accent: #34d399;
     --accent-ink: #03120c;
-    --link: #b8dcff;
+    --link: var(--text-accent);
     --ok: #34d399;
     --warn: #fbbf24;
     --bad: #f87171;
-    --radius: 0.5rem;
+    --radius: 6px;
     --background: var(--bg);
     --foreground: var(--fg);
     --card-foreground: var(--fg);
@@ -84,28 +95,32 @@
     --input: var(--field);
     --ring: var(--accent);
     --ease: cubic-bezier(0.23, 1, 0.32, 1);
-    --shadow: inset 0 1px 0 0 #b8dcff0f, 0 12px 32px -16px #030512e6;
+    --shadow-e1: inset 0 1px 0 0 rgba(184, 220, 255, 0.06), 0 12px 32px -16px rgba(3, 5, 18, 0.9);
+    --shadow-e2: inset 0 1px 0 0 var(--edge), 0 32px 64px -28px rgba(3, 5, 18, 0.95), 0 8px 20px -12px rgba(3, 5, 18, 0.8);
+    --shadow: var(--shadow-e1);
     color-scheme: dark;
     accent-color: var(--accent);
     caret-color: var(--accent);
-    scrollbar-color: #b8dcff38 transparent;
+    scrollbar-color: rgba(184, 220, 255, 0.22) transparent;
   }
   * {
     box-sizing: border-box;
   }
   body {
     margin: 0;
+    isolation: isolate;
     background: var(--bg);
     color: var(--fg);
-    font: 16px/1.5 var(--font-mono), ui-monospace, Menlo, monospace;
+    font: 16px/1.5 var(--font-fira-code), ui-monospace, Menlo, monospace;
     font-variant-numeric: tabular-nums;
   }
   ::selection {
     color: #f2fff9;
-    background: #34d39952;
+    background: rgba(52, 211, 153, 0.32);
   }
   h1, h2, h3 {
-    font-weight: 600;
+    font-weight: 700; /* Fira Code tops out at 700 */
+    color: var(--fg);
     line-height: 1.25;
     letter-spacing: -0.01em;
     text-wrap: balance;
@@ -124,12 +139,13 @@
   }
   a {
     color: var(--link);
-    text-underline-offset: 3px;
+    text-underline-offset: 0.18em;
     text-decoration-thickness: 1px;
   }
   :focus-visible {
     outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    outline-offset: 3px;
+    border-radius: 2px;
   }
   /* Long labels beside a checkbox must not squeeze it. */
   input[type='checkbox'], input[type='radio'] {
@@ -139,32 +155,23 @@
   }
   /* Zero specificity: module classes still win. */
   :where(input:not([type='checkbox'], [type='radio'], [type='file']), textarea, select) {
-    background: var(--raised);
+    background: var(--surface);
     color: var(--fg);
     border: 1px solid var(--field);
   }
   :where(input, textarea)::placeholder {
-    color: var(--muted-foreground);
+    color: var(--ink-label);
     opacity: 1;
   }
 }
 @layer components {
+  @media (prefers-reduced-motion: no-preference) {
+    html:has(.tw-me-dashboard #schedule) {
+      scroll-behavior: smooth;
+    }
+  }
   .tw-admin-dialog::backdrop {
     background: rgb(3 5 18 / 72%);
-  }
-  .tw-admin-eventName::before {
-    content: "D/";
-    display: inline-grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    flex: none;
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    border-radius: 4px;
-    background: color-mix(in srgb, var(--accent) 10%, var(--card));
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 700;
   }
   @media (prefers-reduced-motion: reduce) {
     .tw-admin-tile {
@@ -225,15 +232,6 @@
       transform: none !important;
     }
   }
-  .tw-admin-main > h1::after {
-    content: "LIVE OPERATIONS";
-    display: block;
-    margin-top: 12px;
-    color: var(--accent);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
-  }
   .tw-scanner-dialog::backdrop {
     background: rgba(3, 5, 18, 0.78);
     backdrop-filter: blur(6px);
@@ -245,15 +243,6 @@
   :where(.tw-scanner-root, .tw-scanner-sheet, .tw-scanner-dialog) input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 3px;
-  }
-  .tw-me-dashboard .tw-me-hero::before {
-    content: "DATATHON / ATTENDEE PORTAL";
-    display: block;
-    margin-bottom: 12px;
-    color: var(--accent);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.14em;
   }
 }
 
@@ -271,5 +260,28 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+@layer components {
+  p { text-wrap: pretty; }
+  .copy {
+    font-family: var(--font-geist), "Geist", system-ui, sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+    max-width: 62ch;
+    letter-spacing: 0.004em;
+  }
+  :where(input:not([type='checkbox'], [type='radio'], [type='file']), textarea, select):focus {
+    border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  }
+  /* Ground ported from datafest-website/src/app/globals.css; static veil (no GroundDrift). */
+  .page-veil, .page-grain { position: fixed; inset: 0; pointer-events: none; }
+  .page-veil { background: rgb(6 10 32 / 0.22); z-index: -5; }
+  .page-grain {
+    z-index: -4;
+    opacity: 0.045;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+    background-size: 180px 180px;
   }
 }

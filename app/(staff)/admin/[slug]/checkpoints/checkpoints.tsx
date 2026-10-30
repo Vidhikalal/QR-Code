@@ -72,7 +72,7 @@ export function Checkpoints({ slug }: { slug: string }) {
           [&_p]:text-[14px] [&_p]:leading-[1.5] max-[600.001px]:[&_button]:w-full">
         <div>
           <h1>Checkpoints</h1>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
             Manage entry points, meal stations, and event sessions.
           </p>
         </div>
@@ -112,7 +112,7 @@ export function Checkpoints({ slug }: { slug: string }) {
           [&_h2]:text-[20px]
  [&_p]:max-w-[440px] [&_p]:m-0 [&_p]:text-[14px] [&_p]:leading-[1.6]">
           <h2>No checkpoints yet</h2>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
             Add your first checkpoint to start managing event entry and attendance.
           </p>
           <Button type="button" onClick={() => setEditing('new')}>
@@ -203,7 +203,7 @@ export function Checkpoints({ slug }: { slug: string }) {
       {deleting && (
         <ConfirmDialog
           title={`Delete ${deleting.name}?`}
-          body={<p>Checkpoints that already have scans can’t be deleted. Close them instead.</p>}
+          body={<p className="copy">Checkpoints that already have scans can’t be deleted. Close them instead.</p>}
           confirmLabel="Delete checkpoint"
           danger
           onConfirm={() => void remove(deleting)}
@@ -372,7 +372,7 @@ function CheckpointPeople(props: { slug: string; checkpoint: Checkpoint; timezon
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+          [background:var(--surface)]
 
           shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
 

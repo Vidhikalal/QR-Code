@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -53,11 +54,13 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await expect(page.getByText('✓ Saved.')).toBeVisible();
 
   await page.getByRole('link', { name: '← Menu' }).click();
-  await page.getByRole('link', { name: 'Schedule' }).click();
+  await expect(page.getByRole('link', { name: 'Schedule', exact: true })).toHaveAttribute('href', '#schedule');
+  await page.getByRole('link', { name: 'Schedule', exact: true }).click();
+  await expect(page).toHaveURL(/\/me#schedule$/);
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeInViewport();
   await expect(page.getByText(/Sat 9:00\s+Doors\s+Sat 12:00\s+Lunch/)).toBeVisible();
   expect(await page.getByText(/Sat 9:00/).evaluate((el) => (el as HTMLElement).innerText)).toContain('Doors\nSat 12:00'); // line breaks kept
 
-  await page.getByRole('link', { name: '← Menu' }).click();
   await page.getByRole('link', { name: 'Emergency contact' }).click();
   await expect(page.getByText('Call Ade: 416 555 0199')).toBeVisible();
   await page.getByLabel('Name').fill('Sam Fixture');
@@ -104,4 +107,87 @@ test('T-ADM-08: the organizer sees the emergency contact on the participant deta
   await expect(page.getByText('Emergency contact')).toBeVisible();
   await expect(page.getByRole('link', { name: '+1 (416) 555-0100' })).toHaveAttribute('href', 'tel:+14165550100');
   await expect(page.getByText(/Sam Fixture \(Brother\)/)).toBeVisible();
+});
+
+
+test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day controls', async ({ page }) => {
+  const schedule = readFileSync(new URL('../fixtures/schedule/official.txt', import.meta.url), 'utf8');
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
+  const saved = await page.request.patch(`/api/admin/${f.slug}/event`, { data: { schedule } });
+  expect(saved.ok()).toBe(true);
+  await signIn(page, await emailOf(f.p.A), '/me/schedule');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  const sunday = page.getByRole('list', { name: 'Sunday, Nov 8', exact: true });
+  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await expect(sunday.getByRole('listitem')).toHaveCount(6);
+  await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'SUN NOV 8' })).toBeVisible();
+  await expect(saturday.getByText('Magic: The Gathering', { exact: true })).toBeVisible();
+  await expect(sunday.getByText('Demos + Judging', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Event categories' }).getByRole('listitem')).toHaveCount(5);
+  const workshop = saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' });
+  await workshop.focus();
+  await expect(workshop).toContainText('ADK, MCP & Cloud DBs');
+  await expect(workshop).toContainText('2:30 PM to 3:30 PM · 5F');
+  await expect(workshop).toContainText('Workshops');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const satButton = page.getByRole('button', { name: 'Sat Nov 7', exact: true });
+  const sunButton = page.getByRole('button', { name: 'Sun Nov 8', exact: true });
+  await satButton.click();
+  await expect(satButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(saturday).toBeVisible();
+  await expect(sunday).toBeHidden();
+  await sunButton.click();
+  await expect(sunButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(sunday).toBeVisible();
+  await expect(saturday).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await sunButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+});
+
+test('T-ME-11: live event-time marker updates each minute and past events are grey', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-07T19:40:00Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, await emailOf(f.p.A), '/me/schedule');
+  const line = page.getByTestId('schedule-now');
+  await expect(line).toContainText('now 2:40 PM');
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  const morning = saturday.getByRole('listitem').filter({ hasText: 'Check-in' });
+  await expect(morning).toHaveAttribute('data-state', 'past');
+  await expect(morning).toHaveCSS('background-color', 'rgb(34, 41, 54)');
+  await expect(morning).toHaveCSS('color', 'rgb(143, 160, 196)');
+  await expect(saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' })).toHaveAttribute('data-state', 'current');
+  await page.clock.fastForward(60_000);
+  await expect(line).toContainText('now 2:41 PM');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByText('Scroll across for overlapping events →')).toBeHidden();
+});
+
+
+test('T-ME-11: menu shows the official calendar immediately and Schedule scrolls to it', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-07T19:40:00Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, await emailOf(f.p.A), '/me');
+  const heading = page.getByRole('heading', { name: 'Schedule', exact: true });
+  await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
+  await expect(page.getByTestId('schedule-now')).toContainText('now 2:40 PM');
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await expect(saturday.getByRole('listitem').filter({ hasText: 'Check-in' })).toHaveAttribute('data-state', 'past');
+  await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
+  expect(await calendar.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  await expect(page.locator('html')).toHaveCSS('scroll-behavior', 'smooth');
+  await page.getByRole('link', { name: 'Schedule', exact: true }).click();
+  await expect(page).toHaveURL(/\/me#schedule$/);
+  await expect(heading).toBeInViewport();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(page.locator('html')).toHaveCSS('scroll-behavior', 'auto');
+  await page.getByRole('button', { name: 'Sun Nov 8', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Sunday, Nov 8', exact: true }).getByRole('listitem')).toHaveCount(6);
+  await expect(saturday).toBeHidden();
 });
