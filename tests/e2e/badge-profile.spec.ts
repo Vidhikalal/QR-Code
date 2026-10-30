@@ -86,6 +86,7 @@ test('T-NFC-21: staff link a badge; its holder sets their LinkedIn, Discord and 
   const page = await a.newPage();
   await createAccount(await emailOf(f.p.A));
   await signIn(page, await emailOf(f.p.A), '/me/profile');
+  await page.getByRole('navigation', { name: 'Profile sections' }).getByRole('link', { name: 'Networking', exact: true }).click();
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
 
   // v0.9.2: the browser refuses a non-profile LinkedIn link before sending (the server refuses it too, T-ME-03).

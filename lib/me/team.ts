@@ -9,7 +9,7 @@ type Db = SupabaseClient<Database>;
 type Account = { id: string; email?: string | null };
 
 // SPEC F15 (v0.7): what the team_* SQL functions answer; INVALID_NAME is caught here before any call.
-const TEAM_CODES = ['CREATED', 'JOINED', 'LEFT', 'SAVED', 'IN_A_TEAM', 'NAME_TAKEN', 'BAD_CODE', 'TEAM_FULL', 'CLOSED', 'NOT_RELEASED', 'NOT_FOUND', 'INVITED', 'ALREADY_INVITED', 'NOT_LOOKING', 'DECLINED'] as const;
+const TEAM_CODES = ['CREATED', 'JOINED', 'LEFT', 'SAVED', 'IN_A_TEAM', 'NAME_TAKEN', 'BAD_CODE', 'TEAM_FULL', 'CLOSED', 'NOT_RELEASED', 'NOT_FOUND', 'INVITED', 'ALREADY_INVITED', 'NOT_LOOKING', 'SELF', 'DECLINED'] as const;
 export type TeamCode = (typeof TEAM_CODES)[number] | 'INVALID_NAME';
 
 // The functions act only on the row whose email is the account's, so a forged participant id changes nothing.
@@ -84,7 +84,6 @@ export async function setLooking(db: Db, user: Account, participantId: string, o
 
 export interface MyTeam {
   invites: Array<{ teamId: string; teamName: string; from: string }>;
-  directory: Array<{ id: string; name: string }>;
   tracks: Array<{ id: string; name: string }>;
   team: { name: string; code: string; trackId: string | null; members: string[] } | null;
 }
@@ -103,16 +102,9 @@ export async function myTeam(db: Db, me: MyEvent): Promise<MyTeam> {
   if (team?.error) throw new Error(`team load failed (${team.error.code})`);
   if (invites.error) throw new Error(`invites load failed (${invites.error.code})`);
   const t = team?.data;
-  const showDirectory = me.event.teamsOpen && Date.parse(me.event.endsAt) > Date.now() && (!t || t.participants.length < 4);
-  const directory = showDirectory
-    ? await db.from('participants').select('id, first_name, last_name').eq('event_id', me.eventId)
-      .eq('status', 'accepted').is('deleted_at', null).is('team_id', null).eq('looking_for_team', true).neq('id', me.participantId)
-    : null;
-  if (directory?.error) throw new Error(`directory load failed (${directory.error.code})`);
   return {
     tracks: tracks.data,
     invites: invites.data.map((i) => ({ teamId: i.team_id, teamName: i.teams.name, from: i.participants?.first_name ?? 'A teammate' })),
-    directory: (directory?.data ?? []).map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name}`.trim() })).toSorted((a, b) => a.name.localeCompare(b.name)),
     team: t
       ? { name: t.name, code: t.join_code, trackId: t.track_id, members: t.participants.map((m) => `${m.first_name} ${m.last_name}`.trim()).toSorted() }
       : null,

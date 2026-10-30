@@ -165,11 +165,6 @@
   }
 }
 @layer components {
-  @media (prefers-reduced-motion: no-preference) {
-    html:has(.tw-me-dashboard #schedule) {
-      scroll-behavior: smooth;
-    }
-  }
   .tw-admin-dialog::backdrop {
     background: rgb(3 5 18 / 72%);
   }

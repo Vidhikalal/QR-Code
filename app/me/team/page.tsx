@@ -10,15 +10,11 @@ import { Input } from '@/components/ui/input';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { after } from 'next/server';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
-import { emailFrom, getProvider } from '@/lib/email';
-import { drainUntilIdle } from '@/lib/email/drain';
-import { env } from '@/lib/env';
 import { formatJoinCode } from '@/lib/domain/team';
 import { myEvent } from '@/lib/me/profile';
-import { createTeam, declineInvite, inviteTeammate, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, type TeamCode } from '@/lib/me/team';
+import { createTeam, declineInvite, joinTeam, leaveTeam, myTeam, setLooking, setTeamTrack, type TeamCode } from '@/lib/me/team';
 import { loadMyEvent, menuMetadata } from '../load';
 
 export const metadata: Metadata = menuMetadata('Team');
@@ -33,6 +29,7 @@ const NOTICES: Record<TeamCode, string> = {
   INVITED: '✓ Invite sent. They can accept on their Team page.',
   ALREADY_INVITED: '✕ You’ve already invited them.',
   NOT_LOOKING: '✕ They’re no longer looking for a team.',
+  SELF: '✕ You can’t invite yourself.',
   DECLINED: '✓ Invite declined.',
   IN_A_TEAM: '✕ You’re already in a team. Leave it first.',
   NAME_TAKEN: '✕ Another team already has that name.',
@@ -54,8 +51,7 @@ async function act(formData: FormData) {
   const field = (k: string) => String(formData.get(k) ?? '');
   const op = field('op');
   const r =
-    op === 'invite' ? await inviteTeammate(db(), user, m.participantId, field('inviteeId'))
-    : op === 'accept' ? await joinTeam(db(), user, m.participantId, { teamId: field('teamId') })
+    op === 'accept' ? await joinTeam(db(), user, m.participantId, { teamId: field('teamId') })
     : op === 'decline' ? await declineInvite(db(), user, m.participantId, field('teamId'))
     : op === 'looking' ? await setLooking(db(), user, m.participantId, field('looking') === 'on')
     : op === 'create'
@@ -65,14 +61,13 @@ async function act(formData: FormData) {
         : op === 'leave'
           ? await leaveTeam(db(), user, m.participantId)
           : await setTeamTrack(db(), user, m.participantId, field('trackId'));
-  if (r === 'INVITED') after(() => drainUntilIdle({ db: db(), provider: getProvider(), appOrigin: env().NEXT_PUBLIC_APP_ORIGIN, from: emailFrom(), passSecret: env().PASS_TOKEN_SECRET }));
   redirect(`/me/team?r=${r}`);
 }
 
 export default async function TeamPage(props: { searchParams: Promise<{ r?: string }> }) {
   const { r } = await props.searchParams;
   const { me: m, now } = await loadMyEvent('/me/team');
-  const { tracks, team, invites, directory } = await myTeam(db(), m);
+  const { tracks, team, invites } = await myTeam(db(), m);
   const live = Date.parse(m.event.endsAt) > now.getTime();
   const open = m.event.teamsOpen && live;
   const notice = r === 'SAVED' && !team ? '✓ Directory preference saved.' : r && r in NOTICES ? NOTICES[r as TeamCode] : null;
@@ -110,7 +105,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
               <input type="checkbox" name="looking" defaultChecked={m.lookingForTeam} style={{ width: 22, height: 22 }} />
               Looking for a team
             </Label>
-            <p className="copy m-0 text-muted-foreground text-[14px]">List my name in the teammate directory for this event.</p>
+            <p className="copy m-0 text-muted-foreground text-[14px]">List my name under “Looking for a team” in the Hacker directory.</p>
             <Button type="submit">Save directory preference</Button>
           </form>
         </section></Card>
@@ -269,36 +264,7 @@ export default async function TeamPage(props: { searchParams: Promise<{ r?: stri
           </section></Card>
         </>
       )}
-      {open && (!team || team.members.length < 4) && (
-        <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="directory-title" >
-          <h2 id="directory-title">Teammate directory</h2>
-          {!team && <p className="copy m-0 text-muted-foreground text-[14px]">Create a team to invite them.</p>}
-          {directory.length === 0 ? <p className="copy m-0 text-muted-foreground text-[14px]">No one is looking for a team yet.</p> : (
-            <ul className="m-0 p-0 list-none [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:justify-between
-
-          [&_li]:gap-[8px_12px] [&_li]:min-h-[56px] [&_li]:p-[6px_0px] [&_p]:m-0
-
-          [&_li_+_li]:[border-top-width:1px] [&_li_+_li]:[border-top-style:solid]
-
-          [&_li_+_li]:[border-top-color:var(--line)]">
-              {directory.map((person) => (
-                <li key={person.id}>
-                  {person.name}
-                  {team && (
-                    <form action={act}>
-                      <input type="hidden" name="op" value="invite" />
-                      <input type="hidden" name="inviteeId" value={person.id} />
-                      <Button type="submit" variant="outline" aria-label={`Invite ${person.name}`}>
-                        Invite
-                      </Button>
-                    </form>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section></Card>
-      )}
+      <Link href="/me/hackers?looking=1" className="inline-flex min-h-11 items-center">Find teammates in the Hacker directory →</Link>
     </main></Entrance>
   );
 }

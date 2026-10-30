@@ -1,5 +1,7 @@
 'use client';
 
+import { BrandMark } from '@/components/brand-mark';
+import { SectionLabel } from '@/components/section-label';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 
@@ -398,28 +400,29 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
 
   return (
     <main
-      className="tw-scanner-root min-h-[100dvh] flex flex-col [background:var(--bg-deep)] text-fg"
+      className="tw-scanner-root min-h-[100dvh] flex flex-col bg-bg font-mono text-fg"
       onPointerDown={unlockAudio}
       data-camera={mode === 'nfc' || linking ? 'off' : camera}
       data-scanning={scanningPaused ? 'paused' : 'on'}
       data-active-at={activeAt ?? undefined}
     >
-      <header className="sticky top-0 z-[5] flex items-center gap-[14px] p-[16px_22px] text-white font-bold
+      <header className="sticky top-0 z-[5] flex items-center gap-3 p-4 sm:px-6 text-white font-bold
 
-          [border-bottom:1px_solid_rgba(255,_255,_255,_0.14)] [box-shadow:rgba(0,_0,_0,_0.18)_0px_8px_28px]
+          border-0 border-b border-solid border-white/15
 
           [&[data-kind='door']]:[background:rgb(23,_71,_166)] [&[data-kind='meal']]:[background:rgb(154,_52,_18)]
 
           [&[data-kind='session']]:[background:rgb(107,_33,_168)]
 
           [&[data-kind='custom']]:[background:rgb(8,_103,_94)] [&[data-kind='none']]:[background:rgb(37,_43,_59)]" data-kind={checkpoint?.kind ?? 'none'} data-testid="checkpoint-banner">
-        <span className="flex-1 min-w-0">
-          <span className="block text-[11px] font-extrabold opacity-[0.8] uppercase tracking-[0.12em] mb-[3px]">
+        <BrandMark name="" className="shrink-0 gap-0" />
+        <div className="flex-1 min-w-0">
+          <SectionLabel className="mb-1 [&>span:first-child]:text-white [&>span:last-child]:bg-white/25">
             {checkpoint ? `${KIND_LABEL[checkpoint.kind]}${checkpoint.isOpen ? '' : ' · closed'}` : props.eventName}
-          </span>
-          <span className="block text-[21px] leading-[1.3] overflow-hidden text-ellipsis whitespace-nowrap">{checkpoint?.name ?? 'No checkpoint selected'}</span>
-        </span>
-        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/22 hover:text-white" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
+          </SectionLabel>
+          <span className="block text-lg sm:text-xl leading-[1.3] overflow-hidden text-ellipsis whitespace-nowrap">{checkpoint?.name ?? 'No checkpoint selected'}</span>
+        </div>
+        <Button type="button" variant="ghost" className="border-white/50 bg-white/12 text-white hover:bg-white/15 hover:text-white" onClick={() => setPickerOpen(true)} disabled={!checkpoints}>
           Change
         </Button>
       </header>
@@ -432,14 +435,12 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         </div></Alert>
       )}
 
-      <div className="relative h-[60dvh] min-h-[320px] [background:rgb(8,_11,_18)] overflow-hidden [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
+      <div className="relative h-[60dvh] min-h-[320px] shrink-0 bg-bg-deep overflow-hidden border-0 border-b border-solid border-line">
         <video ref={videoRef} className="block w-full h-full object-cover" style={mode === 'nfc' || linking ? { display: 'none' } : undefined} playsInline muted aria-label="Camera view" />
         {mode === 'nfc' ? (
           <div className="absolute [inset:0px] grid [place-items:center] p-[32px] text-center
 
-          [background:radial-gradient(rgba(36,_48,_66,_0.6),_transparent_70%),_rgb(12,_16,_26)] text-fg">
+          bg-card text-fg">
             <p>📶 NFC badges: the camera is off. Hold a badge flat against the back of the phone.</p>
             {nfc.state === 'off' && (
               <Button type="button" onClick={() => void nfc.start()}>
@@ -452,16 +453,12 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           camera !== 'ready' && (
             <Alert className="absolute [inset:0px] grid [place-items:center] p-[32px] text-center
 
-          [background:radial-gradient(rgba(36,_48,_66,_0.6),_transparent_70%),_rgb(12,_16,_26)] text-fg" asChild><div  role="alert">
+          bg-card text-fg" asChild><div  role="alert">
               <p>📷 {CAMERA_HELP[camera]}</p>
             </div></Alert>
           )
         )}
-        <div className="absolute left-[16px] right-[16px] bottom-[16px] p-[12px_16px] [background:rgba(8,_11,_18,_0.88)]
-
-          [border-width:1px] [border-style:solid] [border-color:rgba(255,_255,_255,_0.14)] rounded-card
-
-          [backdrop-filter:blur(12px)] text-[13px] [color:rgb(226,_232,_240)]" aria-live="polite">
+        <div className="absolute left-4 right-4 bottom-4 rounded-card border border-solid border-line bg-card p-4 text-sm text-fg" aria-live="polite">
           {busy
             ? 'Checking…'
             : mode === 'nfc'
@@ -480,9 +477,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
         </div>
       </div>
 
-      <div className="flex gap-[12px] p-[20px_24px] flex-wrap [background:var(--bg-deep)] [&_button]:flex-1
-
-          [&_button]:min-h-[52px]">
+      <div className="flex gap-3 p-4 sm:p-6 flex-wrap bg-bg [&_button]:flex-1 [&_button]:min-h-[52px]">
         <Button ref={searchButton} type="button" onClick={() => setSearchOpen(true)} disabled={offline || !checkpoint}>
           Manual search
         </Button>
@@ -495,7 +490,7 @@ export function Scanner(props: { slug: string; eventName: string; timezone: stri
           </Button>
         )}
         {nfc.supported && mode && (
-          <div className="flex gap-[12px] [flex:1_1_100%]" role="group" aria-label="Scan with">
+          <div className="flex gap-2 rounded-card border border-solid border-line bg-card p-2 [flex:1_1_100%]" role="group" aria-label="Scan with">
             <Button type="button" variant={mode === 'camera' ? 'default' : 'outline'} className={PRESSED} aria-pressed={mode === 'camera'} onClick={() => chooseInput('camera')}>
               Camera
             </Button>

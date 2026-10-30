@@ -68,7 +68,7 @@ export function ManualSearch(props: {
   }, [slug, checkpointId, q, valid, disabled]);
 
   return (
-    <Entrance><Card className="tw-scanner-sheet gap-0 rounded-none border-0 bg-background p-0 shadow-none fixed [inset:0px] z-[15] [background:var(--bg)] text-fg flex flex-col" asChild><section  aria-labelledby="search-title">
+    <Entrance><Card className="tw-scanner-sheet fixed inset-0 z-[15] flex flex-col gap-0 rounded-none border-0 bg-bg p-0 font-mono text-fg shadow-none sm:inset-6 sm:mx-auto sm:max-w-[760px] sm:rounded-card sm:border sm:border-solid sm:border-line" asChild><section  aria-labelledby="search-title">
       <div className="flex gap-[12px] items-center p-[20px_24px] [border-bottom-width:1px] [border-bottom-style:solid]
 
           [border-bottom-color:var(--line)] [background:var(--card)] [&_h2]:flex-1 [&_h2]:m-0 [&_h2]:text-[22px]
@@ -96,13 +96,11 @@ export function ManualSearch(props: {
       {valid && state.kind === 'error' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">✕ Search failed. Try again.</p>}
       {valid && state.kind === 'rows' && state.rows.length === 0 && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">No one found.</p>}
       {valid && state.kind === 'rows' && (
-        <ul className="list-none m-0 p-[0px_24px_28px] overflow-y-auto">
+        <ul className="list-none m-0 grid content-start gap-3 p-4 pt-0 sm:px-6 sm:pb-6 overflow-y-auto">
           {state.rows.map((r) => (
-            <li key={r.id} className="flex gap-[14px] items-center p-[16px_0px] [border-bottom-width:1px] [border-bottom-style:solid]
-
-          [border-bottom-color:var(--line)]" data-testid="search-row">
-              <div className="flex-1 min-w-0">
-                <div className="[font-weight:750] text-[16px] mb-[5px]">{r.displayName}</div>
+            <li key={r.id} className="flex flex-wrap gap-4 items-center rounded-card border border-solid border-line bg-card p-4" data-testid="search-row">
+              <div className="flex-1 min-w-[140px] [overflow-wrap:anywhere]">
+                <div className="font-bold text-base mb-1 break-words">{r.displayName}</div>
                 <div className="text-[13px] leading-[1.8] text-muted-foreground">
                   <Badge className="mr-1.5">{r.status}</Badge>
                   {r.scannedHere && <Badge className="tw-scanner-badgeWarn mr-1.5 border-warn/30 bg-warn/12 text-warn">✓ Already scanned here</Badge>}
@@ -110,7 +108,7 @@ export function ManualSearch(props: {
                   {r.email}
                 </div>
               </div>
-              <div className="grid gap-[8px] [flex:0_0_auto]">
+              <div className="flex flex-wrap gap-2 w-full sm:grid sm:w-auto sm:shrink-0 [&_button]:flex-1">
                 <Button type="button" disabled={disabled} onClick={() => props.onRecord(r.id)} aria-label={`Record scan for ${r.displayName}`}>
                   Record scan
                 </Button>

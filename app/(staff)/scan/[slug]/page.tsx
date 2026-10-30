@@ -15,11 +15,7 @@ export default async function ScanPage({ params }: { params: Promise<{ slug: str
   const staff = await requireStaffBySlug(db(), user.id, slug);
   if (!staff) {
     return (
-      <main className="max-w-[420px] m-[48px_auto] p-[32px_24px] [background:var(--card)] [border-width:1px]
-
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
-
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-lg">
+      <main className="mx-auto my-12 max-w-[420px] rounded-card border border-solid border-line bg-card px-6 py-8 font-mono shadow-panel">
         <h1>✕ No access to this event</h1>
         <p>Ask an organizer to invite the email you signed in with.</p>
       </main>

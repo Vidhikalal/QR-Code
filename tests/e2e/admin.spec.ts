@@ -103,6 +103,61 @@ test('T-ADM-06: door closed 20 min before starts_at shows a warning; opening the
   await expect(warning).toHaveCount(0);
 });
 
+test('T-ADM-06: arrival bars keep UTC order across local days and expose hover/focus counts', async ({ page }) => {
+  // Insert through the real scan path, then move fixture timestamps into two local days.
+  await f.pool.query(`update events set starts_at = '2026-11-07T14:00:00Z', ends_at = '2026-11-09T04:00:00Z', timezone = 'America/Toronto' where id = $1`, [f.e1.id]);
+  for (const [who, scannedAt] of [['A', '2026-11-08T02:20:00Z'], ['B', '2026-11-09T00:35:00Z'], ['N', '2026-11-09T00:40:00Z']] as const) {
+    const result = await f.scan({ cp: f.cp.D, staff: f.staff.org1, token: f.token[who] });
+    expect(result.code).toBe('ACCEPTED');
+    await f.pool.query('update scans set scanned_at = $1 where id = $2', [scannedAt, result.scanId]);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/admin/${f.slug}`);
+  const chart = page.getByRole('group', { name: /^Door arrivals per 15 minutes/ });
+  const bars = chart.locator('[data-bucket-utc]');
+  await expect(bars).toHaveCount(2);
+  expect(await bars.evaluateAll(nodes => nodes.map(n => n.getAttribute('data-bucket-utc')))).toEqual(['2026-11-08T02:15:00.000Z', '2026-11-09T00:30:00.000Z']);
+  await expect(chart).toContainText('Sat 9:15 PM');
+  await expect(chart).toContainText('Sun 7:30 PM');
+  const bar = bars.nth(1);
+  await expect(bar).toHaveAccessibleName(/Sun 7:30 PM EST–7:45 PM EST · 2 arrivals/);
+  await chart.scrollIntoViewIfNeeded();
+  const before = await bar.boundingBox();
+  await bar.hover();
+  expect(await bar.boundingBox()).toEqual(before);
+  const tooltip = page.getByTestId('hover-details');
+  await expect(tooltip).toContainText('2 arrivals');
+  await expect(tooltip).toContainText('Sun 7:30 PM EST–7:45 PM EST');
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-arrivals.png` });
+  await page.mouse.move(0, 0);
+  await expect(tooltip).toHaveCount(0);
+  await bar.focus();
+  await expect(tooltip).toContainText('2 arrivals');
+  await page.keyboard.press('Escape');
+  await expect(tooltip).toHaveCount(0);
+  for (const [width, height] of [[1440, 900], [1920, 1080], [390, 844]] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(chart).toHaveCSS('height', '196px');
+    await expect.poll(async () => {
+      const plot = (await chart.boundingBox())!;
+      const parent = (await chart.locator('..').boundingBox())!;
+      return Math.abs(plot.width - parent.width);
+    }).toBeLessThan(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const mark = chart.locator('path').last();
+    const markBox = (await mark.boundingBox())!;
+    expect(markBox.width).toBeLessThanOrEqual(32);
+    await expect(chart.locator('text').last()).toHaveCSS('font-size', '11px');
+    await chart.scrollIntoViewIfNeeded();
+    await bar.hover();
+    await expect(tooltip).toContainText('2 arrivals');
+    if (process.env.HOVER_SCREENSHOTS && width !== 390) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-dashboard-${width}.png` });
+    await page.mouse.move(0, 0);
+  }
+  await page.getByText('Show as table', { exact: true }).click();
+  await expect(page.getByRole('row', { name: /Sun 7:30 PM EST–7:45 PM EST 2/ })).toBeVisible();
+});
+
 test('Admin smoke: walk-in with check-in shows as checked in; void a scan; exports are CSV', async ({ page }) => {
   await page.goto(`/admin/${f.slug}/participants`);
   await page.getByRole('button', { name: 'Add attendee' }).click();

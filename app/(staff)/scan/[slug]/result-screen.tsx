@@ -26,7 +26,7 @@ export function ResultScreen({ view, shownAt, onDismiss }: { view: ResultView; s
         {view.icon}
       </span></Entrance>
       <span role="status" aria-live="assertive">
-        <strong className="text-[clamp(28px,_4vw,_40px)] [font-weight:850] tracking-[-0.04em] m-0">{view.headline}</strong>
+        <strong className="text-[clamp(28px,_4vw,_40px)] font-bold tracking-tight m-0">{view.headline}</strong>
       </span>
       {view.name && <span className="text-[clamp(32px,_3vw,_38px)] font-bold m-0 [overflow-wrap:anywhere]">{view.name}</span>}
       {view.emphasis && <span className="text-[22px] font-extrabold [background:rgba(0,_0,_0,_0.22)] [border-width:1px] [border-style:solid]

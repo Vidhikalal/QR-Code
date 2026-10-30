@@ -5,6 +5,7 @@ import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { NativeSelect } from '@/components/ui/native-select';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -14,15 +15,18 @@ import { redirect } from 'next/navigation';
 import { currentUser } from '@/lib/auth/session';
 import { db } from '@/lib/db/server';
 import { DISCORD_PATTERN, LINKEDIN_PATTERN, WEBSITE_PATTERN } from '@/lib/domain/badge';
-import { PHONE_PATTERN } from '@/lib/domain/profile';
+import { PACE, PHONE_PATTERN, type ProfileInput } from '@/lib/domain/profile';
 import { saveBadgeProfile, type SaveProfileResult } from '@/lib/me/profile';
 import { loadMyEvent, menuMetadata } from '../load';
 import { AllergyFields } from './allergy-fields';
 import { SetupWalkthrough, SetupForm, SetupStep, SetupPanel } from './setup-walkthrough';
 
-export const metadata: Metadata = menuMetadata('Hacker profile');
+// Native form posts need a same-origin Origin header before hydration.
+export const metadata: Metadata = { ...menuMetadata('Hacker profile'), referrer: 'same-origin' };
 
 const ERRORS: Partial<Record<SaveProfileResult, string>> = {
+  INVALID_BIO: '✕ Not saved. Keep your bio to 280 characters or less.',
+  INVALID_PACE: '✕ Not saved. Choose one of the listed paces.',
   INVALID_LINKEDIN: '✕ Not saved. Use your LinkedIn profile link, like linkedin.com/in/yourname.',
   INVALID_DISCORD: '✕ Not saved. Use your Discord username: 2–32 lowercase letters, numbers, _ or . (no # tag).',
   INVALID_WEBSITE: '✕ Not saved. Use a website address under 200 characters, like yourname.dev.',
@@ -41,14 +45,49 @@ const OVERNIGHT = [
 ] as const;
 const TEAM = [
   ['team', 'I have a team'],
-  ['looking', 'I’m looking for a team (lists my name in the teammate directory)'],
+  ['looking', 'I’m looking for a team (lists my name in the Hacker directory)'],
   ['solo', 'I plan to go solo'],
 ] as const;
 
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? '');
 
+const TABS = [
+  ['emergency', 'Emergency contact'],
+  ['event', 'The event'],
+  ['health', 'Health and access'],
+  ['networking', 'Networking'],
+] as const;
+type ProfileTab = (typeof TABS)[number][0];
+const ERROR_TAB: Partial<Record<SaveProfileResult, ProfileTab>> = {
+  INVALID_CONTACT: 'emergency',
+  INVALID_OVERNIGHT: 'event',
+  INVALID_TEAM_STATUS: 'event',
+  INVALID_ALLERGY: 'health',
+  INVALID_ACCESSIBILITY: 'health',
+  INVALID_LINKEDIN: 'networking',
+  INVALID_DISCORD: 'networking',
+  INVALID_WEBSITE: 'networking',
+  INVALID_BIO: 'networking',
+  INVALID_PACE: 'networking',
+};
+
+async function saveSection(tab: Exclude<ProfileTab, 'networking'>, formData: FormData) {
+  'use server';
+  const user = await currentUser();
+  if (!user) redirect('/login?next=/me/profile');
+  const fields = {
+    emergency: ['emergencyName', 'emergencyPhone', 'emergencyRelation'],
+    event: ['overnight', 'teamStatus'],
+    health: ['allergies', 'allergySeverity', 'accessibility'],
+  } as const;
+  const input: ProfileInput = {};
+  for (const field of fields[tab]) input[field] = text(formData, field);
+  const result = await saveBadgeProfile(db(), user, text(formData, 'participantId'), input);
+  redirect(`/me/profile?tab=${ERROR_TAB[result] ?? tab}&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
+}
+
 // SPEC F14 (v0.9): profile setup after the RSVP Yes. The emergency contact, overnight and team status are
-// required; allergies (with how severe) and accessibility are optional. Only the organizers see them, and
+// required; allergies (with how severe) and accessibility are optional. Only the organizers see the private answers, and
 // meal volunteers see the allergies.
 async function saveSetup(formData: FormData) {
   'use server';
@@ -84,20 +123,30 @@ async function saveNetworking(formData: FormData) {
     discord: text(formData, 'discord'),
     website: text(formData, 'website'),
     profilePublic: formData.get('public') === 'on',
+    directoryOptIn: formData.get('directoryOptIn') === 'on',
+    bio: text(formData, 'bio'),
+    pace: text(formData, 'pace'),
   });
+  if (formData.get('walkthrough') !== '1') {
+    redirect(`/me/profile?tab=networking&${result === 'SAVED' ? 'saved=1' : `error=${result}`}`);
+  }
   redirect(`/me/profile?${result === 'SAVED' ? `saved=1${formData.get('walkthrough') === '1' ? '&step=links' : ''}` : `error=${result}${formData.get('walkthrough') === '1' ? '&step=links' : ''}`}`);
 }
 
 export default async function HackerProfilePage(props: {
-  searchParams: Promise<{ saved?: string; error?: string; setup?: string; step?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string; setup?: string; step?: string; tab?: string }>;
 }) {
   const notices = await props.searchParams;
   const { me: m } = await loadMyEvent('/me/profile');
   const error = ERRORS[notices.error as SaveProfileResult];
-  const networkingError = ['INVALID_LINKEDIN', 'INVALID_DISCORD', 'INVALID_WEBSITE'].includes(notices.error ?? '');
+  const networkingError = ['INVALID_LINKEDIN', 'INVALID_DISCORD', 'INVALID_WEBSITE', 'INVALID_BIO', 'INVALID_PACE'].includes(notices.error ?? '');
 
-  // The walkthrough is the RSVP's onboarding ("Set up my hacker profile" → ?setup=1); from the menu it's the full form.
+  // The walkthrough is the RSVP's onboarding ("Set up my hacker profile" → ?setup=1); from the menu each section has its own tab and save.
   const walkthrough = notices.setup === '1' || notices.step === 'links';
+  const defaultTab = !m.emergency ? 'emergency' : !m.overnight || !m.teamStatus ? 'event' : 'emergency';
+  const tab = ERROR_TAB[notices.error as SaveProfileResult]
+    ?? TABS.find(([value]) => value === notices.tab)?.[0] ?? defaultTab;
+  const unfinished = { emergency: !m.emergency, event: !m.overnight || !m.teamStatus, health: false, networking: false };
   const initialStep = networkingError || (notices.step === 'links' && m.profileDone) ? 4
     : notices.error === 'INVALID_CONTACT' ? 1
     : ['INVALID_OVERNIGHT', 'INVALID_TEAM_STATUS'].includes(notices.error ?? '') ? 2
@@ -115,17 +164,24 @@ export default async function HackerProfilePage(props: {
         <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>{m.profileDone ? 'Hacker profile' : 'Finish setting up your profile'}</h1>
-      {!m.profileDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. They stay with the organizers; volunteers serving food see your allergy.</p>}
+      {!m.profileDone && <p className="copy m-0 text-muted-foreground text-[14px]">A few things we need before {m.event.name}. Your emergency, health and access answers stay with organizers; volunteers serving food see your allergy. Networking sharing is your choice.</p>}
 
+      {!walkthrough && <nav aria-label="Profile sections" className="flex min-w-0 max-w-full gap-1 overflow-x-auto overflow-y-hidden">
+        {TABS.map(([value, label]) => <a key={value} href={`/me/profile?tab=${value}`} aria-current={tab === value ? 'page' : undefined}
+          className="inline-flex min-h-12 shrink-0 items-center whitespace-nowrap rounded-t-lg border-b-2 border-transparent px-3 text-sm font-semibold text-muted-foreground no-underline hover:bg-accent/6 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-3 aria-[current=page]:border-accent aria-[current=page]:bg-accent/8 aria-[current=page]:text-accent aria-[current=page]:font-bold">
+          {label}{unfinished[value] && <span className="ml-1 font-normal">· needs answer</span>}
+        </a>)}
+      </nav>}
+      {!walkthrough && notices.saved === '1' && tab !== 'networking' && <Alert className="text-ok" role="status">✓ Saved.</Alert>}
           {notices.saved === 'setup' && (
             <Alert className="text-ok" asChild role="status"><p role="status" >
               ✓ Saved. Your profile is set up.
             </p></Alert>
           )}
       <SetupWalkthrough key={`${notices.error ?? ''}:${notices.saved ?? ''}:${notices.step ?? ''}`} enabled={walkthrough} initialStep={initialStep}>
-      <SetupPanel>
+      {(walkthrough || tab !== 'networking') && <SetupPanel>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-label="Profile setup" >
-        <SetupForm action={saveSetup} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
+        <SetupForm action={walkthrough ? saveSetup : saveSection.bind(null, tab === 'networking' ? 'emergency' : tab)} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]
 
@@ -134,7 +190,7 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
-          <SetupStep number={1}>
+          {(walkthrough || tab === 'emergency') && <SetupStep number={1}>
           <h2 id="setup-step-1" tabIndex={-1}>Emergency contact</h2>
           <p className="copy m-0 text-muted-foreground text-[14px]">Who we call if something happens to you.</p>
           <Label htmlFor="emergencyName">Emergency contact name</Label>
@@ -163,8 +219,9 @@ export default async function HackerProfilePage(props: {
             className="min-h-12 w-full"
           />
 
-          </SetupStep>
-          <SetupStep number={2}>
+          {!walkthrough && <Button type="submit">Save profile</Button>}
+          </SetupStep>}
+          {(walkthrough || tab === 'event') && <SetupStep number={2}>
           <h2 id="setup-step-2" tabIndex={-1}>The event</h2>
           <fieldset className="grid gap-[2px] m-0 p-0 [border-width:0px] [border-style:none] [border-color:currentcolor] min-w-0
 
@@ -193,8 +250,9 @@ export default async function HackerProfilePage(props: {
             ))}
           </fieldset>
 
-          </SetupStep>
-          <SetupStep number={3}>
+          {!walkthrough && <Button type="submit">Save profile</Button>}
+          </SetupStep>}
+          {(walkthrough || tab === 'health') && <SetupStep number={3}>
           <h2 id="setup-step-3" tabIndex={-1}>Health and access</h2>
           <AllergyFields allergies={m.allergies ?? ''} severity={m.allergySeverity ?? ''} inputClass={`min-h-[48px] p-[0px_12px] [font:inherit] [background:var(--raised)] text-fg [border-width:1px]
                 [border-style:solid] [border-top-color:var(--field)] [border-right-color:var(--field)]
@@ -204,7 +262,7 @@ export default async function HackerProfilePage(props: {
           <Textarea id="accessibility" name="accessibility" maxLength={500} placeholder="Anything that would make the event easier for you" defaultValue={m.accessibility ?? ''} className="min-h-12 w-full" />
 
           <Button type="submit">Save profile</Button>
-          </SetupStep>
+          </SetupStep>}
           {error && !networkingError && (
             <Alert className="text-bad" asChild><p role="alert" >
               {error}
@@ -215,8 +273,8 @@ export default async function HackerProfilePage(props: {
         </SetupForm>
       </section></Card>
 
-      </SetupPanel>
-      <SetupPanel networking>
+      </SetupPanel>}
+      {(walkthrough || tab === 'networking') && <SetupPanel networking>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="networking" >
         <h2 id="networking" tabIndex={-1}>Networking</h2>
         <div className="grid gap-[4px]">
@@ -237,6 +295,19 @@ export default async function HackerProfilePage(props: {
           [&_h2:first-of-type]:mt-0 [&_h2:first-of-type]:pt-0 [&_h2:first-of-type]:[border-top:0px]">
           <input type="hidden" name="participantId" value={m.participantId} />
           <input type="hidden" name="walkthrough" value={walkthrough ? '1' : '0'} />
+          <Label className="flex min-h-11 items-center gap-3">
+            <input type="checkbox" name="directoryOptIn" defaultChecked={m.directoryOptIn} className="size-[22px] shrink-0" />
+            List me in the Hacker directory
+          </Label>
+          <p className="copy m-0 text-sm text-muted-foreground">Off by default. Share your name, pace, bio, team status and these networking links with accepted attendees of this event. You can opt out here anytime. Badge sharing is a separate choice.</p>
+          <Label htmlFor="profilePace">Your pace (optional)</Label>
+          <NativeSelect id="profilePace" name="pace" defaultValue={m.pace ?? ''} className="min-h-12 w-full">
+            <option value="">No pace set</option>
+            {Object.entries(PACE).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </NativeSelect>
+          <Label htmlFor="bio">Bio (optional)</Label>
+          <Textarea id="bio" name="bio" maxLength={280} rows={4} defaultValue={m.bio ?? ''} placeholder="What do you enjoy building? Who would you like to meet?" aria-describedby="bio-hint" className="min-h-24 w-full" />
+          <p id="bio-hint" className="copy m-0 text-sm text-muted-foreground">Up to 280 characters. Line breaks are welcome.</p>
           <Label htmlFor="linkedin">LinkedIn (optional)</Label>
           <Input
             id="linkedin"
@@ -282,7 +353,7 @@ export default async function HackerProfilePage(props: {
             <input type="checkbox" name="public" defaultChecked={m.profilePublic} style={{ width: 22, height: 22 }} />
             Show my name and these links to anyone who taps my badge
           </Label>
-          {(networkingError || (notices.step === 'links' && error)) && (
+          {error && (!walkthrough || networkingError || notices.step === 'links') && (
             <Alert className="text-bad" asChild><p role="alert" >
               {error}
             </p></Alert>
@@ -295,7 +366,7 @@ export default async function HackerProfilePage(props: {
           <Button type="submit">Save links</Button>
         </form>
       </section></Card>
-      </SetupPanel>
+      </SetupPanel>}
       </SetupWalkthrough>
     </main></Entrance>
   );

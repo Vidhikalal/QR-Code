@@ -13,7 +13,6 @@ import { env } from '@/lib/env';
 import { myPasses } from '@/lib/pass/mine';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
 import { loadMe, menuMetadata } from './load';
-import { ScheduleContent } from './schedule/content';
 
 export const metadata: Metadata = menuMetadata('Menu');
 
@@ -38,9 +37,9 @@ export default async function MePage() {
 
           [:where(&)_>_*]:mb-0 tw-me-dashboard w-full max-w-[760px] [&_.tw-me-hero]:relative
 
-          [&_.tw-me-hero]:gap-[6px] [&_.tw-me-hero]:[justify-items:center] [&_.tw-me-hero]:[align-content:center]
+          [&_.tw-me-hero]:gap-[6px] [&_.tw-me-hero]:[justify-items:start] [&_.tw-me-hero]:[align-content:center]
 
-          [&_.tw-me-hero]:text-center [&_.tw-me-hero]:p-[28px_24px] [&_.tw-me-hero]:[border-width:1px]
+          [&_.tw-me-hero]:text-left [&_.tw-me-hero]:p-[28px_24px] [&_.tw-me-hero]:[border-width:1px]
 
           [&_.tw-me-hero]:[border-style:solid] [&_.tw-me-hero]:[border-top-color:var(--line)]
 
@@ -56,7 +55,7 @@ export default async function MePage() {
 
           [&_.tw-me-hero_h1]:tracking-[-0.045em] [&_.tw-me-hero_p]:text-[14px] [&_.tw-me-hero_p]:leading-[1.6]
 
-          [&_.tw-me-nav]:gap-[14px] [&_.tw-me-pass]:relative [&_.tw-me-pass]:min-h-[104px]
+          [&_.tw-me-nav]:gap-[16px] [&_.tw-me-pass]:m-0 [&_.tw-me-pass]:relative [&_.tw-me-pass]:min-h-[104px]
 
           [&_.tw-me-pass]:p-[20px] [&_.tw-me-pass]:rounded-ticket
 
@@ -106,11 +105,11 @@ export default async function MePage() {
           <header className="tw-me-hero grid gap-[4px] [overflow-wrap:anywhere] [&_h1]:m-[0px_0px_4px] [&_h1]:text-[32px]
 
           [&_h1]:leading-[1.15] [&_p]:m-0 [&_p]:text-muted-foreground [&_p]:text-[14px]">
+            <p>Hi {m.firstName}.</p>
             <h1>{m.event.name}</h1>
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
             <p>{m.event.venue}</p>
           </header>
-          <p className="copy">Hi {m.firstName}.</p>
           <nav aria-label="Hacker menu" className="tw-me-nav grid gap-[16px]">
             {typeof pass === 'object' ? (
               // A plain link: the token is in the fragment (I-3), which client navigation must not touch.
@@ -198,7 +197,8 @@ export default async function MePage() {
                 warn={!m.profileDone}
               />
               <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
-              <Item href="#schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
+              <Item href="/me/hackers" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Hackers" hint="Meet hackers and find teammates" />
+              <Item href="/me/schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
               <Item
                 href="/me/emergency"
                 icon={<EmergencyIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />}
@@ -208,16 +208,12 @@ export default async function MePage() {
               />
             </ul></Entrance>
           </nav>
-          <section aria-labelledby="schedule" className="min-w-0 pt-4 md:relative md:left-1/2 md:w-[min(1368px,calc(100vw-32px))] md:-translate-x-1/2">
-            <h2 id="schedule" className="mb-4 scroll-mt-6">Schedule</h2>
-            <ScheduleContent schedule={m.event.schedule} now={now} timezone={m.event.timezone} eventStartsAt={m.event.startsAt} />
-          </section>
         </>
       ) : (
         <h1>My events</h1>
       )}
       {roles.length > 0 && (
-        <Entrance stagger><section aria-labelledby="staff-heading" className="tw-me-staff grid gap-[12px] [&_h2]:m-[8px_0px_0px] [&_h2]:text-[18px]">
+        <Entrance stagger><section aria-labelledby="staff-heading" className="tw-me-staff grid gap-[12px] [&_h2]:m-0 [&_h2]:text-[18px]">
           <h2 id="staff-heading">Staff</h2>
           {roles.map(({ role, events: e }) => (
             <Card key={e.slug} className="[&>p]:m-0 [&>h2]:text-lg ">

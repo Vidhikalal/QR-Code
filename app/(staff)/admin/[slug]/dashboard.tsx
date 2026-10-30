@@ -173,7 +173,7 @@ export function Dashboard({ slug }: { slug: string }) {
       </div>
 
       <h2>Door arrivals per 15 minutes</h2>
-      <ArrivalsChart buckets={data.arrivals} />
+      <ArrivalsChart buckets={data.arrivals} timezone={data.event.timezone} />
 
       {data.sessionRanking.length > 0 && (
         <>

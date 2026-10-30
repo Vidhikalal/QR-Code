@@ -20,6 +20,7 @@ interface StaffData {
 type Pending = { kind: 'remove'; userId: string; name: string } | { kind: 'cancel'; email: string } | null;
 
 // F9: invite by email + role. New addresses get an email to set a password; the invite is consumed on sign-in.
+// Existing accounts are added at once and emailed a link to sign in (v0.11.12).
 export function Staff({ slug }: { slug: string }) {
   const api = useApi();
   const [data, setData] = useState<StaffData | null>(null);
@@ -41,10 +42,10 @@ export function Staff({ slug }: { slug: string }) {
     if (r.ok) {
       setMessage(
         r.data.code === 'ADDED'
-          ? `✓ They already have an account and are now staff.`
+          ? `✓ Added. We emailed them a link to sign in.`
           : r.data.emailed
             ? `✓ Invited. We emailed them a link to set their password.`
-            : `✓ Invited. They can set a password with "Forgot or never set your password?" on the sign-in page.`,
+            : `! Invited, but the email didn’t go out. Ask them to use “Forgot or never set your password?” on the sign-in page.`,
       );
       setEmail('');
     } else setMessage(r.status === 400 ? '✕ Enter a valid email.' : `✕ ${errorText(r)}`);

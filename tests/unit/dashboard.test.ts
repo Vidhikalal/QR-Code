@@ -21,3 +21,14 @@ describe('dashboard rules (SPEC §11, §13)', () => {
     expect(bucketLabel('2026-11-01T05:15:00Z', 'America/Toronto')).toBe('1:15 AM EDT');
   });
 });
+
+it('T-ADM-06: arrival labels distinguish local dates and preserve DST offsets in ranges', async () => {
+  const { arrivalLabels } = await import('@/lib/domain/dashboard');
+  const labels = arrivalLabels(['2026-11-08T02:15:00Z', '2026-11-09T00:30:00Z'], 'America/Toronto');
+  expect(labels.map(l => l.axis)).toEqual(['Sat 9:15 PM', 'Sun 7:30 PM']);
+  expect(labels[1]?.detail).toContain('Sun 7:30');
+  expect(labels[1]?.detail).toContain('7:45 PM EST');
+  const dst = arrivalLabels(['2026-11-01T05:45:00Z'], 'America/Toronto');
+  expect(dst[0]?.detail).toContain('1:45 AM EDT');
+  expect(dst[0]?.detail).toContain('1:00 AM EST');
+});

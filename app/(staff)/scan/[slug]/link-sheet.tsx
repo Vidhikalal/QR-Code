@@ -28,7 +28,7 @@ export function LinkSheet(props: {
   return (
     <NativeDialog
       ref={ref}
-      className="tw-scanner-dialog p-[28px] w-[min(92vw,_460px)] [box-shadow:rgba(0,_0,_0,_0.45)_0px_28px_90px] [&_h2]:m-[0px_0px_12px] [&_h2]:text-[24px] [&_h2]:tracking-[-0.035em] [&_p]:text-muted-foreground [&_p]:leading-[1.6]"
+      className="tw-scanner-dialog w-[min(92vw,460px)] p-6 font-mono [&_h2]:mb-3 [&_h2]:text-2xl [&_h2]:tracking-tight [&_p]:text-muted-foreground [&_p]:leading-relaxed"
       aria-labelledby="link-title"
       onCancel={(e) => {
         e.preventDefault();

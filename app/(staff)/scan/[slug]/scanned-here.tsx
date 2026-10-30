@@ -1,5 +1,6 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Card } from '@/components/ui/card';
 import { Entrance } from '@/components/motion';
 import { Button } from '@/components/ui/button';
@@ -85,7 +86,7 @@ export function ScannedHere(props: {
   const time = new Intl.DateTimeFormat(undefined, { timeZone: props.timezone, weekday: 'short', hour: 'numeric', minute: '2-digit' });
   const count = state.kind === 'rows' ? ` · ${state.rows.length} ${state.rows.length === 1 ? 'person' : 'people'}` : '';
   return (
-    <Entrance><Card className="tw-scanner-sheet gap-0 rounded-none border-0 bg-background p-0 shadow-none fixed [inset:0px] z-[15] [background:var(--bg)] text-fg flex flex-col" asChild><section  aria-labelledby="scanned-title">
+    <Entrance><Card className="tw-scanner-sheet fixed inset-0 z-[15] flex flex-col gap-0 rounded-none border-0 bg-bg p-0 font-mono text-fg shadow-none sm:inset-6 sm:mx-auto sm:max-w-[760px] sm:rounded-card sm:border sm:border-solid sm:border-line" asChild><section  aria-labelledby="scanned-title">
       <div className="flex gap-[12px] items-center p-[20px_24px] [border-bottom-width:1px] [border-bottom-style:solid]
 
           [border-bottom-color:var(--line)] [background:var(--card)] [&_h2]:flex-1 [&_h2]:m-0 [&_h2]:text-[22px]
@@ -99,10 +100,10 @@ export function ScannedHere(props: {
           Close
         </Button>
       </div>
-      <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">
+      <SectionLabel className="mx-6 mt-5 mb-4">
         {checkpoint.name}
         {count}
-      </p>
+      </SectionLabel>
       {notice && (
         <Alert className="p-[0px_24px_16px] text-muted-foreground text-[14px]" asChild role="status"><p  role="status">
           {notice}
@@ -112,13 +113,11 @@ export function ScannedHere(props: {
       {state.kind === 'error' && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">✕ Couldn’t load the list. Try again.</p>}
       {state.kind === 'rows' && state.rows.length === 0 && <p className="p-[0px_24px_16px] text-muted-foreground text-[14px]">No one yet.</p>}
       {state.kind === 'rows' && state.rows.length > 0 && (
-        <ul className="list-none m-0 p-[0px_24px_28px] overflow-y-auto">
+        <ul className="list-none m-0 grid content-start gap-3 p-4 pt-0 sm:px-6 sm:pb-6 overflow-y-auto">
           {state.rows.map((r) => (
-            <li key={r.id} className="flex gap-[14px] items-center p-[16px_0px] [border-bottom-width:1px] [border-bottom-style:solid]
-
-          [border-bottom-color:var(--line)]">
-              <div className="flex-1 min-w-0">
-                <div className="[font-weight:750] text-[16px] mb-[5px]">
+            <li key={r.id} className="flex flex-wrap gap-4 items-center rounded-card border border-solid border-line bg-card p-4">
+              <div className="flex-1 min-w-[140px] [overflow-wrap:anywhere]">
+                <div className="font-bold text-base mb-1 break-words">
                   {r.displayName}
                   {r.isTest && ' (test)'}
                 </div>

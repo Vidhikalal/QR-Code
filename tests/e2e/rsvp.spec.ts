@@ -93,6 +93,7 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await expect(p.getByRole('heading', { name: 'You’re in, Rae' })).toBeVisible();
   await p.getByRole('link', { name: 'Set up my hacker profile' }).click();
   await p.waitForURL('**/me/profile?setup=1');
+  await expect(p.getByRole('navigation', { name: 'Profile sections' })).toHaveCount(0); // RSVP keeps the guided walkthrough.
   await expect(p.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
   await expect(p.getByText('Step 1 of 4: Emergency contact')).toBeVisible();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
@@ -108,7 +109,7 @@ test('T-RSVP-05: tick → Send RSVP → Yes with an emergency contact and a pass
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   expect(await p.getByLabel('Not sure yet').evaluate((el) => (el as HTMLInputElement).validity.valueMissing)).toBe(true);
   await p.getByLabel('Not sure yet').check();
-  await p.getByLabel('I’m looking for a team (lists my name in the teammate directory)').check();
+  await p.getByLabel('I’m looking for a team (lists my name in the Hacker directory)').check();
   await p.getByRole('button', { name: 'Next', exact: true }).click();
   await p.getByLabel('Allergies (optional)').fill('Peanuts');
   // An allergy without its severity is caught in the browser: nothing is sent, so nothing typed is lost.

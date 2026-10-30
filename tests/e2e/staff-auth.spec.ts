@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
+import { consoleMailText, E2E_ORIGIN, signIn } from '../fixtures/e2e';
 import { countMailTo, latestAuthLink } from '../fixtures/mailpit';
-import { createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
+import { createAccount, createStandardFixture, STAFF_PASSWORD, type StandardFixture } from '../fixtures/standard';
 
 // SPEC F9 (v0.4): email + password sign-in; invite and reset links lead to "Set your password".
 let f: StandardFixture;
@@ -112,12 +112,14 @@ test('T-AUTH-03: inviting a new address emails a link to set a password, then on
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('✓ Invited. We emailed them a link to set their password.');
 
-  // Inviting someone who already has an account adds them straight away, with no email.
+  // Inviting someone who already has an account adds them straight away. The auth server sends nothing,
+  // so the app emails them a link to sign in (v0.11.12).
   await page.getByLabel('Email').fill(f.staffEmail.vol3);
   await page.getByLabel('Role').selectOption('volunteer');
   const existingStarted = Date.now();
   await page.getByRole('button', { name: 'Invite', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('✓ They already have an account and are now staff.');
+  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  expect(await consoleMailText(f.staffEmail.vol3, 'Sign in: ')).toContain(`Sign in: ${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
   expect(await countMailTo(f.staffEmail.vol3, existingStarted)).toBe(0);
 
   const invitee = await browser.newContext({ baseURL: E2E_ORIGIN });
@@ -178,4 +180,48 @@ test('T-SCUI-10 (redirect half): a signed-out visit to /scan/<slug> goes to /log
   await page.goto(`/scan/${f.slug}`);
   await expect(page).toHaveURL(`/login?next=${encodeURIComponent(`/scan/${f.slug}`)}`);
   await expect(page.getByRole('heading', { name: 'Staff sign-in' })).toBeVisible();
+});
+
+test('T-AUTH-03 (E): when the auth server can’t send the invite, the Staff page says so', async ({ page }) => {
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/staff`);
+  await page.route(`**/api/admin/${f.slug}/staff/invites`, (r) =>
+    r.request().method() === 'POST' ? r.fulfill({ json: { code: 'INVITED', emailed: false } }) : r.continue(),
+  );
+  await page.getByLabel('Email').fill(`unsent-${f.slug}@example.test`);
+  await page.getByRole('button', { name: 'Invite', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText(
+    '! Invited, but the email didn’t go out. Ask them to use “Forgot or never set your password?” on the sign-in page.',
+  );
+});
+
+test('T-AUTH-03 (E): a hacker with an account added as staff signs in from the email, names themselves, and gets both menus', async ({ browser, page }) => {
+  const { rows } = await f.pool.query<{ email: string }>('select email from participants where id = $1', [f.p.A]);
+  const a = rows[0]?.email ?? '';
+  await createAccount(a); // their RSVP Yes made it (F13)
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/staff`);
+  await page.getByLabel('Email').fill(a);
+  await page.getByLabel('Role').selectOption('volunteer');
+  await page.getByRole('button', { name: 'Invite', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('✓ Added. We emailed them a link to sign in.');
+  const url = /Sign in: (\S+)/.exec(await consoleMailText(a, 'Sign in: '))?.[1] ?? '';
+  expect(url).toBe(`${E2E_ORIGIN}/login?next=/scan/${f.slug}`);
+
+  const hacker = await browser.newContext({ baseURL: E2E_ORIGIN });
+  const h = await hacker.newPage();
+  await h.goto(url);
+  await h.getByLabel('Email').fill(a);
+  await h.getByLabel('Password').fill(STAFF_PASSWORD);
+  await h.getByRole('button', { name: 'Sign in' }).click();
+  // Staff get the display-name step first (F9), then the scanner they were sent to.
+  await expect(h).toHaveURL(/\/onboarding/);
+  await h.getByLabel('Display name').fill('Ada');
+  await h.getByRole('button', { name: 'Continue' }).click();
+  await expect(h).toHaveURL(new RegExp(`/scan/${f.slug}$`));
+  await expect(h.getByRole('heading', { name: 'Choose your checkpoint' })).toBeVisible();
+  // /me keeps their hacker menu and adds the staff links.
+  await h.goto('/me');
+  await expect(h.getByRole('navigation', { name: 'Hacker menu' })).toBeVisible();
+  await expect(h.getByRole('link', { name: `Scanner: ${f.e1.name}` })).toBeVisible();
+  await expect(h.getByRole('link', { name: `Admin: ${f.e1.name}` })).toHaveCount(0);
+  await hacker.close();
 });

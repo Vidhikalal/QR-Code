@@ -517,13 +517,16 @@ export function createAdminApi(deps: AdminDeps) {
       if (!body.success) return badRequest();
       const { data, error } = await db.rpc('invite_staff', { p_event_id: g.eventId, p_email: body.data.email, p_role: body.data.role, p_actor: g.userId });
       if (error) throw new Error(`invite_staff failed (${error.code})`);
+      // v0.11.12: an existing account was added and invite_staff queued their "Sign in" email (staff_added).
+      if (data === 'ADDED') deps.scheduleDrain(deps.drain);
       if (data !== 'INVITED') return json({ code: data });
       // F9 (v0.4): no account yet, so the auth server emails a link to set a password, then onboarding.
       const home = body.data.role === 'organizer' ? `/admin/${params.slug}` : `/scan/${params.slug}`;
       const sent = await db.auth.admin.inviteUserByEmail(body.data.email, {
         redirectTo: `${deps.appOrigin}/auth/confirm?type=invite&next=${encodeURIComponent(home)}`,
       });
-      // Already invited earlier (the account exists but has no password yet): "Forgot password" covers it.
+      // Rate limit or SMTP trouble at the auth server: the page says so, and "Forgot password" covers it. No address (I-11).
+      if (sent.error) console.error(JSON.stringify({ level: 'warn', msg: 'staff_invite_email_failed', code: sent.error.code ?? null, status: sent.error.status ?? null }));
       return json({ code: data, emailed: !sent.error });
     },
 

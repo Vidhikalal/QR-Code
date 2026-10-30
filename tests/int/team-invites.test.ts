@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { generateToken, sha256hex } from '@/lib/domain/token';
 import { drainUntilIdle } from '@/lib/email/drain';
+import { hackerDirectory } from '@/lib/me/hackers';
 import { myEvent } from '@/lib/me/profile';
 import { createTeam, declineInvite, inviteTeammate, joinTeam, myTeam, setLooking } from '@/lib/me/team';
 import { createRsvpHandler } from '@/lib/rsvp/handlers';
@@ -17,7 +18,7 @@ const invites = async (id: string) => (await f.pool.query('select team_id from t
 const pageFor = async (id: string) => {
   const me = await myEvent(db, (await as(id)).email, new Date());
   if (!me) throw new Error('fixture attendee missing');
-  return myTeam(db, me);
+  return { ...await myTeam(db, me), directory: await hackerDirectory(db, me, (await as(id)).email, { looking: true, search: '', pace: '' }) };
 };
 const mail = mockProvider();
 const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://passline.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
@@ -92,7 +93,7 @@ it('T-TEAM-05: decline is own-invite only; one in-flight email, newest invite, f
   // Two members already; fill the remaining places through the organizer route.
   await f.pool.query('update participants set team_id = $1 where id = any($2)', [teamId, [f.p.Rv, f.p.Wd]]);
   expect(await inviteTeammate(db, a, f.p.A, f.p.T)).toBe('TEAM_FULL');
-  expect((await pageFor(f.p.A)).directory).toEqual([]);
+  expect((await pageFor(f.p.A)).directory).toContainEqual({ id: f.p.T, name: 'Tess Fixture' }); // directory stays readable; inviting a fifth member is refused above
   await f.pool.query('insert into team_invites (team_id, participant_id, event_id) values ($1, $2, $3)', [teamId, f.p.T, f.e1.id]);
   expect(await joinTeam(db, t, f.p.T, { teamId })).toBe('TEAM_FULL');
   expect(await invites(f.p.T)).toHaveLength(2);
@@ -123,4 +124,58 @@ it('T-TEAM-05: RSVP Yes stores the optional directory flag in the answer transac
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ code: 'GOING' });
   expect((await f.pool.query('select status, looking_for_team from participants where id = $1', [f.p.C])).rows).toEqual([{ status: 'accepted', looking_for_team: true }]);
+});
+
+
+it('T-TEAM-05: directory excludes your own row with or without a team; SQL refuses self-invites', async () => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const viewer = await f.addParticipant(f.e1.id, { status: 'accepted' });
+  const other = await f.addParticipant(f.e1.id, { status: 'accepted' });
+  const user = await as(viewer.id);
+  await f.pool.query('update participants set looking_for_team = true where id = any($1)', [[viewer.id, other.id]]);
+  const directory = (await pageFor(viewer.id)).directory;
+  expect(directory.map((p) => p.id)).toContain(other.id);
+  expect(directory.map((p) => p.id)).not.toContain(viewer.id);
+  const selfInvite = () => db.rpc('team_invite', {
+    p_participant_id: viewer.id, p_email: user.email, p_user_id: user.id, p_invitee_id: viewer.id,
+  });
+  expect.soft(await selfInvite()).toMatchObject({ data: 'SELF', error: null });
+  expect(await createTeam(db, user, viewer.id, 'Self exclusion')).toBe('CREATED');
+  expect((await pageFor(viewer.id)).directory.map((p) => p.id)).not.toContain(viewer.id);
+  expect.soft(await selfInvite()).toMatchObject({ data: 'SELF', error: null });
+  expect(await inviteTeammate(db, user, viewer.id, viewer.id)).toBe('SELF');
+  expect(await invites(viewer.id)).toEqual([]);
+  expect((await f.pool.query("select id from email_outbox where participant_id = $1 and kind = 'team_invite'", [viewer.id])).rows).toEqual([]);
+  expect((await f.pool.query("select id from audit_log where subject_id = $1 and action = 'team.invite'", [await teamOf(viewer.id)])).rows).toEqual([]);
+});
+
+it('T-TEAM-05: a teamed hacker stays out of looking after RSVP Yes and same-team updates', async () => {
+  const viewer = await f.addParticipant(f.e1.id, { status: 'accepted' });
+  const user = await as(viewer.id);
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  expect(await createTeam(db, user, viewer.id, 'RSVP team')).toBe('CREATED');
+  const token = generateToken();
+  await f.pool.query('update participants set rsvp_token_hash = $2 where id = $1', [viewer.id, sha256hex(token)]);
+  expect(await db.rpc('rsvp_respond', { p_token_hash: sha256hex(token), p_going: true, p_looking_for_team: true })).toMatchObject({ data: 'GOING', error: null });
+  expect.soft((await f.pool.query('select looking_for_team from participants where id = $1', [viewer.id])).rows).toEqual([{ looking_for_team: false }]);
+  await f.pool.query('update participants set team_id = team_id, looking_for_team = true where id = $1', [viewer.id]);
+  expect((await f.pool.query('select looking_for_team from participants where id = $1', [viewer.id])).rows).toEqual([{ looking_for_team: false }]);
+});
+
+it('T-TEAM-05: same-name rows under different emails remain distinct; self-invites authenticate first', async () => {
+  await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
+  const viewer = await f.addParticipant(f.e1.id, { status: 'accepted' });
+  const other = await f.addParticipant(f.e1.id, { status: 'accepted' });
+  const user = await as(viewer.id), otherUser = await as(other.id);
+  expect(user.email).not.toBe(otherUser.email);
+  await f.pool.query("update participants set first_name = 'Same', last_name = 'Name', looking_for_team = true where id = any($1)", [[viewer.id, other.id]]);
+  const directory = (await pageFor(viewer.id)).directory;
+  expect(directory).toContainEqual({ id: other.id, name: 'Same Name' });
+  expect(directory.map((p) => p.id)).not.toContain(viewer.id);
+  expect(await inviteTeammate(db, user, viewer.id, viewer.id)).toBe('SELF');
+  expect(await inviteTeammate(db, otherUser, viewer.id, viewer.id)).toBe('NOT_FOUND');
+  expect(await createTeam(db, user, viewer.id, 'Same name team')).toBe('CREATED');
+  expect((await pageFor(viewer.id)).directory).toContainEqual({ id: other.id, name: 'Same Name' });
+  expect(await inviteTeammate(db, user, viewer.id, other.id)).toBe('INVITED');
+  expect(await invites(viewer.id)).toEqual([]);
 });

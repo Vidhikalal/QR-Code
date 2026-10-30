@@ -19,6 +19,9 @@ export interface MyEvent {
   linkedinUrl: string | null;
   discordUsername: string | null;
   websiteUrl: string | null;
+  directoryOptIn: boolean;
+  bio: string | null;
+  pace: string | null;
   profilePublic: boolean;
   dietaryNotes: string | null;
   emergency: { name: string; phone: string; relation: string | null } | null;
@@ -52,7 +55,7 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
   const { data, error } = await db
     .from('participants')
     .select(
-      'id, first_name, last_name, linkedin_url, discord_username, website_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, overnight, allergies, allergy_severity, team_status, accessibility, events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
+      'id, first_name, last_name, directory_opt_in, bio, pace, linkedin_url, discord_username, website_url, profile_public, dietary_notes, emergency_name, emergency_phone, emergency_relation, team_id, looking_for_team, overnight, allergies, allergy_severity, team_status, accessibility, events!inner(id, slug, name, venue, starts_at, ends_at, timezone, schedule, emergency_info, teams_open, tracks_released), badges(uid)',
     )
     .eq('email', normalizeEmail(email))
     .eq('status', 'accepted')
@@ -74,6 +77,9 @@ export async function myEvent(db: SupabaseClient<Database>, email: string, now: 
     linkedinUrl: p.linkedin_url,
     discordUsername: p.discord_username,
     websiteUrl: p.website_url,
+    directoryOptIn: p.directory_opt_in,
+    bio: p.bio,
+    pace: p.pace,
     profilePublic: p.profile_public,
     dietaryNotes: p.dietary_notes,
     emergency: p.emergency_name && p.emergency_phone ? { name: p.emergency_name, phone: p.emergency_phone, relation: p.emergency_relation } : null,
@@ -113,6 +119,8 @@ export function profileArgs(v: ProfileFields) {
 
 export type SaveProfileResult =
   | 'SAVED'
+  | 'INVALID_BIO'
+  | 'INVALID_PACE'
   | 'INVALID_LINKEDIN'
   | 'INVALID_DISCORD'
   | 'INVALID_WEBSITE'
@@ -125,6 +133,8 @@ export type SaveProfileResult =
   | 'NOT_FOUND';
 
 const FIELD_RESULT: Record<ProfileField, SaveProfileResult> = {
+  bio: 'INVALID_BIO',
+  pace: 'INVALID_PACE',
   linkedin: 'INVALID_LINKEDIN',
   discord: 'INVALID_DISCORD',
   website: 'INVALID_WEBSITE',
@@ -165,6 +175,9 @@ export async function saveBadgeProfile(
     p_accessibility: v.accessibility,
     p_discord: v.discordUsername, // not in profileArgs: rsvp_respond doesn't take them
     p_website: v.websiteUrl,
+    p_directory_opt_in: v.directoryOptIn,
+    p_bio: v.bio,
+    p_pace: v.pace,
   });
   if (error) throw new Error(`save_hacker_profile failed (${error.code})`);
   return data ? 'SAVED' : 'NOT_FOUND';
