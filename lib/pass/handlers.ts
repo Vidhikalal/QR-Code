@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Database } from '@/lib/db/types.gen';
 import { passState, type PassLookup } from '@/lib/domain/pass-state';
 import { sha256hex } from '@/lib/domain/token';
+import { clientIp } from '@/lib/http/client-ip';
 
 type Db = SupabaseClient<Database>;
 
@@ -36,16 +37,9 @@ export async function withinLimit(db: Db, key: string, windowSeconds: number, li
   return data;
 }
 
-// The IP is only used hashed, so no raw address is stored (I-11). On Vercel, x-vercel-forwarded-for is the
-// client address Vercel saw, which no client can set and no proxy in front can replace (T-SEC-09). Without it
-// (local dev, tests) the first X-Forwarded-For entry is used: a self-hosted deployment must put a proxy in
-// front that overwrites X-Forwarded-For, or a client can pick its own bucket.
+// The IP is only used hashed, so no raw address is stored (I-11). Which header to trust: clientIp().
 export function ipKey(headers: Headers, scope = 'pass'): string {
-  const ip =
-    headers.get('x-vercel-forwarded-for')?.split(',')[0]?.trim() ||
-    headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    headers.get('x-real-ip') ||
-    'unknown';
+  const ip = clientIp(headers);
   return `${scope}:ip:${sha256hex(ip).slice(0, 32)}`;
 }
 
