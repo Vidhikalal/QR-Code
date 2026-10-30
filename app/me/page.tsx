@@ -8,7 +8,9 @@ import type { ReactNode } from 'react';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
+import { myConnections } from '@/lib/me/connections';
 import { myPasses } from '@/lib/pass/mine';
+import { ConnectionList } from './connections/list';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
 import { loadMe, menuMetadata } from './load';
 
@@ -27,6 +29,7 @@ export default async function MePage() {
     .order('starts_at', { referencedTable: 'events', ascending: false });
   if (error) throw new Error(`event_staff lookup failed (${error.code})`);
 
+  const connections = m ? await myConnections(db(), m.participantId, 5) : null; // F16: own row only (myEvent)
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
   const teamHint = !m ? '' : m.teamId ? 'You’re in a team' : !live ? '' : m.event.teamsOpen ? 'Create or join a team' : 'Opens on hackathon day';
 
@@ -201,6 +204,26 @@ export default async function MePage() {
               />
             </ul></Entrance>
           </nav>
+          {connections && (
+            <Card className="[&>p]:m-0 [&>h2]:text-lg" asChild>
+              <section aria-labelledby="connections-heading">
+                <h2 id="connections-heading">Connections</h2>
+                <p className="text-[28px] font-semibold leading-[1.2]">
+                  {connections.total} {connections.total === 1 ? 'connection' : 'connections'}
+                </p>
+                <p className="text-muted-foreground text-[14px]">
+                  Tap someone’s badge and press Connect. It counts once they tap yours too.
+                  {connections.waitingOn > 0 && ` Waiting on ${connections.waitingOn} ${connections.waitingOn === 1 ? 'person' : 'people'} to tap you back.`}
+                </p>
+                {connections.recent.length > 0 && <ConnectionList people={connections.recent} />}
+                {connections.total > 0 && (
+                  <Link className="inline-flex items-center min-h-[44px] text-accent font-semibold" href="/me/connections">
+                    See all connections
+                  </Link>
+                )}
+              </section>
+            </Card>
+          )}
         </>
       ) : (
         <h1>My events</h1>

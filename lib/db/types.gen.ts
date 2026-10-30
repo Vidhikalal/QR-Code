@@ -89,6 +89,38 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"connection_taps": {
+                  Row: {
+                    "created_at": string,"event_id": string,"from_participant_id": string,"to_participant_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"event_id": string,"from_participant_id": string,"to_participant_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"event_id"?: string,"from_participant_id"?: string,"to_participant_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "connection_taps_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "connection_taps_from_participant_id_event_id_fkey"
+      columns: ["from_participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
+    },{
+      foreignKeyName: "connection_taps_to_participant_id_event_id_fkey"
+      columns: ["to_participant_id","event_id"]
+isOneToOne: false
+      referencedRelation: "participants"
+      referencedColumns: ["id","event_id"]
+    }
+                  ]
                 },"email_outbox": {
                   Row: {
                     "attempts": number,"created_at": string,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string,"provider_message_id": string | null,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"]
@@ -468,6 +500,9 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"connection_state":
+{ Args: { "p_email": string,"p_uid": string }; Returns: string
+                           },
 "consume_staff_invites":
 { Args: { "p_email": string,"p_user_id": string }; Returns: number
                            },
@@ -501,6 +536,9 @@ isOneToOne: false
 "link_badge":
 { Args: { "p_actor": string,"p_event_id": string,"p_move": boolean,"p_participant_id": string,"p_uid": string }; Returns: string
                            },
+"my_connections":
+{ Args: { "p_limit": number,"p_participant_id": string }; Returns: Json
+                           },
 "pass_lookup":
 { Args: { "p_token_hash": string }; Returns: Json
                            },
@@ -519,11 +557,17 @@ isOneToOne: false
 "record_badge_scan":
 { Args: { "p_badge_uid": string,"p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_staff_user_id": string }; Returns: Json
                            },
+"record_connection":
+{ Args: { "p_email": string,"p_uid": string }; Returns: Json
+                           },
 "record_scan":
 { Args: { "p_checkpoint_id": string,"p_client_scan_id": string,"p_client_scanned_at": string,"p_method": Database["public"]['Enums']["scan_method"],"p_participant_id": string,"p_staff_user_id": string,"p_token_hash": string }; Returns: Json
                            },
 "remove_staff":
 { Args: { "p_actor": string,"p_event_id": string,"p_user_id": string }; Returns: string
+                           },
+"retain_connections":
+{ Args: never; Returns: number
                            },
 "revoke_pass":
 { Args: { "p_actor": string,"p_event_id": string,"p_participant_id": string }; Returns: string

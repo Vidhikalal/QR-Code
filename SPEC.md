@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.11.3 · **Owner:** Ade · **Last updated:** 2026-10-29
+> **Status:** Draft v0.12 · **Owner:** Ade · **Last updated:** 2026-10-29
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -425,6 +425,20 @@ alter table participants
 ```
 A profile is **finished** once the emergency contact, `overnight` and `team_status` are set (computed, not stored). Allergies and accessibility needs are personal data like the emergency contact (§5.4): organizers only (allergies also on accepted meal scans, F7), never in logs or `audit_log.detail`, deleted by the tombstone and by retention. The participants CSV carries overnight, team status and allergies (for catering and rooms), never accessibility or the emergency contact.
 
+### 5.7 Connections (v0.12)
+
+```sql
+create table connection_taps (                       -- "I pressed Connect on your badge"
+  event_id uuid not null references events on delete cascade,
+  from_participant_id uuid not null, to_participant_id uuid not null,
+  created_at timestamptz not null default clock_timestamp(),
+  primary key (from_participant_id, to_participant_id),
+  check (from_participant_id <> to_participant_id),
+  foreign key (from_participant_id, event_id) references participants (id, event_id) on delete cascade,
+  foreign key (to_participant_id, event_id) references participants (id, event_id) on delete cascade);
+```
+A pair is **mutual** when both directions exist; it connected at the later of the two taps. Deny-all RLS, indexes on `to_participant_id` and `event_id`. A trigger deletes a person's taps when the tombstone sets `deleted_at` (§5.1); the retention run deletes an event's taps 30 days after it ends (§15). Points are derived from these rows, never stored.
+
 ---
 
 ## 6. Tokens, passes & QR codes
@@ -657,6 +671,14 @@ An organizer adds a walk-in with name and email (source `walk_in`, status `accep
 7. **Teammate directory** (S11b): an accepted hacker without a team can switch on **Looking for a team** on their Team page, or choose "looking for a team" in profile setup (v0.9; on RSVP Yes until then). **DECISION: opt-in, names only.** It lists other accepted, undeleted hackers in the same event who have no team and are looking, sorted by name. While forming is open, a team with fewer than 4 members sees an **Invite** button per person. Hackers without a team see the directory read-only: "Create a team to invite them."
 8. **Invites** (S11b): **Invite** stores a pending invite and queues a `team_invite` email (§12). The invitee sees the team name and inviter's first name on their Team page, with **Accept** and **Decline**. Consent is required: only Accept joins, with the same rules as a code. Decline deletes the invite. Joining by any route clears all their invites and turns looking off. The outbox allows one in-flight email per person: a second invite is stored and shown on the Team page but not emailed while another email is pending. The drainer emails about the newest pending invite, or cancels if none remain; an invite never issues a pass.
 9. Team mutations use `team_create`, `team_join`, `team_leave`, `team_set_track` and `team_invite`: own accepted, undeleted row only (matched by verified email), event not ended, forming open (except the track). Directory preference and decline also check the caller's own accepted, undeleted row by email. Audit `team.*` with ids only: no team names or codes (I-11).
+
+### F16 — Connection game (v0.12)
+
+1. **Connect.** Tapping someone's badge opens `/profile/<uid>` (§6.5). A signed-in viewer sees, under the profile: **Connect with {first name}**; "{name} tapped your badge. Connect back to make it count." with **Connect back with {name}**; "Sent! It counts once {name} taps your badge too."; "✓ You're connected with {name}."; "Check in at the door first, then you can connect."; or "Connecting closed when the event ended." A signed-out visitor sees **Sign in to connect** (back to the badge after sign-in). Staff, other events' attendees, applicants who aren't accepted and the holder themselves see nothing.
+2. **DECISION (user decision 2026-10-29): connecting needs a signed-in account and a live door check-in**, so badge links shared before the event can't be farmed; it counts only when **mutual**, so each person has to tap the other. It works until the event ends.
+3. **One decision path (I-20):** `record_connection(email, uid)` → `PENDING | MUTUAL | ALREADY_PENDING | ALREADY_MUTUAL | SELF | NOT_FOUND | NOT_ATTENDEE | NOT_CHECKED_IN | CLOSED` (+ the other person's first name). The badge resolves like `badge_profile()`; the tapper is the account's own accepted, undeleted row in that event (I-16: the badge only identifies). A transaction-scoped advisory lock on the pair makes two people tapping each other at the same moment get exactly one `MUTUAL` and one `PENDING`. `connection_state(email, uid)` (read-only, I-17) decides what the page offers. Connect is a server action (POST); 120 presses per account per hour (§15).
+4. **`/me`** shows a **Connections** card: how many mutual connections, how many people haven't tapped back yet, and the **last 5** (name linking to their badge page, plus their LinkedIn only while they share it). **`/me/connections`** lists all of them. `my_connections(participant, limit)` is called only with the participant the server resolved from the session. Who met whom is visible only to those two people; organizers never see it (counts only, 5b).
+5. Staff can't play: they aren't attendees (user decision 2026-10-29).
 
 ---
 
@@ -905,6 +927,7 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 | `GET /me/profile`, `/me/schedule`, `/me/emergency` | signed-in accepted attendee | Hacker menu pages (F14); profile and emergency saves are server actions calling `save_hacker_profile()` |
 | `PATCH /api/admin/:slug/event` | organizer | `{ sheet?, schedule?, emergencyInfo?, teamsOpen?, tracksReleased?, rsvpDeadline? }`, strict, at least one key; `rsvpDeadline` is a future ISO instant or null (v0.9, F13); `{ sheet }` answers `{ sheetId }` as before (F10, §11 Info, §11 Teams) |
 | `GET /api/admin/:slug/teams`, `POST …/teams` `{ name, trackId? }`, `PATCH`/`DELETE …/teams/:id`, `POST …/tracks` `{ text }`, `PATCH`/`DELETE …/tracks/:id`, `PATCH …/participants/:id` `{ teamId }` | organizer | Teams page (§11, v0.7): switches, tracks, teams with members, accepted people without a team; 409 `NAME_TAKEN` / `TEAM_FULL`, 404 for another event's team or track |
+| `GET /me/connections` | signed-in accepted attendee | All of their mutual connections (F16, v0.12); Connect itself is a server action on `/profile/<uid>` calling `record_connection()` |
 | `GET /me/team` | signed-in accepted attendee | Team page (F15); its actions are server actions calling the `team_*` functions |
 | `/login`, `/auth/confirm`, `/set-password` | — / emailed link / signed in | Password sign-in and set/reset (F9) |
 
@@ -1437,6 +1460,16 @@ Target: at least 95% of attempts under 3 s.
 | T-TEAM-06 | Invite template with HTML in team and inviter names | Escaped, exact `/me/team` link, plain text, no join code, HTML under 60 KB | U |
 | T-TEAM-07 | Organizer adds tracks; A opens Team before forming opens; organizer opens it; A creates a team; B joins with the code in lowercase; organizer releases tracks; A picks one; the admin page; N opts into the directory, A invites N, N reads the email and accepts | "Teams open on hackathon day", no forms; created, code shown, "Tracks are announced at the hackathon"; B sees the team and Ada; track saved; the team card shows Ada, Ben and the track; directory shows Nia, email links to `/me/team`, N accepts and both see the team | E |
 
+### 14.19 Connections — `T-CONN` (v0.12)
+| ID | Scenario | Expected | L |
+|----|----------|----------|---|
+| T-CONN-01 | A→B, again, B→A, again both ways; A's own badge; an unknown badge; a tapper not checked in; another event's attendee, staff, a waitlisted applicant; a withdrawn holder; after the event ends; `connection_state` at each step | `PENDING` (+ name), `ALREADY_PENDING`, `MUTUAL`, `ALREADY_MUTUAL` ×2; `SELF`; `NOT_FOUND`; `NOT_CHECKED_IN`; `NOT_ATTENDEE` ×3; `NOT_FOUND`; `CLOSED`; `SENT` / `RECEIVED` / `MUTUAL` / the same reasons; no row written by a refusal | I |
+| T-CONN-02 | Two people tap each other in parallel (two connections), 40 rounds (100 nightly) | every round exactly one `MUTUAL` and one `PENDING` | I |
+| T-CONN-03 | 121 connect presses by one account in an hour | 120 answered, then `RATE_LIMITED` with nothing written | I |
+| T-CONN-04 | `my_connections` with 6 mutual, 1 waiting on them, 1 that only they tapped; LinkedIn shared and not; limit 5; tombstone one | total 6, waiting 1, newest first, the shared LinkedIn only, no email; 5 rows; total 5 and their taps gone | I |
+| T-CONN-05 | Retention with an event that ended 31 days ago and a live one; run twice | the old event's taps deleted, the live one's kept; 0 the second time | I |
+| T-CONN-06 | Signed out on B's badge; A connects on B's badge; B opens A's badge and connects back; A's `/me` and `/me/connections` | Sign in to connect (with the way back), no button; "Sent!…"; "Ada tapped your badge…", then "✓ You're connected with Ada."; "1 connection", Ben linking to his badge and LinkedIn, then the full list | E |
+
 ---
 
 ## 15. Non-functional requirements
@@ -1457,6 +1490,7 @@ Target: at least 95% of attempts under 3 s.
   | Hacker profile saves per account (v0.11.2) | 30 / 10 min → `RATE_LIMITED`, nothing saved |
   | Team joins by code per account (v0.11.2) | 20 / 10 min → `RATE_LIMITED` (join codes can't be brute-forced) |
   | Team invites per account (v0.11.2) | 20 / h → `RATE_LIMITED` (each one can send an email) |
+  | Connect presses per account (F16, v0.12) | 120 / h → `RATE_LIMITED`, nothing written |
   | Badge-page views (`/profile/<uid>`, in `proxy.ts`, v0.11.2) | signed in: 120 / min per account; signed out: 300 / min per IP → 429 |
 
   Per-account limits are keyed by the session's verified email (hashed), never by a participant id from the request, so nobody can use up someone else's allowance; a whole venue can share one IP, which is why signed-in limits are per account. The client IP (`clientIp()`, T-SEC-09) is `x-vercel-forwarded-for` (set by Vercel; no client can spoof it), except when that address is in Cloudflare's published ranges: then Cloudflare is proxying to Vercel and `CF-Connecting-IP` holds the visitor (a `CF-Connecting-IP` on a request that didn't come from Cloudflare, e.g. straight to `*.vercel.app/api/…`, is ignored). Without the Vercel header (running on Cloudflare, local dev, tests): `CF-Connecting-IP`, else the first `X-Forwarded-For` entry, else `X-Real-IP`; a self-hosted deployment must sit behind a proxy that overwrites these. The Cloudflare ranges are listed in `lib/http/client-ip.ts`; update them if Cloudflare adds any. Counters whose window started more than a day ago are deleted by the daily retention run (`prune_rate_limits()`, T-PRIV-04). Floods are for the platform, not these counters: Cloudflare's DDoS protection and rate-limiting rules (or the Vercel Firewall).
@@ -1469,7 +1503,7 @@ Target: at least 95% of attempts under 3 s.
 - **Privacy:**
   - The Google Form MUST include a collection notice covering what is collected, why (event admission, food, attendance analytics), who sees it (club organizers and volunteers), and retention.
   - Follow the college's student-organization data policies.
-  - Retention: existing photos, dietary notes, emergency contacts (v0.6), allergies and accessibility needs (v0.9) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
+  - Retention: existing photos, dietary notes, emergency contacts (v0.6), allergies and accessibility needs (v0.9) and connections (v0.12, F16) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
   - Deletion requests are handled through the admin tombstone.
   - The badge profile (v0.9) is public and on by default; participants switch it off or on on their pass page or `/me/profile`, where they can also set their LinkedIn (v0.5). Anyone who taps their badge sees their name (always, v0.11.3) and, only while sharing is on, the links they set: LinkedIn, Discord username and website (v0.9.2). The Google Form's notice should say so.
 - **Logging:**
@@ -1582,6 +1616,7 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+- **v0.12 (2026-10-29)** — Connection game, part 1 (F16, §5.7): Connect on badge pages, counted once both people have tapped (mutual), for signed-in, checked-in attendees until the event ends (DECISION, user decision 2026-10-29); `record_connection()` with a pair lock, `connection_state()`, `my_connections()`; a Connections card on `/me` with the last 5 and `/me/connections`. Taps are deleted by the tombstone and 30 days after the event; 120 connects per account per hour. §5.7, F16, §9.3, §14.19, §15. New tests T-CONN-01..06 (T-CONN-02 also in the nightly loop). The leaderboard follows.
 - **v0.11.3 (2026-10-29)** — Tapping a badge always shows its holder's name (DECISION, user decision 2026-10-29); the sharing switch now covers only LinkedIn, Discord and website, and its labels say so (`/me/profile`, pass page). `badge_profile()` re-created (new migration). §2, §6.5, §15. New test T-NFC-30; T-NFC-12/14/22/26 updated for the name.
 - **v0.11.2 (2026-10-29)** — Rate limits (§15): per account on Hacker profile saves, team joins by code and team invites (`RATE_LIMITED`, keyed by the session's email); badge pages per account when signed in and per IP when not (429 in `proxy.ts`). The client IP prefers `x-vercel-forwarded-for`, and `CF-Connecting-IP` when the request came through Cloudflare. The daily retention run prunes counters older than a day (`prune_rate_limits()`, new migration). New tests T-SEC-09..11, T-PRIV-04.
 - **v0.11.1 (2026-10-29)** — Fix: on Hacker profile, saving one card (Save links or Save profile) cleared whatever was typed and not yet saved in the other. Both cards now save without a reload and keep unsaved input; a refused save keeps both (F14 step 3, §6.5). Allergies sit behind an **I have allergies** switch that makes the allergy and its severity required, and clears them when switched off (`parseProfileInput` gains `hasAllergies`). New tests T-ME-11, T-ME-12; T-RSVP-05 uses the switch.
