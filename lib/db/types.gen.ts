@@ -163,14 +163,14 @@ isOneToOne: false
                   ]
                 },"events": {
                   Row: {
-                    "created_at": string,"emergency_info": string,"ends_at": string,"id": string,"name": string,"rsvp_deadline": string | null,"schedule": string,"sheet_id": string | null,"slug": string,"starts_at": string,"teams_open": boolean,"timezone": string,"tracks_released": boolean,"venue": string
+                    "created_at": string,"emergency_info": string,"ends_at": string,"id": string,"leaderboard_frozen_at": string | null,"name": string,"rsvp_deadline": string | null,"schedule": string,"sheet_id": string | null,"slug": string,"starts_at": string,"teams_open": boolean,"timezone": string,"tracks_released": boolean,"venue": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"emergency_info"?: string,"ends_at": string,"id"?: string,"name": string,"rsvp_deadline"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug": string,"starts_at": string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue": string
+                    "created_at"?: string,"emergency_info"?: string,"ends_at": string,"id"?: string,"leaderboard_frozen_at"?: string | null,"name": string,"rsvp_deadline"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug": string,"starts_at": string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue": string
                   }
                   Update: {
-                    "created_at"?: string,"emergency_info"?: string,"ends_at"?: string,"id"?: string,"name"?: string,"rsvp_deadline"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug"?: string,"starts_at"?: string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue"?: string
+                    "created_at"?: string,"emergency_info"?: string,"ends_at"?: string,"id"?: string,"leaderboard_frozen_at"?: string | null,"name"?: string,"rsvp_deadline"?: string | null,"schedule"?: string,"sheet_id"?: string | null,"slug"?: string,"starts_at"?: string,"teams_open"?: boolean,"timezone"?: string,"tracks_released"?: boolean,"venue"?: string
                   }
                   Relationships: [
                     
@@ -500,6 +500,12 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"connection_leaderboard":
+{ Args: { "p_event_id": string,"p_limit": number }; Returns: Json
+                           },
+"connection_rank":
+{ Args: { "p_participant_id": string }; Returns: Json
+                           },
 "connection_state":
 { Args: { "p_email": string,"p_uid": string }; Returns: string
                            },

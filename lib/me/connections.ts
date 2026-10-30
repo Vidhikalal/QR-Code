@@ -54,3 +54,10 @@ export async function myConnections(db: Db, participantId: string, limit: number
   if (error) throw new Error(`my_connections failed (${error.code})`);
   return mineSchema.parse(data);
 }
+
+// F16 step 6: their own points and rank on the leaderboard (as of the freeze, if frozen). Session-resolved id only.
+export async function myRank(db: Db, participantId: string): Promise<{ points: number; rank: number | null }> {
+  const { data, error } = await db.rpc('connection_rank', { p_participant_id: participantId });
+  if (error) throw new Error(`connection_rank failed (${error.code})`);
+  return z.object({ points: z.number(), rank: z.number().nullable() }).strict().parse(data);
+}

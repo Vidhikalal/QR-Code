@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { db } from '@/lib/db/server';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { env } from '@/lib/env';
-import { myConnections } from '@/lib/me/connections';
+import { myConnections, myRank } from '@/lib/me/connections';
 import { myPasses } from '@/lib/pass/mine';
 import { ConnectionList } from './connections/list';
 import { ChevronIcon, EmergencyIcon, ProfileIcon, QrIcon, ScheduleIcon, TeamIcon } from './icons';
@@ -29,7 +29,8 @@ export default async function MePage() {
     .order('starts_at', { referencedTable: 'events', ascending: false });
   if (error) throw new Error(`event_staff lookup failed (${error.code})`);
 
-  const connections = m ? await myConnections(db(), m.participantId, 5) : null; // F16: own row only (myEvent)
+  // F16: own row only (myEvent). The rank is on the projector's board (as of the freeze, if frozen).
+  const [connections, rank] = m ? await Promise.all([myConnections(db(), m.participantId, 5), myRank(db(), m.participantId)]) : [null, null];
   const live = m ? Date.parse(m.event.endsAt) > now.getTime() : false;
   const teamHint = !m ? '' : m.teamId ? 'You’re in a team' : !live ? '' : m.event.teamsOpen ? 'Create or join a team' : 'Opens on hackathon day';
 
@@ -211,6 +212,7 @@ export default async function MePage() {
                 <p className="text-[28px] font-semibold leading-[1.2]">
                   {connections.total} {connections.total === 1 ? 'connection' : 'connections'}
                 </p>
+                {rank?.rank != null && <p className="font-semibold text-accent">You’re #{rank.rank} on the leaderboard.</p>}
                 <p className="text-muted-foreground text-[14px]">
                   Tap someone’s badge and press Connect. It counts once they tap yours too.
                   {connections.waitingOn > 0 && ` Waiting on ${connections.waitingOn} ${connections.waitingOn === 1 ? 'person' : 'people'} to tap you back.`}
