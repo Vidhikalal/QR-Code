@@ -30,14 +30,14 @@ export default async function AdminLayout({ children, params }: { children: Reac
           shadow-[inset_0_1px_0_0_rgba(184,220,255,0.10),0_10px_30px_-18px_rgba(3,5,18,0.9)] p-[6px_16px_0px]
           max-[600.001px]:[padding-inline:12px]">
         {/* One row: the mark on the left, the tabs beside it (they scroll sideways when they don't fit). */}
-        <div className="max-w-[1500px] w-full box-border [margin-inline:auto] flex items-center gap-[clamp(12px,_2vw,_28px)]
+        <div className="max-w-[1920px] w-full box-border [margin-inline:auto] flex items-center gap-[clamp(12px,_2vw,_28px)]
 
           [padding-inline:clamp(16px,_3vw,_44px)] max-[600.001px]:[padding-inline:2px]">
           <BrandMark name={event.name} size="large" className="shrink-0 max-w-[min(40%,240px)]" />
           <div className="min-w-0 flex-1"><AdminNav slug={slug} /></div>
         </div>
       </header>
-      <Entrance><main className="tw-admin-main w-full max-w-[1500px] [margin-inline:auto] p-[clamp(24px,_3vw,_44px)] box-border
+      <Entrance><main className="tw-admin-main w-full max-w-[1920px] [margin-inline:auto] p-[clamp(24px,_3vw,_44px)] box-border
 
           max-[600.001px]:p-[22px_14px_32px] [:where(&)_h1]:m-[0px_0px_28px]
 

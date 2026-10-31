@@ -9,7 +9,7 @@
     {
       "source": "/:path((?!api/).*)",
       "has": [{ "type": "host", "value": "passline-seven\\.vercel\\.app" }],
-      "destination": "https://nfc.yvesdonato.com/:path",
+      "destination": "https://station.sheridandatathon.com/:path",
       "permanent": true
     }
   ]

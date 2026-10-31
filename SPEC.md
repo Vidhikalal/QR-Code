@@ -1,6 +1,6 @@
 # Passline — Product & Technical Specification
 
-> **Status:** Draft v0.11.14 · **Owner:** Ade · **Last updated:** 2026-10-30
+> **Status:** Draft v0.11.15 · **Owner:** Ade · **Last updated:** 2026-10-30
 > "Passline" is a placeholder name. Rename freely; nothing depends on it.
 
 ## 0. How to read this document
@@ -492,7 +492,7 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 
 `parseScannedText(raw: string): { ok: true, token } | { ok: false, reason }`
 1. Trim whitespace.
-2. If `raw` matches `^${APP_ORIGIN}/p#([A-Za-z0-9_-]{32})$`, return the captured token.
+2. If `raw` matches `^${APP_ORIGIN}/p#([A-Za-z0-9_-]{32})$`, return the captured token. **v0.11.15:** the same goes for the legacy origin `https://nfc.yvesdonato.com`, which passes emailed before the domain moved still carry.
 3. Else if `raw` matches `^[A-Za-z0-9_-]{32}$`, return it (manual paste or printed fallback).
 4. Anything else returns `MALFORMED`. This includes other origins, `http:` in production, extra query or fragment parameters, Wi-Fi QR codes, vCards, and strings over 2 KB. `MALFORMED` MUST NOT trigger a network request, and parsing MUST NOT throw.
 
@@ -1144,7 +1144,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | ID | Scenario | Expected | L |
 |----|----------|----------|---|
 | T-TOK-01 | Generate 10,000 tokens | All unique, all 32 chars, all match `^[A-Za-z0-9_-]{32}$` | U |
-| T-TOK-02 | Parse `${APP_ORIGIN}/p#<token>` | `{ok:true, token}` | U |
+| T-TOK-02 | Parse `${APP_ORIGIN}/p#<token>`; v0.11.15: `https://nfc.yvesdonato.com/p#<token>`, and the same over `http:` | `{ok:true, token}`; ok; `MALFORMED` | U |
 | T-TOK-03 | Parse a bare 32-char token, and one with surrounding whitespace | ok | U |
 | T-TOK-04 | Parse another origin, `http:` in prod, `/p?t=`, `/pass#`, a 31/33-char token, `+` or `/` characters, an extra `&x=1` | `MALFORMED`, no throw | U |
 | T-TOK-05 | Parse `WIFI:S:x;;`, a vCard, an empty string, a 5 KB string, emoji | `MALFORMED`, no throw | U |
@@ -1608,6 +1608,8 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+
+- **v0.11.15 (2026-10-30)** — The app moves to `https://station.sheridandatathon.com` (owner’s request). `nfc.yvesdonato.com` stays on the Vercel project as a permanent (308) redirect, so links already emailed (RSVP, pass, sign-in) and badge tags already written keep working; browsers keep the `#token` fragment across the redirect. The scanner still accepts QR codes for the old origin (§6.4). New badge links and emails use the new origin through `NEXT_PUBLIC_APP_ORIGIN`. T-TOK-02 extended.
 
 - **v0.11.14 (2026-10-30)** — Split the full Hacker profile into Emergency contact, The event, Health and access, and Networking tabs, each saving only its own fields (owner’s request). Server-rendered links work without JavaScript; unfinished required sections are marked, and saves and validation errors return to their section. The RSVP guided walkthrough is unchanged. F14; T-ME-07/10, T-NFC-21/26 and T-DIR-05.
 
