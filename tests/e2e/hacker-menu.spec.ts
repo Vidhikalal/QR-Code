@@ -56,6 +56,9 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
 
   const menu = page.getByRole('navigation', { name: 'Hacker menu' });
   for (const item of ['Hacker profile', 'Schedule', 'Emergency contact']) await expect(menu.getByRole('link', { name: item })).toBeVisible();
+  // Menu order (v0.11.18): Hackers, Schedule, Team, Emergency contact, Hacker profile.
+  const order = await menu.locator('li a').evaluateAll(links => links.map(link => link.getAttribute('href')));
+  expect(order).toEqual(['/me/hackers', '/me/schedule', '/me/team', '/me/emergency', '/me/profile']);
   await expect(menu.getByText('My pass')).toBeVisible();
   await expect(menu.getByText('In your email')).toBeVisible(); // A's fixture pass predates derived tokens
   await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
@@ -353,30 +356,25 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
   try {
     await profile.goto('/me/profile');
     const nav = profile.getByRole('navigation', { name: 'Profile sections' });
-    await expect(nav.getByRole('link')).toHaveCount(4);
-    await expect(nav.getByRole('link', { name: 'Emergency contact · needs answer' })).toHaveAttribute('aria-current', 'page');
-    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toBeVisible();
+    await expect(nav.getByRole('link')).toHaveCount(3);
+    expect(await nav.getByRole('link').evaluateAll(links => links.map(link => link.getAttribute('href')))).toEqual(
+      ['/me/profile?tab=networking', '/me/profile?tab=event', '/me/profile?tab=health']);
+    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
     await expect(profile.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
     await expect(profile.getByLabel('LinkedIn (optional)')).toHaveCount(0);
+    // The emergency contact has its own page: no fields here, only a link while it's missing.
+    await expect(profile.getByLabel('Emergency contact name')).toHaveCount(0);
+    await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toHaveAttribute('href', '/me/emergency');
     let before = await stored();
-    await profile.getByLabel('Emergency contact name').fill('Tab contact');
-    await profile.getByLabel('Emergency contact phone').fill('4165550123');
-    await profile.getByLabel('Relationship (optional)').fill('Friend');
-    await profile.getByRole('button', { name: 'Save profile' }).click();
-    await expect(profile).toHaveURL(/tab=emergency&saved=1/);
-    await expect(profile.getByRole('status')).toContainText('✓ Saved.');
-    expect(await stored()).toEqual({ ...before, emergency_name: 'Tab contact', emergency_phone: '4165550123', emergency_relation: 'Friend' });
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await profile.goto('/me/profile');
-    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
-    before = await stored();
     await profile.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
     await profile.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
     await profile.getByRole('button', { name: 'Save profile' }).click();
     await expect(profile).toHaveURL(/tab=event&saved=1/);
+    await expect(profile.getByRole('status')).toContainText('✓ Saved.');
     expect(await stored()).toEqual({ ...before, overnight: 'unsure', team_status: 'solo' });
     await expect(profile.getByRole('heading', { name: 'Hacker profile', exact: true })).toBeVisible();
     await expect(nav).not.toContainText('needs answer');
+    await expect(profile.getByRole('link', { name: 'Add your emergency contact →' })).toBeVisible();
     await nav.getByRole('link', { name: 'Health and access', exact: true }).click();
     before = await stored();
     await profile.getByLabel('Allergies (optional)').fill('Peanuts');
@@ -394,7 +392,7 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
     expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
       await profile.setViewportSize({ width, height });
-      for (const tab of ['emergency', 'event', 'health', 'networking']) {
+      for (const tab of ['event', 'health', 'networking']) {
         await nav.locator(`a[href="/me/profile?tab=${tab}"]`).click();
         await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('href', `/me/profile?tab=${tab}`);
         expect(await profile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -403,22 +401,22 @@ test('T-ME-10: profile tabs work without JavaScript, save only their fields, and
         await profile.screenshot({ path: `${screenshots}/profile-tabs-${tab}-${width}.png`, fullPage: true });
       }
     }
-    await profile.goto('/me/profile');
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    await profile.goto('/me/profile?tab=health');
     before = await stored();
-    await profile.getByLabel('Emergency contact phone').fill('12');
+    await profile.getByLabel('Allergies (optional)').fill('Shellfish');
+    await profile.getByLabel('How severe?').selectOption('');
     await profile.locator('form').evaluate(form => { (form as HTMLFormElement).noValidate = true; });
     await profile.getByRole('button', { name: 'Save profile' }).click();
-    await expect(profile).toHaveURL(/tab=emergency&error=INVALID_CONTACT/);
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+    await expect(profile).toHaveURL(/tab=health&error=INVALID_ALLERGY/);
+    await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
     expect(await stored()).toEqual(before);
     for (const [width, height] of [[390, 844], [1280, 800]] as const) {
       await profile.setViewportSize({ width, height });
       await profile.screenshot({ path: `${screenshots}/profile-tabs-error-${width}.png`, fullPage: true });
     }
-    await profile.goto('/me/profile?tab=networking&error=INVALID_CONTACT');
-    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
-    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+    await profile.goto('/me/profile?tab=networking&error=INVALID_ALLERGY');
+    await expect(nav.getByRole('link', { name: 'Health and access', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Pick how severe your allergy is');
   } finally { await context.close(); }
 });
