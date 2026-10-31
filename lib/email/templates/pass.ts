@@ -76,6 +76,6 @@ export function renderPassEmail(input: PassEmailInput): RenderedEmail {
     subject: `You're in: ${input.event.name} — your check-in pass`,
     html,
     text,
-    inlineImages: [{ cid: 'qr', filename: 'passline-qr.png', contentType: 'image/png', content: input.qrPng }],
+    inlineImages: [{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: input.qrPng }],
   };
 }

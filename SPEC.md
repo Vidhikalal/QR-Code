@@ -1,7 +1,7 @@
-# Passline — Product & Technical Specification
+# Sheridan Datathon Station — Product & Technical Specification
 
-> **Status:** Draft v0.11.15 · **Owner:** Ade · **Last updated:** 2026-10-30
-> "Passline" is a placeholder name. Rename freely; nothing depends on it.
+> **Status:** Draft v0.11.21 · **Owner:** Ade · **Last updated:** 2026-10-30
+> The app is **Station** (Sheridan Datathon Station, `https://station.sheridandatathon.com`); it was called Passline until v0.11.21.
 
 ## 0. How to read this document
 
@@ -518,7 +518,7 @@ grant execute on function public.issue_pass(uuid, text) to service_role;
 ### F1 — Application intake (no code)
 
 1. Participants apply through the Google Form, which writes to the Sheet.
-2. The Sheet has two extra columns: `Applicant ID` and `Sync Status`. A `Status` column may stay for the organizers' own notes; since v0.4 Passline ignores it.
+2. The Sheet has two extra columns: `Applicant ID` and `Sync Status`. A `Status` column may stay for the organizers' own notes; since v0.4 Station ignores it.
 
 ### F2 — Applicant ID assignment
 
@@ -526,7 +526,7 @@ The installable `onFormSubmit` trigger writes `Utilities.getUuid()` into `Applic
 
 ### F3 — Applicant import (v0.4)
 
-**DECISION (v0.4): the Sheet only imports applicants.** Acceptance happens in Passline: organizers send RSVPs (F13) and a Yes accepts. Editing `Status` in the Sheet never accepts, emails or revokes anyone.
+**DECISION (v0.4): the Sheet only imports applicants.** Acceptance happens in Station: organizers send RSVPs (F13) and a Yes accepts. Editing `Status` in the Sheet never accepts, emails or revokes anyone.
 
 1. A form submission, or an edit to any data cell except `Sync Status`, fires the installable trigger. The script reads **every row in the edited range** and POSTs them in one signed request (§9.2).
 2. The server upserts each row using the table below and returns per-row results **in request order**.
@@ -891,8 +891,9 @@ type ScanCode = 'ACCEPTED' | 'ALREADY_SCANNED' | 'NOT_FOUND' | 'REVOKED' | 'NOT_
 ### 9.2 `POST /api/ingest/sheet` (HMAC)
 
 Headers:
-- `X-Passline-Timestamp`: unix **seconds**.
-- `X-Passline-Signature`: lowercase hex of `HMAC_SHA256(SHEET_INGEST_SECRET, timestamp + "." + rawBody)`.
+- `X-Station-Timestamp`: unix **seconds**.
+- `X-Station-Signature`: lowercase hex of `HMAC_SHA256(SHEET_INGEST_SECRET, timestamp + "." + rawBody)`.
+- v0.11.21: `X-Passline-Timestamp` / `X-Passline-Signature` (the names before the rename) are still accepted when the `X-Station-*` header is absent, so Apps Scripts already pasted into Sheets keep working.
 
 Verification:
 1. Read the raw body with `await req.text()` **before** parsing.
@@ -943,8 +944,8 @@ Unknown `event_slug` returns `404`. An invalid `linkedin_url` is dropped (set to
 ### 10.1 Layout
 
 - A **checkpoint banner** is always visible at the top. It shows the checkpoint name and a kind color (door = blue, meal = orange, session = purple, custom = teal).
-- Changing the checkpoint requires a confirm dialog. The selection is saved to `localStorage` under `passline:checkpoint:<slug>`.
-- **Camera or NFC badges, one at a time (v0.8.1).** On a phone with Web NFC (§10.5) a **Camera | NFC badges** switch picks the input; elsewhere there is no switch and the camera is the input. The choice is saved per device under `passline:input`. DECISION: one at a time, because on a real Android phone a running camera stopped NFC reads; NFC mode releases the camera entirely (tracks stopped, preview hidden) and keeps the badge reader on.
+- Changing the checkpoint requires a confirm dialog. The selection is saved to `localStorage` under `station:checkpoint:<slug>` (v0.11.21; a value under the older `passline:` key is still read).
+- **Camera or NFC badges, one at a time (v0.8.1).** On a phone with Web NFC (§10.5) a **Camera | NFC badges** switch picks the input; elsewhere there is no switch and the camera is the input. The choice is saved per device under `station:input`. DECISION: one at a time, because on a real Android phone a running camera stopped NFC reads; NFC mode releases the camera entirely (tracks stopped, preview hidden) and keeps the badge reader on.
 - The camera viewport takes about 60% of the height, below that are the **Manual search** and **Undo last** buttons.
 - The scanner abstraction:
   ```ts
@@ -980,7 +981,7 @@ Every state needs an icon, a text label and a color, never color alone. Names ar
 | CAPACITY_REACHED | red ✕ | "FULL ({capacity})" | tap |
 | FORBIDDEN / CHECKPOINT_NOT_FOUND | red ✕ | "No access": re-select event | tap → checkpoint picker |
 | CLIENT_ID_CONFLICT | amber ! | "Rescan please" | tap |
-| MALFORMED (client) | amber ? | "Not a Passline code" | auto 1.5 s |
+| MALFORMED (client) | amber ? | "Not a Datathon code" | auto 1.5 s |
 | NETWORK / 5xx (client) | amber ! | "NO RESULT: do not admit yet. Rescan." | tap |
 
 Rules:
@@ -1012,7 +1013,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 ### 10.5 NFC badges (v0.3, Android Chrome only)
 
 - Every NFC control is rendered only when `'NDEFReader' in window`. Elsewhere there is no NFC UI and no fallback text.
-- **NFC badges mode (v0.8.1; replaces the on/off toggle):** choosing **NFC badges** turns the camera off and starts the reader from that tap (it triggers Chrome's permission prompt the first time); the reader then stays on, with no off switch, until **Camera** is chosen. Opening the scanner in NFC mode auto-starts the reader if the `nfc` permission is already granted; otherwise a **Start badge reader** button asks for the tap. The reader's own state is still saved under `passline:nfc`.
+- **NFC badges mode (v0.8.1; replaces the on/off toggle):** choosing **NFC badges** turns the camera off and starts the reader from that tap (it triggers Chrome's permission prompt the first time); the reader then stays on, with no off switch, until **Camera** is chosen. Opening the scanner in NFC mode auto-starts the reader if the `nfc` permission is already granted; otherwise a **Start badge reader** button asks for the tap. The reader's own state is still saved under `station:nfc`.
 - **Each read:** `normalizeUid()`; an invalid UID shows MALFORMED with no request. Otherwise the same rules as QR apply: 3 s dedupe of the same UID, paused while a result is shown, 8 s timeout with retries reusing the `clientScanId`, offline disables it, and green only on `ACCEPTED`. The request is `/api/scan` with `method: 'nfc'`.
 - **Keep the reader referenced (v0.7.4):** the page holds the active `NDEFReader` while scanning. On a real Android phone a reader reachable only through its own listeners was garbage-collected while Chrome kept the NFC session: Android no longer opened the tag's URL, and every tap went to nobody.
 - **Read feedback (v0.7.3):** as soon as a read passes the dedupe and pause checks, the phone taps twice (30 ms, 60 ms gap, 30 ms, where `navigator.vibrate` exists), before the server answers: unlike every result pattern, so it can't be felt as the green single pulse. The result's own pattern follows (§10.2). An unreadable tag gets the amber double pulse with its notice, unless reads are being ignored (a result on screen, offline, a dialog open). Chrome ignores vibration (and sound) until the page has been tapped once, so until then the scanner shows "Tap the screen once so the phone can vibrate on each scan." Vibration is a nicety, never relied on: the screen stays the source of truth.
@@ -1284,7 +1285,7 @@ select a.checkpoint_id as x, b.checkpoint_id as y, count(*) as both_attended
 | T-SCUI-03 | Each `ScanCode` stubbed via route interception | correct color, icon, text label, dismiss rule per §10.2 (screenshot + DOM assertions) | E |
 | T-SCUI-04 | `/api/scan` hangs | 2 retries with the same `clientScanId` (assert request bodies), then NETWORK screen; never green | E |
 | T-SCUI-05 | `context.setOffline(true)` | OFFLINE banner; scanning disabled; manual scan disabled | E |
-| T-SCUI-06 | QR encoding `https://example.com` | "Not a Passline code"; zero `/api/scan` requests | E |
+| T-SCUI-06 | QR encoding `https://example.com` | "Not a Datathon code"; zero `/api/scan` requests | E |
 | T-SCUI-07 | Change checkpoint | confirm dialog; banner updates; persisted after reload | E |
 | T-SCUI-08 | Camera permission denied | instructions shown; manual search usable | E |
 | T-SCUI-09 | Undo visible at 0–120 s, hidden after (fake timers) | as stated | E |
@@ -1385,7 +1386,7 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-07 | Raw SQL: bad UID; a second badge for one participant; X linked in E1 | check violation; unique violation; FK violation | I |
 | T-NFC-08 | 10 parallel `link_badge` (volunteer) with one UID and 10 participants, 20 rounds; two badges swapped in parallel, 30 rounds | exactly 1 `LINKED`, 9 `BADGE_TAKEN`, 1 row per round; swaps return only `LINKED`/`BADGE_TAKEN`, never an error (deadlock) | I |
 | T-NFC-09 | Result view: `NOT_FOUND` via NFC; every non-`ACCEPTED` code via NFC | red "UNKNOWN BADGE", tap to dismiss; never green (I-1) | U |
-| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial; a read while the answer is held back; the page before and after its first tap; an unreadable tag while a result is shown, then without one (v0.7.3); a tap after a forced garbage collection, with the fake holding readers weakly like Chrome (v0.7.4) | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Passline code", 0 requests; the two-tap read pattern before any result, then the green pattern; the tap-once hint until the page is tapped; nothing, then the amber pulse and notice; green | E |
+| T-NFC-10 | Scanner without `NDEFReader`; with the fake: A's linked badge; same tap twice within 3 s; tap while offline; empty serial; a read while the answer is held back; the page before and after its first tap; an unreadable tag while a result is shown, then without one (v0.7.3); a tap after a forced garbage collection, with the fake holding readers weakly like Chrome (v0.7.4) | no NFC UI; ADMIT; 1 `/api/scan` request; 0 requests; "Not a Datathon code", 0 requests; the two-tap read pattern before any result, then the green pattern; the tap-once hint until the page is tapped; nothing, then the amber pulse and notice; green | E |
 | T-NFC-11 | Replaced in v0.10 by T-NFC-28 (Participants page) and T-NFC-29 (scanner Manual search); the Tools page no longer links badges | — | E |
 | T-NFC-12 | `badge_profile`: unlinked; tombstoned; not public; public; linked in two events; withdrawn after opting in; event ended 31 vs 29 days ago. v0.9: signed out, another event's attendee, a waitlisted attendee, another event's staff, a random account | null; null; `{allowed,public:false}`; name + LinkedIn; newest link wins; null; null vs shown. Everyone sees the same shared fields; never email, dietary, allergies, status or photo | I |
 | T-NFC-13 | `PATCH /api/pass`: active token; replaced, cancelled or unknown token; extra keys | updated + audit row without PII; 404, nothing changed; 400 | I |
@@ -1404,7 +1405,7 @@ Target: at least 95% of attempts under 3 s.
 | T-NFC-24 | v0.9: a new participant; the backfill rule on someone untouched, someone who answered an RSVP, saved their profile, set sharing on the pass page, claimed a badge, or holds a pass | shares by default; only the untouched one is switched on | I |
 | T-NFC-25 | v0.9.2: `normalizeDiscord`: ` @Ada.Codes `, `ada_99`; empty, 1 or 33 chars, `ada#1234`, a space, `a..b`, `-`, `@@ada`, `ä`. `normalizeWebsite`: `ada.dev`, `http://…?x=1`, an upper-case host, `ada.dev:8443/x`; empty, `javascript:`, `data:`, `mailto:`, `ftp:`, credentials, `localhost`, a space, over 200 chars. The LinkedIn, Discord and website `pattern`s on these inputs (also handles with `.` or `!`, and 200 typed website characters), and on stored values. `parseProfileInput` with both, blank, missing, invalid | `ada.codes`, `ada_99`; the rest null, no throw; `https://ada.dev/`, kept, lower-cased host, `https://ada.dev:8443/x`; the rest null; the patterns refuse what the server refuses and accept every stored value; normalized, `''` (clear), unchanged, the field named | U |
 | T-NFC-26 | v0.9.2: save a Discord name and website on `/me/profile`; the badge viewed signed out, shared and then not; invalid values; a save without those keys; blank values; raw SQL bad values; the tombstone | stored normalized; shown in `badge_profile`, then only `{allowed, public:false}`; `INVALID_DISCORD` / `INVALID_WEBSITE` and nothing changed; unchanged; cleared; check violations; both null. Audit without PII | I |
-| T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Passline | M |
+| T-NFC-17 | Real Android Chrome + real badges; iPhone tapping a written tag; an old nfc.yvesdonato.com tag | serial present and Android doesn't open the URL while scanning; `/profile` opens; resolves once the domain points at Station | M |
 
 ### 14.16 RSVP — `T-RSVP` (v0.4)
 | ID | Scenario | Expected | L |
@@ -1413,7 +1414,7 @@ Target: at least 95% of attempts under 3 s.
 | T-RSVP-02 | Drain an `rsvp` row; one for a person accepted meanwhile; a claimed job cancelled by a No | the hash of the emailed `/rsvp#token` is already stored when the provider is called; the other row `cancelled`, no email; `set_rsvp_token` refuses, old token kept | I |
 | T-RSVP-03 | Also: Yes after an organizer's revoke, and No then Yes after it; No for someone with a badge; 20 RSVP sends racing 20 answers | no pass queued; badge link removed; no errors (no deadlock) | I |
 | T-RSVP-03 | `{token}`; Yes twice; No; unknown token; ended event; bad `going`; extra keys; 31 requests/min from one IP | invitation without email; `GOING` ×2 with exactly 1 `pass_issued` and a drain; `NOT_GOING`: withdrawn, outbox cancelled; 404 `{state:'not_found'}` (same as `/api/pass`); 404; 400; 400; 429. Audit `rsvp.yes`, `rsvp.no` | I |
-| T-RSVP-04 | Yes without a password, and with a 5-char one; Yes + password without an account; when an account exists (v0.7.2): no password, a wrong one, their own; their own past this limit; their own with `/login`'s limit used up; an account made since the lookup with another password; GoTrue failing; a `text/plain` body; staff who still need a display name; a new account whose sign-in fails after its answer. In the browser, someone with an account, and a volunteer without a display name | 400 `password_required`, 400 `weak_password`, nothing changed; confirmed account, `signedIn: true`; 400 `password_required`, 400 `wrong_password` and still pending, `GOING` with `signedIn: true` and the password unchanged; still `wrong_password`; `GOING` (separate buckets); `wrong_password` and still pending; a 500 and still pending; 400 `invalid_body`; `next` is the onboarding page; `GOING` with `signedIn: false`. The form asks for "Your Passline password", refuses a wrong one, then lands on `/me`; the volunteer lands on `/onboarding?next=%2Fme` | I+E |
+| T-RSVP-04 | Yes without a password, and with a 5-char one; Yes + password without an account; when an account exists (v0.7.2): no password, a wrong one, their own; their own past this limit; their own with `/login`'s limit used up; an account made since the lookup with another password; GoTrue failing; a `text/plain` body; staff who still need a display name; a new account whose sign-in fails after its answer. In the browser, someone with an account, and a volunteer without a display name | 400 `password_required`, 400 `weak_password`, nothing changed; confirmed account, `signedIn: true`; 400 `password_required`, 400 `wrong_password` and still pending, `GOING` with `signedIn: true` and the password unchanged; still `wrong_password`; `GOING` (separate buckets); `wrong_password` and still pending; a 500 and still pending; 400 `invalid_body`; `next` is the onboarding page; `GOING` with `signedIn: false`. The form asks for "Your Datathon password", refuses a wrong one, then lands on `/me`; the volunteer lands on `/onboarding?next=%2Fme` | I+E |
 | T-RSVP-05 | Organizer ticks a row → Send RSVP → link from the email → Yes + password → profile setup (v0.9) | "RSVP sent" on the row; the email and page show the reply-by time, and "No, give my spot away"; no dietary notes or contact fields on Yes; lands on `/me/profile` "Finish setting up your profile"; the setup answers are stored and the Sheet's dietary notes kept; "My pass" links the same token as the pass email, which scans `ACCEPTED`; no token in any request URL; signed out `/me` → login → back | E |
 | T-RSVP-06 | v0.9: Yes with only a password; with a name only; a bad phone; an invalid LinkedIn; 501 chars of dietary notes; a wrong type | `GOING`, no contact stored; 400 `invalid_profile` with the field (400 `invalid_body` for the type), still pending, no account created; No needs no form | I |
 | T-RSVP-08 | v0.9: an invitation closes at the later of the deadline and 48 h after it was sent; a null deadline never closes. Yes after closing; the answer itself after closing (SQL); No after closing; a late invite inside its 48 h; an accepted person's lookup. In the browser: a closed link | `closed: true`, 409 `closed` with no account made and still pending; `CLOSED`; withdrawn; `GOING`; `closed: false`. The deadline-passed text, no Yes button, No works | I+E |
@@ -1591,7 +1592,7 @@ Each slice ends with its tests green in CI and a short demo.
 
 | Name | Where | Notes |
 |------|-------|-------|
-| `NEXT_PUBLIC_APP_ORIGIN` | client+server | e.g. `https://passline.example.com`; used in QR payload + parser |
+| `NEXT_PUBLIC_APP_ORIGIN` | client+server | e.g. `https://station.sheridandatathon.com`; used in QR payload + parser |
 | `NEXT_PUBLIC_SUPABASE_URL` | client+server | |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client | Auth only; tables are deny-all |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server only** | Never imported from client code |
@@ -1609,11 +1610,18 @@ Each slice ends with its tests green in CI and a short demo.
 
 ## 20. Changelog
 
+- **v0.11.21 (2026-10-30)** — The app is renamed from Passline to **Station** (Sheridan Datathon Station, owner's request) in the docs, Apps Script, package and local Supabase project names. The Sheet ingest headers become `X-Station-Timestamp` / `X-Station-Signature`; the `X-Passline-*` names are still accepted, so pasted scripts keep working (§9.2). Scanner preferences move to `station:` keys and still read the old `passline:` ones (§10.1). Applied migrations keep their internal `passline:badge_link` lock name (never edit an applied migration). T-ING-01 also checks the old headers. Also: Photo Booth is drawn from 1 PM over Sponsor Station (F14); each card's text sits at its top; the schedule uses the site's dark surface at every width (event cards keep the poster colours), and below 1024px it fits the screen (44px time column, columns from 240px), and cards narrower than 8.5rem drop the redundant "Workshop:"/"Talk:" prefix and subtitle and shorten the time ("2:30–3:30 PM"); and the schedule dialog's title is dark on its light background (it inherited the dark theme's light heading colour). T-ME-11 updated.
+
 - **v0.11.20 (2026-10-31)** — Every email (RSVP invite and reminder, pass, profile reminder, team invite, staff added) takes the Hacker Package look (owner's request): a navy hero with the SD badge, SHERIDAN DATATHON and a title, then a white card on the package's light blue page, Google Sans with system fallbacks, square full-weight call-to-action buttons and a pale When/Where box. v0.11.21 (owner's request): the emails follow the website instead: navy page, dark card, Fira Code (system monospace where mail apps block web fonts), terminal-green buttons and light-blue links, declared `color-scheme: dark`; the QR keeps its opaque white card. The schedule and its event dialog also use the site's Fira Code and dark popover instead of Google Sans and a light dialog. Buttons carry a thin outer ring; every email, HTML and plain text, ends "Waving from orbit, Atom and the Sheridan Datathon team", and in the HTML Atom, the datathon's astronaut, waves beside it in the bottom-left corner (`public/email-atom.png`, linked like the logo, not attached). Light colour scheme; the QR stays on an opaque white card (§6.2). Wording unchanged. §12; T-AUTH-03 (U) checks the new hero title.
+
 - **v0.11.19 (2026-10-31)** — Owner's requests. Hacker directory listing is on by default (migration `20261031014344_directory_on_by_default`: new default, and switched on for people who never saved the networking form; anyone who did keeps their choice). The networking form is ordered LinkedIn, Discord, website, bio, pace, then directory listing and badge sharing, without the explanatory copy. Schedule: the busier day gets a wider column, and each event opens a detail dialog instead of the hover card. F14, F16, §5.7, §15; T-ME-11, T-DIR-02/04/05 and T-TEAM-05 updated.
+
 - **v0.11.18 (2026-10-30)** — Hacker profile moves to the end of the hacker menu, and its tabs are ordered Networking, The event, Health and access (owner’s request). The RSVP walkthrough order is unchanged. F14; T-ME-07/10 updated.
+
 - **v0.11.17 (2026-10-30)** — Hacker menu order is Hackers, Schedule, Team, Hacker profile, Emergency contact (owner’s request). The emergency contact leaves the Hacker profile (tabs and RSVP walkthrough, now 3 steps) and is set only on the Emergency contact page; it stays required, so the profile links there while it is missing. Profile setup no longer requires the contact (`parseProfileInput`). F14; T-ME-07/09/10, T-RSVP-05 and T-DIR-05 updated.
+
 - **v0.11.16 (2026-10-30)** — The hacker Schedule matches the Hacker Package poster: category columns instead of side-by-side overlap lanes, free-standing slots span the day, and overlaps stack on top of each other; Team formation counts as Hacking (it sits in the Hacking Begins block on the poster). F14; T-ME-11 updated.
+
 - **v0.11.15 (2026-10-30)** — The app moves to `https://station.sheridandatathon.com` (owner’s request). `nfc.yvesdonato.com` stays on the Vercel project as a permanent (308) redirect, so links already emailed (RSVP, pass, sign-in) and badge tags already written keep working; browsers keep the `#token` fragment across the redirect. The scanner still accepts QR codes for the old origin (§6.4). New badge links and emails use the new origin through `NEXT_PUBLIC_APP_ORIGIN`. T-TOK-02 extended.
 
 - **v0.11.14 (2026-10-30)** — Split the full Hacker profile into Emergency contact, The event, Health and access, and Networking tabs, each saving only its own fields (owner’s request). Server-rendered links work without JavaScript; unfinished required sections are marked, and saves and validation errors return to their section. The RSVP guided walkthrough is unchanged. F14; T-ME-07/10, T-NFC-21/26 and T-DIR-05.
@@ -1684,7 +1692,7 @@ const HEADERS = {
   id: 'Applicant ID', email: 'Email Address', first: 'First Name', last: 'Last Name',
   dietary: 'Dietary Restrictions', linkedin: 'LinkedIn URL', status: 'Status', sync: 'Sync Status',
 };
-// v0.4: Status is optional and ignored by Passline (acceptance comes from the RSVP, SPEC F13).
+// v0.4: Status is optional and ignored by Station (acceptance comes from the RSVP, SPEC F13).
 const REQUIRED = ['id', 'email', 'first', 'sync'];
 
 function prop_(k) {
@@ -1739,7 +1747,7 @@ function syncRows_(sheet, cols, first, last) {
   try {
     const res = UrlFetchApp.fetch(prop_('ENDPOINT'), {
       method: 'post', contentType: 'application/json; charset=utf-8', payload: body,
-      headers: { 'X-Passline-Timestamp': ts, 'X-Passline-Signature': sig },
+      headers: { 'X-Station-Timestamp': ts, 'X-Station-Signature': sig },
       muteHttpExceptions: true,
     });
     const code = res.getResponseCode();

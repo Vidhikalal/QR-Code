@@ -22,7 +22,7 @@ describe('pass email template (SPEC §12)', () => {
       expect(part).toContain(base.passUrl);
     }
     expect(m.html).toContain('src="cid:qr"');
-    expect(m.inlineImages).toEqual([{ cid: 'qr', filename: 'passline-qr.png', contentType: 'image/png', content: base.qrPng }]);
+    expect(m.inlineImages).toEqual([{ cid: 'qr', filename: 'station-qr.png', contentType: 'image/png', content: base.qrPng }]);
     // §12 order: greeting, event, time, venue, QR, link.
     const order = ['Ada', 'Hack Day 2026', 'Sat, Oct 3', 'Bahen Centre', 'cid:qr', 'Open your pass'].map((s) => m.html.indexOf(s));
     expect(order.every((v, i) => v >= 0 && (i === 0 || v > (order[i - 1] ?? 0)))).toBe(true);

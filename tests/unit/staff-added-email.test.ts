@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { renderStaffAddedEmail } from '@/lib/email/templates/staff-added';
 
 it('T-AUTH-03 (U): the staff-added email escapes names, has one Sign in link to the role’s page, text, and stays under 60 KB', () => {
-  const origin = 'https://passline.example.test';
+  const origin = 'https://station.example.test';
   const event = { name: '<b>x</b>', startsAt: '2026-11-07T14:00:00Z', timezone: 'America/Toronto' };
   const vol = renderStaffAddedEmail({ name: '<b>x</b>', role: 'volunteer', event, slug: 'datathon-2026', appOrigin: origin });
   expect(vol.subject).toBe('You’re now a volunteer for <b>x</b>');

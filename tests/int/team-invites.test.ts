@@ -25,7 +25,7 @@ const pageFor = async (id: string) => {
   return { ...await myTeam(db, me), directory: await hackerDirectory(db, me, (await as(id)).email, { looking: true, search: '', pace: '' }) };
 };
 const mail = mockProvider();
-const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://passline.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
+const drain = () => drainUntilIdle({ db, provider: mail.provider, appOrigin: 'https://station.example.test', from: 'club@example.test', passSecret: 's'.repeat(32) });
 
 it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows and same event only', async () => {
   await f.pool.query('update events set teams_open = true where id = $1', [f.e1.id]);
@@ -51,7 +51,7 @@ it('T-TEAM-05: opt-in directory, invite and email, consent and cleanup; own rows
   const email = onlyEmailTo(mail.sent, n.email);
   const joinCode = (await f.pool.query<{ join_code: string }>('select join_code from teams where id = $1', [teamId])).rows[0]?.join_code ?? '';
   expect(email.subject).toBe(`Ada invited you to join Data Wizards at ${f.e1.name}`);
-  expect(email.text).toContain('https://passline.example.test/me/team');
+  expect(email.text).toContain('https://station.example.test/me/team');
   expect(email.html).toContain('Data Wizards');
   expect(email.html).toContain('Ada');
   expect(email.html + email.text).not.toContain(joinCode);
