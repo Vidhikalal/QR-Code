@@ -1,5 +1,7 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
+import { SectionLabel } from '@/components/section-label';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import type { Metadata } from 'next';
@@ -35,9 +37,9 @@ export default async function MePage() {
 
           [:where(&)_>_*]:mb-0 tw-me-dashboard w-full max-w-[760px] [&_.tw-me-hero]:relative
 
-          [&_.tw-me-hero]:gap-[6px] [&_.tw-me-hero]:[justify-items:center] [&_.tw-me-hero]:[align-content:center]
+          [&_.tw-me-hero]:gap-[6px] [&_.tw-me-hero]:[justify-items:start] [&_.tw-me-hero]:[align-content:center]
 
-          [&_.tw-me-hero]:text-center [&_.tw-me-hero]:p-[28px_24px] [&_.tw-me-hero]:[border-width:1px]
+          [&_.tw-me-hero]:text-left [&_.tw-me-hero]:p-[28px_24px] [&_.tw-me-hero]:[border-width:1px]
 
           [&_.tw-me-hero]:[border-style:solid] [&_.tw-me-hero]:[border-top-color:var(--line)]
 
@@ -45,7 +47,7 @@ export default async function MePage() {
 
           [&_.tw-me-hero]:[border-left-color:var(--line)] [&_.tw-me-hero]:rounded-card
 
-          [&_.tw-me-hero]:[background:linear-gradient(_125deg,_color-mix(in_srgb,_var(--accent)_7%,_transparent),_transparent_65%_),_var(--card)]
+          [&_.tw-me-hero]:bg-card
 
           [&_.tw-me-hero]:shadow-panel max-[520.001px]:[&_.tw-me-hero]:p-[20px_16px]
 
@@ -53,11 +55,11 @@ export default async function MePage() {
 
           [&_.tw-me-hero_h1]:tracking-[-0.045em] [&_.tw-me-hero_p]:text-[14px] [&_.tw-me-hero_p]:leading-[1.6]
 
-          [&_.tw-me-nav]:gap-[14px] [&_.tw-me-pass]:relative [&_.tw-me-pass]:min-h-[104px]
+          [&_.tw-me-nav]:gap-[16px] [&_.tw-me-pass]:m-0 [&_.tw-me-pass]:relative [&_.tw-me-pass]:min-h-[104px]
 
           [&_.tw-me-pass]:p-[20px] [&_.tw-me-pass]:rounded-ticket
 
-          [&_.tw-me-pass]:[box-shadow:rgba(184,_220,_255,_0.07)_0px_1px_0px_inset,_rgb(0,_0,_0)_0px_16px_40px_-24px]
+          [&_.tw-me-pass]:[box-shadow:var(--shadow-e1)]
 
           max-[520.001px]:[&_.tw-me-pass]:p-[16px] max-[520.001px]:[&_.tw-me-pass]:gap-[12px]
 
@@ -94,16 +96,20 @@ export default async function MePage() {
           [&_.tw-me-staff_>_div:hover]:[border-color:color-mix(in_srgb,_var(--accent)_35%,_var(--line))]
 
           [&_.tw-me-footer]:mt-[4px] [&_.tw-me-footer]:pt-[20px]">
+      <div className="flex min-h-11 items-center gap-3">
+        <BrandMark name={m?.event.name} className="max-w-[85%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
+      </div>
       {m ? (
         <>
           <header className="tw-me-hero grid gap-[4px] [overflow-wrap:anywhere] [&_h1]:m-[0px_0px_4px] [&_h1]:text-[32px]
 
           [&_h1]:leading-[1.15] [&_p]:m-0 [&_p]:text-muted-foreground [&_p]:text-[14px]">
+            <p>Hi {m.firstName}.</p>
             <h1>{m.event.name}</h1>
             <p>{formatEventDateTime(m.event.startsAt, m.event.timezone)}</p>
             <p>{m.event.venue}</p>
           </header>
-          <p>Hi {m.firstName}.</p>
           <nav aria-label="Hacker menu" className="tw-me-nav grid gap-[16px]">
             {typeof pass === 'object' ? (
               // A plain link: the token is in the fragment (I-3), which client navigation must not touch.
@@ -191,6 +197,7 @@ export default async function MePage() {
                 warn={!m.profileDone}
               />
               <Item href="/me/team" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Team" hint={teamHint} />
+              <Item href="/me/hackers" icon={<TeamIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Hackers" hint="Meet hackers and find teammates" />
               <Item href="/me/schedule" icon={<ScheduleIcon className="tw-me-itemIcon [flex:0_0_auto] w-[22px] h-[22px] text-accent" />} label="Schedule" hint={m.event.schedule ? '' : 'Not posted yet'} />
               <Item
                 href="/me/emergency"
@@ -206,12 +213,12 @@ export default async function MePage() {
         <h1>My events</h1>
       )}
       {roles.length > 0 && (
-        <Entrance stagger><section aria-labelledby="staff-heading" className="tw-me-staff grid gap-[12px] [&_h2]:m-[8px_0px_0px] [&_h2]:text-[18px]">
+        <Entrance stagger><section aria-labelledby="staff-heading" className="tw-me-staff grid gap-[12px] [&_h2]:m-0 [&_h2]:text-[18px]">
           <h2 id="staff-heading">Staff</h2>
           {roles.map(({ role, events: e }) => (
             <Card key={e.slug} className="[&>p]:m-0 [&>h2]:text-lg ">
               <h3>{e.name}</h3>
-              <p className="text-muted-foreground text-[12px] tracking-[0.08em] uppercase font-normal">{role === 'organizer' ? 'Organizer' : 'Volunteer'}</p>
+              <SectionLabel className="mb-0">{role === 'organizer' ? 'Organizer' : 'Volunteer'}</SectionLabel>
               <div className="flex flex-wrap gap-[8px]">
                 {role === 'organizer' && (
                   <Button className="self-start" asChild><a  href={`/admin/${e.slug}`} aria-label={`Admin: ${e.name}`}>
@@ -226,7 +233,7 @@ export default async function MePage() {
           ))}
         </section></Entrance>
       )}
-      {!m && roles.length === 0 && <p>No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
+      {!m && roles.length === 0 && <p className="copy">No upcoming events yet. When you answer Yes to an invitation, your event shows up here.</p>}
       <footer className="tw-me-footer flex flex-wrap items-center justify-between gap-[12px] pt-[24px] [border-top-width:1px]
 
           [border-top-style:solid] [border-top-color:var(--line)] text-muted-foreground text-[14px] [&_p]:m-0 [&_p]:min-w-0
@@ -244,9 +251,10 @@ export default async function MePage() {
 }
 
 function Item(props: { href: string; icon: ReactNode; label: string; hint: string; warn?: boolean }) {
+  const ItemLink = props.href.startsWith('#') ? 'a' : Link;
   return (
     <li>
-      <Link className="tw-me-item flex items-center gap-[14px] min-h-[64px] p-[10px_16px] [color:inherit] no-underline
+      <ItemLink className="tw-me-item flex items-center gap-[14px] min-h-[64px] p-[10px_16px] [color:inherit] no-underline
 
           [transition:background-color_0.16s_var(--ease)] [&:hover]:[background:var(--raised)]
 
@@ -259,7 +267,7 @@ function Item(props: { href: string; icon: ReactNode; label: string; hint: strin
           {props.hint && <small data-tone={props.warn ? 'warn' : undefined}>{props.hint}</small>}
         </span>
         <ChevronIcon className="tw-me-chevron [flex:0_0_auto] w-[18px] h-[18px] text-muted-foreground" />
-      </Link>
+      </ItemLink>
     </li>
   );
 }

@@ -1,3 +1,4 @@
+import { mkdirSync, readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { E2E_ORIGIN, signIn } from '../fixtures/e2e';
 import { createAccount, createStandardFixture, type StandardFixture } from '../fixtures/standard';
@@ -15,16 +16,31 @@ test.afterAll(async () => {
 const emailOf = async (participantId: string) =>
   (await f.pool.query<{ email: string }>('select email from participants where id = $1', [participantId])).rows[0]?.email ?? '';
 
-test('T-ADM-08: an organizer writes the schedule and emergency info on the Info page', async ({ page }) => {
+test('T-ADM-08: Info edits only the RSVP deadline; schedule and emergency info are set through the API', async ({ page }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
+  const info = { schedule: 'Sat 9:00  Doors\nSat 12:00  Lunch', emergencyInfo: 'Call Ade: 416 555 0199' };
+  const saved = await page.request.patch(`/api/admin/${f.slug}/event`, { data: info });
+  expect(saved.ok()).toBe(true);
   await page.getByRole('link', { name: 'Info', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Info for hackers' })).toBeVisible();
-  await page.getByLabel('Schedule').fill('Sat 9:00  Doors\nSat 12:00  Lunch');
-  await page.getByLabel('Emergency info').fill('Call Ade: 416 555 0199');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('✓ Saved. Hackers see it in their menu.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Event info' })).toBeVisible();
+  const deadline = page.getByLabel(/RSVP deadline/);
+  await expect(deadline).toBeVisible();
+  await expect(page.getByLabel('Schedule', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('Emergency info', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Emergency information' })).toHaveCount(0);
+  await expect(page.locator('textarea')).toHaveCount(0);
+  await deadline.fill('2099-11-01T12:00');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel('Schedule')).toHaveValue('Sat 9:00  Doors\nSat 12:00  Lunch');
+  await expect(deadline).toHaveValue('2099-11-01T12:00');
+  expect(await (await page.request.get(`/api/admin/${f.slug}/event`)).json()).toMatchObject(info);
+  await deadline.fill('');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('✓ Saved.', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(deadline).toHaveValue('');
+  expect(await (await page.request.get(`/api/admin/${f.slug}/event`)).json()).toMatchObject({ ...info, rsvpDeadline: null });
 });
 
 test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and emergency contact, reads the schedule; others see the badge as before', async ({ browser }) => {
@@ -45,6 +61,7 @@ test('T-ME-07 / T-NFC-22: A taps their own badge → menu → edits profile and 
   await expect(menu.getByText('Finish setting up')).toBeVisible(); // v0.9: no profile setup yet
 
   await menu.getByRole('link', { name: 'Hacker profile' }).click();
+  await page.getByRole('navigation', { name: 'Profile sections' }).getByRole('link', { name: 'Networking', exact: true }).click();
   await expect(page.getByText('Ada Fixture')).toBeVisible();
   await expect(page.getByText('✓ Badge linked.', { exact: true })).toBeVisible();
   // v0.8.2: dietary notes are the Sheet's, for organizers only; saving the profile must not clear them.
@@ -104,4 +121,259 @@ test('T-ADM-08: the organizer sees the emergency contact on the participant deta
   await expect(page.getByText('Emergency contact')).toBeVisible();
   await expect(page.getByRole('link', { name: '+1 (416) 555-0100' })).toHaveAttribute('href', 'tel:+14165550100');
   await expect(page.getByText(/Sam Fixture \(Brother\)/)).toBeVisible();
+});
+
+
+test('T-ME-11: poster calendar keeps all events, overlap lanes and phone day controls', async ({ page }) => {
+  const schedule = readFileSync(new URL('../fixtures/schedule/official.txt', import.meta.url), 'utf8');
+  await signIn(page, f.staffEmail.org1, `/admin/${f.slug}`);
+  const saved = await page.request.patch(`/api/admin/${f.slug}/event`, { data: { schedule } });
+  expect(saved.ok()).toBe(true);
+  await signIn(page, await emailOf(f.p.A), '/me/schedule');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  const sunday = page.getByRole('list', { name: 'Sunday, Nov 8', exact: true });
+  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await saturday.getByRole('listitem').first().scrollIntoViewIfNeeded();
+  const heights = await saturday.getByRole('listitem').evaluateAll(blocks => blocks.map(block => block.getBoundingClientRect().height));
+  expect(Math.min(...heights)).toBe(30); // SPEC F14: 30-minute slots on a 64px/hour axis, minus the 2px gap.
+  const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
+  const hour = calendar.getByText('10 AM', { exact: true });
+  await expect(hour).toHaveCSS('font-size', '13px');
+  await expect(hour).toHaveCSS('text-align', 'center');
+  await expect(hour).toHaveCSS('width', '64px');
+  const ten = (await hour.boundingBox())!;
+  const eleven = (await calendar.getByText('11 AM', { exact: true }).boundingBox())!;
+  expect(eleven.y - ten.y).toBeCloseTo(64, 1);
+  const line = (await hour.locator('..').boundingBox())!;
+  expect(ten.y + ten.height / 2).toBeCloseTo(line.y + line.height / 2, 1);
+  const sundayCalendar = page.getByRole('region', { name: 'Sun Nov 8 calendar' });
+  const sundayTen = (await sundayCalendar.getByText('10 AM', { exact: true }).boundingBox())!;
+  expect(sundayTen.y).toBeCloseTo(ten.y, 1); // Desktop keeps matching hours aligned across days.
+  await expect(hour).toHaveCSS('font-variant-numeric', 'tabular-nums');
+  await expect(sundayCalendar.getByText('4 PM', { exact: true })).toBeVisible();
+  await expect(sundayCalendar.getByText('5 PM', { exact: true })).toHaveCount(0);
+  const sundayEnd = (await sundayCalendar.getByText('4 PM', { exact: true }).boundingBox())!;
+  const sundayGrid = (await sundayCalendar.boundingBox())!;
+  expect(sundayGrid.y + sundayGrid.height - (sundayEnd.y + sundayEnd.height / 2)).toBeCloseTo(24.5, 1);
+  const hacking = (await saturday.getByRole('listitem').filter({ hasText: 'Hacking Begins!' }).boundingBox())!;
+  const formation = (await saturday.getByRole('listitem').filter({ hasText: 'Team formation' }).boundingBox())!;
+  expect(formation.y - hacking.y - hacking.height).toBeCloseTo(2, 1);
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-axis.png`, clip: { x: ten.x, y: ten.y - 64, width: 160, height: 256 } });
+  await expect(sunday.getByRole('listitem')).toHaveCount(6);
+  await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'SUN NOV 8' })).toBeVisible();
+  await expect(saturday.getByText('Magic: The Gathering', { exact: true })).toBeVisible();
+  await expect(sunday.getByText('Demos + Judging', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Event categories' }).getByRole('listitem')).toHaveCount(5);
+  const workshop = saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' });
+  await workshop.scrollIntoViewIfNeeded();
+  const before = await workshop.boundingBox();
+  await workshop.hover();
+  const card = page.getByTestId('hover-details');
+  await expect(card).toContainText('ADK, MCP & Cloud DBs');
+  await expect(card).toContainText('2:30 PM to 3:30 PM · 5F');
+  await expect(card).toContainText('Workshops');
+  expect(await workshop.boundingBox()).toEqual(before);
+  if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-desktop.png` });
+  await page.mouse.move(0, 0);
+  await expect(card).toHaveCount(0);
+  await workshop.focus();
+  await expect(card).toBeVisible();
+  expect(await workshop.boundingBox()).toEqual(before);
+  await page.keyboard.press('Escape');
+  await expect(card).toHaveCount(0);
+  await expect(workshop).toContainText('ADK, MCP & Cloud DBs');
+  await expect(workshop).toContainText('2:30 PM to 3:30 PM · 5F');
+  await expect(workshop).toContainText('Workshops');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const satButton = page.getByRole('button', { name: 'Sat Nov 7', exact: true });
+  const sunButton = page.getByRole('button', { name: 'Sun Nov 8', exact: true });
+  await satButton.click();
+  await expect(satButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(saturday).toBeVisible();
+  await expect(sunday).toBeHidden();
+  await sunButton.click();
+  await expect(sunButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(sunday).toBeVisible();
+  await expect(saturday).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await sunButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+});
+
+test('T-ME-11: touch details flip inside the viewport and dismiss outside or on Escape', async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, viewport: { width: 390, height: 844 }, hasTouch: true });
+  const page = await context.newPage();
+  try {
+    await signIn(page, await emailOf(f.p.A), '/me/schedule');
+    await page.getByRole('button', { name: 'Sat Nov 7', exact: true }).click();
+    const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
+    const block = calendar.getByRole('listitem').filter({ hasText: 'MLH Meetup' });
+    await block.scrollIntoViewIfNeeded();
+    const before = await block.boundingBox();
+    await block.tap();
+    const card = page.getByTestId('hover-details');
+    await expect(card).toContainText('MLH Meetup');
+    await expect(card).toContainText('TechTogether');
+    expect(await block.boundingBox()).toEqual(before);
+    const box = (await card.boundingBox())!;
+    expect(box.x).toBeLessThan(before!.x);
+    expect(box.x).toBeGreaterThanOrEqual(8);
+    expect(box.x + box.width).toBeLessThanOrEqual(382);
+    expect(box.y).toBeGreaterThanOrEqual(8);
+    expect(box.y + box.height).toBeLessThanOrEqual(836);
+    if (process.env.HOVER_SCREENSHOTS) await page.screenshot({ path: `${process.env.HOVER_SCREENSHOTS}/hover-calendar-touch.png` });
+    await page.getByRole('heading', { name: 'SAT NOV 7' }).tap();
+    await expect(card).toHaveCount(0);
+    await block.tap();
+    await expect(card).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(card).toHaveCount(0);
+  } finally { await context.close(); }
+});
+
+test('T-ME-11: live event-time marker updates each minute and past events are grey', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-07T19:40:00Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, await emailOf(f.p.A), '/me/schedule');
+  const line = page.getByTestId('schedule-now');
+  await expect(line).toContainText('now 2:40 PM');
+  await expect(line).toHaveCSS('pointer-events', 'none');
+  await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  const morning = saturday.getByRole('listitem').filter({ hasText: 'Check-in' });
+  await expect(morning).toHaveAttribute('data-state', 'past');
+  await expect(morning).toHaveCSS('background-color', 'rgb(34, 41, 54)');
+  await expect(morning).toHaveCSS('color', 'rgb(143, 160, 196)');
+  await expect(saturday.getByRole('listitem').filter({ hasText: 'Workshop: Google' })).toHaveAttribute('data-state', 'current');
+  const marker = await line.evaluate(el => {
+    const [rule, dot] = Array.from(el.children).map(child => child.getBoundingClientRect());
+    return { rule: rule!.x, dot: dot!.x + dot!.width / 2, edge: el.getBoundingClientRect().x + 64 };
+  });
+  expect(marker.rule).toBeCloseTo(marker.edge, 1);
+  expect(marker.dot).toBeCloseTo(marker.edge, 1);
+  if (process.env.AXIS_SCREENSHOTS) {
+    mkdirSync(process.env.AXIS_SCREENSHOTS, { recursive: true });
+    await page.mouse.move(0, 0);
+    await expect(page.getByTestId('hover-details')).toHaveCount(0);
+    const style = 'nextjs-portal { visibility: hidden; }';
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-desktop-full.png`, fullPage: true, style });
+    await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-desktop.png`, style });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-phone.png`, fullPage: true, style });
+    await line.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-phone-now.png`, style });
+    await page.getByRole('button', { name: 'Sun Nov 8', exact: true }).click();
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: `${process.env.AXIS_SCREENSHOTS}/axis-style-phone-sunday.png`, style });
+    await page.getByRole('button', { name: 'Sat Nov 7', exact: true }).click();
+  }
+  await page.clock.fastForward(60_000);
+  await expect(line).toContainText('now 2:41 PM');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByText('Scroll across for overlapping events →')).toBeHidden();
+});
+
+
+test('T-ME-11: on a phone the Schedule page keeps the page width, scrolls dense lanes inside the grid and switches days', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-07T19:40:00Z') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, await emailOf(f.p.A), '/me/schedule');
+  await expect(page.getByRole('heading', { name: 'SAT NOV 7' })).toBeVisible();
+  await expect(page.getByTestId('schedule-now')).toContainText('now 2:40 PM');
+  const saturday = page.getByRole('list', { name: 'Saturday, Nov 7', exact: true });
+  await expect(saturday.getByRole('listitem')).toHaveCount(23);
+  await expect(saturday.getByRole('listitem').filter({ hasText: 'Check-in' })).toHaveAttribute('data-state', 'past');
+  await expect(page.getByRole('button', { name: 'Sat Nov 7', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const calendar = page.getByRole('region', { name: 'Sat Nov 7 calendar' });
+  expect(await calendar.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Sun Nov 8', exact: true }).click();
+  await expect(page.getByRole('list', { name: 'Sunday, Nov 8', exact: true }).getByRole('listitem')).toHaveCount(6);
+  await expect(saturday).toBeHidden();
+});
+
+
+test('T-ME-10: profile tabs work without JavaScript, save only their fields, and route validation errors', async ({ page, browser }) => {
+  const attendee = await f.addParticipant(f.e1.id);
+  const email = await emailOf(attendee.id);
+  await createAccount(email);
+  await signIn(page, email, '/me/profile');
+  const context = await browser.newContext({ baseURL: E2E_ORIGIN, storageState: await page.context().storageState(), javaScriptEnabled: false });
+  const profile = await context.newPage();
+  const screenshots = '/tmp/claude-0/-home-yvesd-Codebases-datathon-Datathon-QR-NFC/7675cf3a-51e9-4cc4-b5e7-a411639544b0/scratchpad';
+  mkdirSync(screenshots, { recursive: true });
+  const stored = async () => (await f.pool.query(`select emergency_name, emergency_phone, emergency_relation, overnight, team_status, allergies, allergy_severity, accessibility, linkedin_url, discord_username, website_url, directory_opt_in, pace, bio, profile_public, dietary_notes from participants where id = $1`, [attendee.id])).rows[0];
+  try {
+    await profile.goto('/me/profile');
+    const nav = profile.getByRole('navigation', { name: 'Profile sections' });
+    await expect(nav.getByRole('link')).toHaveCount(4);
+    await expect(nav.getByRole('link', { name: 'Emergency contact · needs answer' })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toBeVisible();
+    await expect(profile.getByRole('heading', { name: 'Finish setting up your profile' })).toBeVisible();
+    await expect(profile.getByLabel('LinkedIn (optional)')).toHaveCount(0);
+    let before = await stored();
+    await profile.getByLabel('Emergency contact name').fill('Tab contact');
+    await profile.getByLabel('Emergency contact phone').fill('4165550123');
+    await profile.getByLabel('Relationship (optional)').fill('Friend');
+    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await expect(profile).toHaveURL(/tab=emergency&saved=1/);
+    await expect(profile.getByRole('status')).toContainText('✓ Saved.');
+    expect(await stored()).toEqual({ ...before, emergency_name: 'Tab contact', emergency_phone: '4165550123', emergency_relation: 'Friend' });
+    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    await profile.goto('/me/profile');
+    await expect(nav.getByRole('link', { name: 'The event · needs answer' })).toHaveAttribute('aria-current', 'page');
+    before = await stored();
+    await profile.getByRole('radio', { name: 'Not sure yet', exact: true }).check();
+    await profile.getByRole('radio', { name: 'I plan to go solo', exact: true }).check();
+    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await expect(profile).toHaveURL(/tab=event&saved=1/);
+    expect(await stored()).toEqual({ ...before, overnight: 'unsure', team_status: 'solo' });
+    await expect(profile.getByRole('heading', { name: 'Hacker profile', exact: true })).toBeVisible();
+    await expect(nav).not.toContainText('needs answer');
+    await nav.getByRole('link', { name: 'Health and access', exact: true }).click();
+    before = await stored();
+    await profile.getByLabel('Allergies (optional)').fill('Peanuts');
+    await profile.getByLabel('How severe?').selectOption('severe');
+    await profile.getByLabel('Accessibility needs (optional)').fill('Step-free access');
+    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await expect(profile).toHaveURL(/tab=health&saved=1/);
+    expect(await stored()).toEqual({ ...before, allergies: 'Peanuts', allergy_severity: 'severe', accessibility: 'Step-free access' });
+    await nav.getByRole('link', { name: 'Networking', exact: true }).click();
+    before = await stored();
+    await profile.getByLabel('Bio (optional)', { exact: true }).fill('Data and maps');
+    await profile.getByLabel('Your pace (optional)').selectOption('balanced');
+    await profile.getByRole('button', { name: 'Save links' }).click();
+    await expect(profile).toHaveURL(/tab=networking&saved=1/);
+    expect(await stored()).toEqual({ ...before, bio: 'Data and maps', pace: 'balanced' });
+    for (const [width, height] of [[390, 844], [1280, 800]] as const) {
+      await profile.setViewportSize({ width, height });
+      for (const tab of ['emergency', 'event', 'health', 'networking']) {
+        await nav.locator(`a[href="/me/profile?tab=${tab}"]`).click();
+        await expect(nav.locator('[aria-current="page"]')).toHaveAttribute('href', `/me/profile?tab=${tab}`);
+        expect(await profile.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        for (const link of await nav.getByRole('link').all()) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await nav.locator('[aria-current="page"]').scrollIntoViewIfNeeded();
+        await profile.screenshot({ path: `${screenshots}/profile-tabs-${tab}-${width}.png`, fullPage: true });
+      }
+    }
+    await profile.goto('/me/profile');
+    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    before = await stored();
+    await profile.getByLabel('Emergency contact phone').fill('12');
+    await profile.locator('form').evaluate(form => { (form as HTMLFormElement).noValidate = true; });
+    await profile.getByRole('button', { name: 'Save profile' }).click();
+    await expect(profile).toHaveURL(/tab=emergency&error=INVALID_CONTACT/);
+    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+    expect(await stored()).toEqual(before);
+    for (const [width, height] of [[390, 844], [1280, 800]] as const) {
+      await profile.setViewportSize({ width, height });
+      await profile.screenshot({ path: `${screenshots}/profile-tabs-error-${width}.png`, fullPage: true });
+    }
+    await profile.goto('/me/profile?tab=networking&error=INVALID_CONTACT');
+    await expect(nav.getByRole('link', { name: 'Emergency contact', exact: true })).toHaveAttribute('aria-current', 'page');
+    await expect(profile.getByRole('alert')).toContainText('Not saved. Enter your emergency contact');
+  } finally { await context.close(); }
 });

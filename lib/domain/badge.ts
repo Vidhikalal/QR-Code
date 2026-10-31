@@ -28,8 +28,14 @@ export type LinkCode = (typeof LINK_CODES)[number];
 
 // SPEC §6.5 (v0.10): what staff see after tapping a badge to link it (Participants page, scanner Manual search).
 // A notice, never a green result screen (I-1). Anything unexpected (no answer, a 5xx) is "not linked".
-export function linkNotice(code: string | undefined, uid: string, name: string): { tone: 'ok' | 'bad'; text: string } {
-  if (code === 'LINKED') return { tone: 'ok', text: `✓ Badge ${formatUid(uid)} linked to ${name}.` };
+export type BadgeWriteOutcome = 'unchanged' | 'written' | 'failed';
+
+export function linkNotice(code: string | undefined, uid: string, name: string, write: BadgeWriteOutcome = 'unchanged'): { tone: 'ok' | 'bad'; text: string } {
+  if (code === 'LINKED') {
+    const suffix = write === 'written' ? ' Its profile link is on the badge.'
+      : write === 'failed' ? " Couldn't write its profile link: hold the badge still and tap Link badge again." : '';
+    return { tone: 'ok', text: `✓ Badge ${formatUid(uid)} linked to ${name}.${suffix}` };
+  }
   if (code === 'BADGE_TAKEN') return { tone: 'bad', text: `✕ Badge ${formatUid(uid)} is linked to someone else. Ask an organizer to move it.` };
   if (code === 'NOT_FOUND') return { tone: 'bad', text: `✕ ${name} isn’t in this event any more.` };
   return { tone: 'bad', text: '✕ Badge not linked. Try again.' };

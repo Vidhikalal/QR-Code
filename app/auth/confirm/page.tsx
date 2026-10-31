@@ -1,3 +1,4 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
 import type { Metadata } from 'next';
@@ -29,6 +30,7 @@ export default async function ConfirmPage({ searchParams }: { searchParams: Prom
     <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[48px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
+      <BrandMark />
       <h1>Set your Datathon password</h1>
       <ConfirmForm action={confirm} type={type} next={safeNextPath(next, '/me')} />
     </main></Entrance>

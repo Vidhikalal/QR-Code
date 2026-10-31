@@ -1,11 +1,13 @@
 'use client';
 
+import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Alert } from '@/components/ui/alert';
 
+import Link from 'next/link';
 import QRCode from 'qrcode';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { formatEventDateTime } from '@/lib/domain/event-time';
@@ -63,7 +65,8 @@ async function fetchPass(token: string): Promise<View> {
 }
 
 export function PassView() {
-  const [view, setView] = useState<View>({ kind: 'loading' });
+  // Each answer remembers its token, so a new #token shows "Loading" instead of the previous pass's status.
+  const [loaded, setLoaded] = useState<{ token: string; view: View } | null>(null);
   const [reloads, setReloads] = useState(0);
   // The fragment is only readable in the browser; on the server render the token is null (loading).
   const token = useSyncExternalStore(subscribeHash, readToken, () => null);
@@ -73,19 +76,27 @@ export function PassView() {
     if (!token) return;
     let stale = false;
     void fetchPass(token).then((next) => {
-      if (!stale) setView(next);
+      if (!stale) setLoaded({ token, view: next });
     });
     return () => {
       stale = true;
     };
   }, [token, reloads]);
 
-  const shown: View = token === '' ? { kind: 'not_found' } : view;
+  const shown: View = token === '' ? { kind: 'not_found' } : loaded && loaded.token === token ? loaded.view : { kind: 'loading' };
 
   return (
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
+      {/* Same header row as the /me pages. */}
+      <div className="flex items-center gap-[16px] min-h-[44px]">
+        <Link className="inline-flex shrink-0 items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
+          ← Menu
+        </Link>
+        <BrandMark name={shown.kind === 'active' ? shown.pass.event.name : undefined} className="max-w-[70%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
+      </div>
       {shown.kind === 'loading' && <p aria-live="polite">Loading your pass…</p>}
       {shown.kind === 'active' && token && <ActiveView pass={shown.pass} token={token} />}
       {shown.kind === 'replaced' && (
@@ -158,36 +169,20 @@ function ActiveView({ pass, token }: { pass: ActivePass; token: string }) {
 
   return (
     <>
+
       <section className="overflow-hidden [overflow-wrap:anywhere] [background:var(--card)] [border-width:1px]
 
           [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket shadow-panel" aria-labelledby="pass-name">
-        <div className="flex items-center gap-[12px] p-[10px_16px] [background:var(--raised)] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)] text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">
-          <span className="inline-flex gap-[6px] [&_span]:w-[10px] [&_span]:h-[10px] [&_span]:rounded-[50%]
-
-          [&_span]:[background:rgb(255,_95,_86)] [&_span:nth-child(2)]:[background:rgb(255,_189,_46)]
-
-          [&_span:nth-child(3)]:[background:rgb(39,_201,_63)]" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </span>
-          Check-in pass
-        </div>
         <div className="grid [justify-items:center] gap-[4px] p-[24px_20px_20px] text-center [:where(&)_>_*]:m-0">
           <h1 id="pass-name" className="text-[32px] leading-[1.15] [overflow-wrap:anywhere]">
             {pass.firstName}
           </h1>
-          <p className="text-link mb-[16px]">{pass.event.name}</p>
           <canvas ref={canvas} className="block w-[min(100%,_300px)] h-auto [background:rgb(255,_255,_255)] rounded-md
 
           [image-rendering:pixelated]" role="img" aria-label="Your check-in QR code" />
-          <p className="max-w-[32ch] mt-[12px] text-muted-foreground text-[13px]">Show this at the door. Turn your screen brightness up. This code is personal.</p>
+          <p className="copy max-w-[32ch] mt-[12px] text-muted-foreground text-[13px]">Show this at the door. Turn your screen brightness up. This code is personal.</p>
         </div>
         <dl className="grid [grid-template-columns:repeat(auto-fit,_minmax(160px,_1fr))] gap-[16px] m-0 p-[16px_20px_20px]
 
@@ -250,15 +245,15 @@ function ProfileSection({ pass, token }: { pass: ActivePass; token: string }) {
 
           [&_h2]:text-[18px]" asChild><section  aria-labelledby="profile-heading">
       <h2 id="profile-heading">Badge profile (optional)</h2>
-      <p>If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
+      <p className="copy">If you get an NFC badge at the event, anyone can tap it with their phone to see what you share here.</p>
       <Label className="flex gap-[12px] items-center min-h-[44px] font-semibold [&_input]:w-[22px] [&_input]:h-[22px]
 
           [&_input]:[flex:0_0_auto] [&_input]:[accent-color:var(--accent)]">
         <input type="checkbox" checked={on} onChange={onToggle} disabled={busy} />
         Show my name and profile links to anyone who taps my badge
       </Label>
-      <p className="m-0 text-muted-foreground text-[14px]">Your LinkedIn, Discord and website are set on your Hacker profile.</p>
-      <Alert className={` [&:empty]:mt-[-12px] ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">
+      <p className="copy m-0 text-muted-foreground text-[14px]">Your LinkedIn, Discord and website are set on your Hacker profile.</p>
+      <Alert className={` [&:empty]:mt-[-12px] [&:empty]:p-0 [&:empty]:border-0 [&:empty]:bg-transparent [&:empty]:shadow-none ${message ? ({ warn: 'text-warn', bad: 'text-bad', ok: 'text-ok' })[message.tone] : ''}`} asChild role="status"><p  role="status" aria-live="polite">
         {message ? `${message.tone === 'ok' ? '✓' : '✕'} ${message.text}` : ''}
       </p></Alert>
     </section></Card>

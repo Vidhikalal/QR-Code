@@ -8,6 +8,9 @@ export interface ProfileInput {
   linkedin?: string;
   discord?: string;
   website?: string;
+  directoryOptIn?: boolean;
+  bio?: string;
+  pace?: string;
   profilePublic?: boolean;
   dietaryNotes?: string;
   emergencyName?: string;
@@ -20,6 +23,8 @@ export interface ProfileInput {
   accessibility?: string;
 }
 
+export const PACE = { competitive: 'Going for the win', balanced: 'Balanced', casual: 'Here to learn and meet people' } as const;
+
 export const OVERNIGHT = ['yes', 'no', 'unsure'] as const;
 export const ALLERGY_SEVERITY = ['mild', 'moderate', 'severe'] as const;
 export const TEAM_STATUS = ['team', 'looking', 'solo'] as const;
@@ -28,6 +33,9 @@ export interface ProfileFields {
   linkedinUrl?: string; // normalized, or '' to clear
   discordUsername?: string; // normalized, or '' to clear
   websiteUrl?: string; // normalized, or '' to clear
+  directoryOptIn?: boolean;
+  bio?: string; // '' clears
+  pace?: keyof typeof PACE | '';
   profilePublic?: boolean;
   dietaryNotes?: string; // '' clears
   emergency?: { name: string; phone: string; relation: string }; // relation '' = none
@@ -38,6 +46,8 @@ export interface ProfileFields {
 }
 
 export type ProfileField =
+  | 'bio'
+  | 'pace'
   | 'linkedin'
   | 'discord'
   | 'website'
@@ -64,6 +74,17 @@ export function parseProfileInput(
   opts: { requireEmergency: boolean; requireSetup?: boolean },
 ): { ok: true; value: ProfileFields } | { ok: false; field: ProfileField } {
   const value: ProfileFields = {};
+  if (raw.directoryOptIn !== undefined) value.directoryOptIn = raw.directoryOptIn;
+  if (raw.bio !== undefined) {
+    const bio = raw.bio.replace(/\r\n/g, '\n').trim();
+    if (bio.length > 280) return { ok: false, field: 'bio' };
+    value.bio = bio;
+  }
+  if (raw.pace !== undefined) {
+    const pace = raw.pace.trim();
+    if (pace !== '' && !oneOf(Object.keys(PACE) as Array<keyof typeof PACE>, pace)) return { ok: false, field: 'pace' };
+    value.pace = pace as keyof typeof PACE | '';
+  }
   if (raw.linkedin !== undefined) {
     const linkedin = raw.linkedin.trim() === '' ? '' : normalizeLinkedIn(raw.linkedin);
     if (linkedin === null) return { ok: false, field: 'linkedin' };

@@ -1,5 +1,6 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ interface StaffData {
 type Pending = { kind: 'remove'; userId: string; name: string } | { kind: 'cancel'; email: string } | null;
 
 // F9: invite by email + role. New addresses get an email to set a password; the invite is consumed on sign-in.
+// Existing accounts are added at once and emailed a link to sign in (v0.11.12).
 export function Staff({ slug }: { slug: string }) {
   const api = useApi();
   const [data, setData] = useState<StaffData | null>(null);
@@ -40,10 +42,10 @@ export function Staff({ slug }: { slug: string }) {
     if (r.ok) {
       setMessage(
         r.data.code === 'ADDED'
-          ? `✓ They already have an account and are now staff.`
+          ? `✓ Added. We emailed them a link to sign in.`
           : r.data.emailed
             ? `✓ Invited. We emailed them a link to set their password.`
-            : `✓ Invited. They can set a password with "Forgot or never set your password?" on the sign-in page.`,
+            : `! Invited, but the email didn’t go out. Ask them to use “Forgot or never set your password?” on the sign-in page.`,
       );
       setEmail('');
     } else setMessage(r.status === 400 ? '✕ Enter a valid email.' : `✕ ${errorText(r)}`);
@@ -74,9 +76,9 @@ export function Staff({ slug }: { slug: string }) {
 
           max-[480.001px]:flex-wrap [&_h1]:m-0 [&_h1]:text-[clamp(1.8rem,_3vw,_2.3rem)] [&_h1]:tracking-[-0.045em]">
           <div>
-            <p className="m-[0px_0px_8px] text-accent text-[0.72rem] [font-weight:750] tracking-[0.12em]">EVENT MANAGEMENT</p>
+            <SectionLabel>EVENT MANAGEMENT</SectionLabel>
             <h1>Staff</h1>
-            <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+            <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
               Manage your team, assign roles, and invite people to help run your event.
             </p>
           </div>
@@ -106,7 +108,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Invite a team member</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 Send an invitation by email and choose their access level.
               </p>
             </div>
@@ -198,7 +200,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Your team</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 People who currently have access to this event.
               </p>
             </div>
@@ -314,7 +316,7 @@ export function Staff({ slug }: { slug: string }) {
           max-[480.001px]:flex-col [&_h2]:m-0 [&_h2]:text-[1.08rem] [&_h2]:tracking-[-0.02em]">
             <div>
               <h2>Pending invitations</h2>
-              <p className="m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
+              <p className="copy m-[7px_0px_0px] text-muted-foreground text-[0.9rem] leading-[1.6]">
                 Invitations waiting to be accepted.
               </p>
             </div>

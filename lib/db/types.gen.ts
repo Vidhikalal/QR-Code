@@ -91,17 +91,23 @@ isOneToOne: false
                   ]
                 },"email_outbox": {
                   Row: {
-                    "attempts": number,"created_at": string,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string,"provider_message_id": string | null,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"]
+                    "attempts": number,"created_at": string,"event_id": string | null,"id": string,"kind": string,"last_error": string | null,"locked_until": string | null,"next_attempt_at": string,"participant_id": string | null,"provider_message_id": string | null,"sent_at": string | null,"status": Database["public"]['Enums']["outbox_status"],"user_id": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempts"?: number,"created_at"?: string,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id": string,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"]
+                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind": string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Update: {
-                    "attempts"?: number,"created_at"?: string,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"]
+                    "attempts"?: number,"created_at"?: string,"event_id"?: string | null,"id"?: string,"kind"?: string,"last_error"?: string | null,"locked_until"?: string | null,"next_attempt_at"?: string,"participant_id"?: string | null,"provider_message_id"?: string | null,"sent_at"?: string | null,"status"?: Database["public"]['Enums']["outbox_status"],"user_id"?: string | null
                   }
                   Relationships: [
                     {
+      foreignKeyName: "email_outbox_event_id_fkey"
+      columns: ["event_id"]
+isOneToOne: false
+      referencedRelation: "events"
+      referencedColumns: ["id"]
+    },{
       foreignKeyName: "email_outbox_participant_id_fkey"
       columns: ["participant_id"]
 isOneToOne: false
@@ -145,14 +151,14 @@ isOneToOne: false
                   ]
                 },"participants": {
                   Row: {
-                    "accessibility": string | null,"allergies": string | null,"allergy_severity": string | null,"created_at": string,"deleted_at": string | null,"dietary_notes": string | null,"dietary_set_at": string | null,"discord_username": string | null,"email": string,"emergency_name": string | null,"emergency_phone": string | null,"emergency_relation": string | null,"event_id": string,"external_id": string | null,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"linkedin_set_at": string | null,"linkedin_url": string | null,"looking_for_team": boolean,"overnight": string | null,"photo_path": string | null,"photo_updated_at": string | null,"profile_public": boolean,"rsvp_sent_at": string | null,"rsvp_token_hash": string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id": string | null,"team_status": string | null,"updated_at": string,"website_url": string | null
+                    "accessibility": string | null,"allergies": string | null,"allergy_severity": string | null,"bio": string | null,"created_at": string,"deleted_at": string | null,"dietary_notes": string | null,"dietary_set_at": string | null,"directory_opt_in": boolean,"discord_username": string | null,"email": string,"emergency_name": string | null,"emergency_phone": string | null,"emergency_relation": string | null,"event_id": string,"external_id": string | null,"first_name": string,"id": string,"is_test": boolean,"last_name": string,"linkedin_set_at": string | null,"linkedin_url": string | null,"looking_for_team": boolean,"overnight": string | null,"pace": string | null,"photo_path": string | null,"photo_updated_at": string | null,"profile_public": boolean,"rsvp_sent_at": string | null,"rsvp_token_hash": string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id": string | null,"team_status": string | null,"updated_at": string,"website_url": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"discord_username"?: string | null,"email": string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id": string,"external_id"?: string | null,"first_name": string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
+                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"bio"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"directory_opt_in"?: boolean,"discord_username"?: string | null,"email": string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id": string,"external_id"?: string | null,"first_name": string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"pace"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text": string,"source": string,"status": Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
                   }
                   Update: {
-                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"discord_username"?: string | null,"email"?: string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id"?: string,"external_id"?: string | null,"first_name"?: string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text"?: string,"source"?: string,"status"?: Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
+                    "accessibility"?: string | null,"allergies"?: string | null,"allergy_severity"?: string | null,"bio"?: string | null,"created_at"?: string,"deleted_at"?: string | null,"dietary_notes"?: string | null,"dietary_set_at"?: string | null,"directory_opt_in"?: boolean,"discord_username"?: string | null,"email"?: string,"emergency_name"?: string | null,"emergency_phone"?: string | null,"emergency_relation"?: string | null,"event_id"?: string,"external_id"?: string | null,"first_name"?: string,"id"?: string,"is_test"?: boolean,"last_name"?: string,"linkedin_set_at"?: string | null,"linkedin_url"?: string | null,"looking_for_team"?: boolean,"overnight"?: string | null,"pace"?: string | null,"photo_path"?: string | null,"photo_updated_at"?: string | null,"profile_public"?: boolean,"rsvp_sent_at"?: string | null,"rsvp_token_hash"?: string | null,"search_text"?: string,"source"?: string,"status"?: Database["public"]['Enums']["participant_status"],"team_id"?: string | null,"team_status"?: string | null,"updated_at"?: string,"website_url"?: string | null
                   }
                   Relationships: [
                     {
@@ -432,7 +438,7 @@ isOneToOne: false
 { Args: { "p_deadline": string,"p_sent_at": string }; Returns: string
                            },
 "_set_hacker_profile":
-{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes": string,"p_discord"?: string,"p_emergency_name": string,"p_emergency_phone": string,"p_emergency_relation": string,"p_linkedin_url": string,"p_overnight"?: string,"p_participant_id": string,"p_public": boolean,"p_team_status"?: string,"p_website"?: string }; Returns: undefined
+{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_bio"?: string,"p_dietary_notes": string,"p_directory_opt_in"?: boolean,"p_discord"?: string,"p_emergency_name": string,"p_emergency_phone": string,"p_emergency_relation": string,"p_linkedin_url": string,"p_overnight"?: string,"p_pace"?: string,"p_participant_id": string,"p_public": boolean,"p_team_status"?: string,"p_website"?: string }; Returns: undefined
                            },
 "_who":
 { Args: { "k": Database["public"]['Enums']["checkpoint_kind"],"pa": Omit<Database["public"]['Tables']["participants"]['Row'], Database["public"]['Tables']["participants"]['ComputedFields']> }; Returns: Json
@@ -452,15 +458,17 @@ isOneToOne: false
 { Args: { "p_limit"?: number }; Returns: {
               "attempts": number,
 "created_at": string,
+"event_id": string | null,
 "id": string,
 "kind": string,
 "last_error": string | null,
 "locked_until": string | null,
 "next_attempt_at": string,
-"participant_id": string,
+"participant_id": string | null,
 "provider_message_id": string | null,
 "sent_at": string | null,
-"status": Database["public"]['Enums']["outbox_status"]
+"status": Database["public"]['Enums']["outbox_status"],
+"user_id": string | null
             }[]
                           SetofOptions: {
         from: "*"
@@ -488,6 +496,9 @@ isOneToOne: false
                            },
 "grant_admin_roles":
 { Args: { "p_user_id": string }; Returns: number
+                           },
+"hacker_directory":
+{ Args: { "p_email": string,"p_event_id": string,"p_looking"?: boolean }; Returns: Json
                            },
 "ingest_sheet_row":
 { Args: { "p_dietary_notes"?: string,"p_dry_run"?: boolean,"p_email": string,"p_event_id": string,"p_external_id": string,"p_first_name": string,"p_last_name": string,"p_linkedin_url"?: string,"p_search_text": string }; Returns: string
@@ -541,7 +552,7 @@ isOneToOne: false
 { Args: { "p_email": string,"p_linkedin_url": string,"p_participant_id": string,"p_public": boolean,"p_user_id": string }; Returns: boolean
                            },
 "save_hacker_profile":
-{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_dietary_notes"?: string,"p_discord"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string,"p_website"?: string }; Returns: boolean
+{ Args: { "p_accessibility"?: string,"p_allergies"?: string,"p_allergy_severity"?: string,"p_bio"?: string,"p_dietary_notes"?: string,"p_directory_opt_in"?: boolean,"p_discord"?: string,"p_email": string,"p_emergency_name"?: string,"p_emergency_phone"?: string,"p_emergency_relation"?: string,"p_linkedin_url"?: string,"p_overnight"?: string,"p_pace"?: string,"p_participant_id": string,"p_public"?: boolean,"p_team_status"?: string,"p_user_id": string,"p_website"?: string }; Returns: boolean
                            },
 "search_participants":
 { Args: { "p_checkpoint_id"?: string,"p_event_id": string,"p_query": string }; Returns: {
@@ -553,6 +564,9 @@ isOneToOne: false
                            },
 "set_rsvp_token":
 { Args: { "p_outbox_id": string,"p_token_hash": string }; Returns: Json
+                           },
+"staff_email_target":
+{ Args: { "p_outbox_id": string }; Returns: Json
                            },
 "team_create":
 { Args: { "p_code": string,"p_email": string,"p_name": string,"p_participant_id": string,"p_user_id": string }; Returns: string

@@ -1,3 +1,4 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
 import Link from 'next/link';
@@ -6,8 +7,9 @@ import Link from 'next/link';
 export default function NotFound() {
   return (
     <Entrance><main style={{ maxWidth: 420, margin: '0 auto', padding: '32px 16px' }}>
+      <BrandMark />
       <h1>Page not found</h1>
-      <p>This link doesn’t go anywhere. Check it, or start again from your menu.</p>
+      <p className="copy">This link doesn’t go anywhere. Check it, or start again from your menu.</p>
       <Link href="/">Home</Link>
     </main></Entrance>
   );

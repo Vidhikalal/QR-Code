@@ -53,6 +53,12 @@ describe('parseScannedText (SPEC §6.4)', () => {
     malformed(`${ORIGIN}/p#${'😀'.repeat(16)}`);
   });
 
+  it('T-TOK-02: passes emailed before the domain moved (v0.11.15) still parse; only over https', () => {
+    expect(parseScannedText(`https://nfc.yvesdonato.com/p#${TOKEN}`, ORIGIN)).toEqual({ ok: true, token: TOKEN });
+    malformed(`http://nfc.yvesdonato.com/p#${TOKEN}`);
+    malformed(`https://nfc.yvesdonato.com.evil.com/p#${TOKEN}`);
+  });
+
   it('T-TOK-02: a dev http origin works when APP_ORIGIN is http', () => {
     expect(parseScannedText(`http://localhost:3000/p#${TOKEN}`, 'http://localhost:3000')).toEqual({ ok: true, token: TOKEN });
   });

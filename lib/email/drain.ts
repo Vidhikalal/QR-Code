@@ -6,10 +6,11 @@ import { toFileLabel } from '@/lib/domain/file-label';
 import { nextAttempt, sanitizeError } from '@/lib/domain/outbox';
 import { generateToken, passToken, sha256hex } from '@/lib/domain/token';
 import { renderQrPng } from '@/lib/qr/render';
-import { ProviderError, type EmailProvider } from './provider';
+import { ProviderError, type EmailMessage, type EmailProvider } from './provider';
 import { renderPassEmail, type RenderedEmail } from './templates/pass';
 import { renderProfileReminderEmail } from './templates/profile-reminder';
 import { renderRsvpEmail } from './templates/rsvp';
+import { renderStaffAddedEmail } from './templates/staff-added';
 import { renderTeamInviteEmail } from './templates/team-invite';
 
 type Db = SupabaseClient<Database>;
@@ -60,83 +61,19 @@ async function finish(db: Db, args: FinishArgs): Promise<void> {
   if (error) throw new Error(`finish_outbox failed (${error.code})`);
 }
 
+// What the drainer sends for one row; null cancels it.
+type Outgoing = Pick<EmailMessage, 'to' | 'subject' | 'html' | 'text' | 'inlineImages' | 'fileLabel'>;
+
 async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<keyof DrainResult, 'claimed'>> {
   let providerId: string;
   try {
-    // 1. Reload the participant; stop if they were deleted, or (for a pass) are no longer accepted,
-    // or (for an RSVP or its reminder, F13) already are.
-    const { data: p, error } = await opts.db
-      .from('participants')
-      .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(name, venue, starts_at, timezone)')
-      .eq('id', row.participant_id)
-      .single();
-    if (error) throw new Error(`participant load failed (${error.code})`);
-    const accepted = p.status === 'accepted';
-    const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
-    if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) {
+    const message = row.kind === 'staff_added' ? await staffEmail(opts, row) : await participantEmail(opts, row);
+    if (!message) {
       await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
       return 'cancelled';
     }
-    const event = { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
-
-    let email: RenderedEmail;
-    if (rsvp) {
-      // 2. A fresh RSVP token, stored (hash only) BEFORE the send, like a pass (I-10); older links stop working.
-      // Only while this job is still ours (an answer that cancelled it since the claim stops the resend) and,
-      // for a reminder, while they can still answer. It answers when the invitation closes.
-      const token = generateToken();
-      const { data: stored, error: rsvpError } = await opts.db.rpc('set_rsvp_token', { p_outbox_id: row.id, p_token_hash: sha256hex(token) });
-      if (rsvpError) throw new Error(`set_rsvp_token failed (${rsvpError.code})`);
-      const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
-      if (!closes.success) {
-        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
-        return 'cancelled';
-      }
-      const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
-      email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
-    } else if (row.kind === 'team_invite') {
-      const { data: invite, error: inviteError } = await opts.db.from('team_invites')
-        .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
-        .eq('participant_id', row.participant_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-      if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
-      if (!invite) {
-        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
-        return 'cancelled';
-      }
-      email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
-    } else if (row.kind === 'profile_reminder') {
-      // F14 (v0.9): only while their profile still isn't finished.
-      if (p.emergency_name !== null && p.overnight !== null && p.team_status !== null) {
-        await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
-        return 'cancelled';
-      }
-      email = renderProfileReminderEmail({ firstName: p.first_name, event: event.name, appOrigin: opts.appOrigin });
-    } else if (row.kind === 'pass_issued' || row.kind === 'pass_reissued') {
-      // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
-      const passId = randomUUID();
-      const token = passToken(opts.passSecret, passId);
-      const { error: issueError } = await opts.db.rpc('issue_pass', {
-        p_participant_id: row.participant_id,
-        p_token_hash: sha256hex(token),
-        p_pass_id: passId,
-      });
-      if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
-      const passUrl = `${opts.appOrigin}/p#${token}`;
-      email = renderPassEmail({ firstName: p.first_name, event, passUrl, qrPng: await renderQrPng(passUrl), profileUrl: `${opts.appOrigin}/me/profile` });
-    } else {
-      // A kind this drainer doesn't know is never sent, least of all as a pass.
-      await finish(opts.db, { p_id: row.id, p_status: 'cancelled' });
-      return 'cancelled';
-    }
-
     // 3. Send.
-    ({ id: providerId } = await opts.provider.send({
-      to: p.email,
-      from: opts.from,
-      ...email,
-      idempotencyKey: `${row.id}:${row.attempts}`,
-      fileLabel: toFileLabel(p.events.name, p.first_name),
-    }));
+    ({ id: providerId } = await opts.provider.send({ ...message, from: opts.from, idempotencyKey: `${row.id}:${row.attempts}` }));
   } catch (err) {
     // 5. Failure: back off, or give up after the last attempt. last_error is sanitized (I-11).
     const next = nextAttempt({
@@ -162,4 +99,76 @@ async function processRow(opts: DrainOptions, row: OutboxRow): Promise<Exclude<k
   // code; only the newest works (accepted edge, SPEC F4).
   await finish(opts.db, { p_id: row.id, p_status: 'sent', p_provider_message_id: providerId });
   return 'sent';
+}
+
+// 1. Reload the participant; stop if they were deleted, or (for a pass) are no longer accepted,
+// or (for an RSVP or its reminder, F13) already are.
+async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Outgoing | null> {
+  const participantId = row.participant_id;
+  if (participantId === null) return null;
+  const { data: p, error } = await opts.db
+    .from('participants')
+    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(name, venue, starts_at, timezone)')
+    .eq('id', participantId)
+    .single();
+  if (error) throw new Error(`participant load failed (${error.code})`);
+  const accepted = p.status === 'accepted';
+  const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
+  if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) return null;
+  const event = { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
+
+  let email: RenderedEmail;
+  if (rsvp) {
+    // 2. A fresh RSVP token, stored (hash only) BEFORE the send, like a pass (I-10); older links stop working.
+    // Only while this job is still ours (an answer that cancelled it since the claim stops the resend) and,
+    // for a reminder, while they can still answer. It answers when the invitation closes.
+    const token = generateToken();
+    const { data: stored, error: rsvpError } = await opts.db.rpc('set_rsvp_token', { p_outbox_id: row.id, p_token_hash: sha256hex(token) });
+    if (rsvpError) throw new Error(`set_rsvp_token failed (${rsvpError.code})`);
+    const closes = z.object({ closesAt: z.string().nullable() }).safeParse(stored);
+    if (!closes.success) return null;
+    const closesAt = closes.data.closesAt && new Date(closes.data.closesAt).toISOString();
+    email = renderRsvpEmail({ firstName: p.first_name, event, rsvpUrl: `${opts.appOrigin}/rsvp#${token}`, closesAt, reminder: row.kind === 'rsvp_reminder' });
+  } else if (row.kind === 'team_invite') {
+    const { data: invite, error: inviteError } = await opts.db.from('team_invites')
+      .select('teams!inner(name), participants!team_invites_invited_by_fkey(first_name)')
+      .eq('participant_id', participantId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (inviteError) throw new Error(`invite load failed (${inviteError.code})`);
+    if (!invite) return null;
+    email = renderTeamInviteEmail({ firstName: p.first_name, inviter: invite.participants?.first_name ?? 'A teammate', team: invite.teams.name, event: event.name, appOrigin: opts.appOrigin });
+  } else if (row.kind === 'profile_reminder') {
+    // F14 (v0.9): only while their profile still isn't finished.
+    if (p.emergency_name !== null && p.overnight !== null && p.team_status !== null) return null;
+    email = renderProfileReminderEmail({ firstName: p.first_name, event: event.name, appOrigin: opts.appOrigin });
+  } else if (row.kind === 'pass_issued' || row.kind === 'pass_reissued') {
+    // 2. Issue the pass. issue_pass() commits in its own transaction BEFORE the send (I-10).
+    const passId = randomUUID();
+    const token = passToken(opts.passSecret, passId);
+    const { error: issueError } = await opts.db.rpc('issue_pass', {
+      p_participant_id: participantId,
+      p_token_hash: sha256hex(token),
+      p_pass_id: passId,
+    });
+    if (issueError) throw new Error(`issue_pass failed (${issueError.code})`);
+    const passUrl = `${opts.appOrigin}/p#${token}`;
+    email = renderPassEmail({ firstName: p.first_name, event, passUrl, qrPng: await renderQrPng(passUrl), profileUrl: `${opts.appOrigin}/me/profile` });
+  } else {
+    // A kind this drainer doesn't know is never sent, least of all as a pass.
+    return null;
+  }
+
+  return { to: p.email, ...email, fileLabel: toFileLabel(p.events.name, p.first_name) };
+}
+
+// F9 step 1 (v0.11.12): an existing account added as staff. Read when sent, so it carries their current role,
+// and is cancelled if they were removed before it went out.
+async function staffEmail(opts: DrainOptions, row: OutboxRow): Promise<Outgoing | null> {
+  const { data, error } = await opts.db.rpc('staff_email_target', { p_outbox_id: row.id });
+  if (error) throw new Error(`staff_email_target failed (${error.code})`);
+  if (data === null) return null;
+  const t = z
+    .object({ email: z.string(), name: z.string().nullable(), role: z.enum(['organizer', 'volunteer']), slug: z.string(), eventName: z.string(), startsAt: z.string(), timezone: z.string() })
+    .parse(data);
+  const email = renderStaffAddedEmail({ name: t.name, role: t.role, event: { name: t.eventName, startsAt: t.startsAt, timezone: t.timezone }, slug: t.slug, appOrigin: opts.appOrigin });
+  return { to: t.email, ...email, fileLabel: toFileLabel(t.eventName, 'staff') };
 }

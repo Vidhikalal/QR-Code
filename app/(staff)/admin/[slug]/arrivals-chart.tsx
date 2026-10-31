@@ -1,9 +1,9 @@
 'use client';
 
-import { Alert } from '@/components/ui/alert';
+import { useEffect, useRef, useState } from 'react';
+import { useHoverDetails } from '@/components/ui/hover-details';
+import { arrivalLabels } from '@/lib/domain/dashboard';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
-
-import { useState } from 'react';
 
 export interface ArrivalBucket {
   bucketUtc: string;
@@ -11,8 +11,7 @@ export interface ArrivalBucket {
   arrivals: number;
 }
 
-const W = 720;
-const H = 220;
+const H = 196;
 const PAD = { top: 12, right: 8, bottom: 28, left: 36 };
 
 // Whole-number ticks (these are head counts): a 1/2/5 × 10^k step giving at most ~4 intervals.
@@ -31,91 +30,89 @@ function barPath(x: number, y: number, w: number, h: number): string {
 }
 
 // Door arrivals per 15-minute bucket. One series, so no legend: the heading names it.
-export function ArrivalsChart({ buckets }: { buckets: ArrivalBucket[] }) {
-  const [hover, setHover] = useState<number | null>(null);
+export function ArrivalsChart({ buckets, timezone }: { buckets: ArrivalBucket[]; timezone: string }) {
+  const { bind, overlay } = useHoverDetails();
+  const container = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(320);
+  const hasBuckets = buckets.length > 0;
+  useEffect(() => {
+    const element = container.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setWidth(Math.floor(entry.contentRect.width));
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasBuckets]);
+  const labels = arrivalLabels(buckets.map(b => b.bucketUtc), timezone);
   if (buckets.length === 0) return <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">No door check-ins yet.</p>;
 
+  const W = Math.max(width, buckets.length * 44 + PAD.left + PAD.right);
   const { max, ticks } = niceScale(Math.max(...buckets.map((b) => b.arrivals)));
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
   const slot = plotW / buckets.length;
   const barW = Math.min(24, Math.max(2, slot - 2)); // ≤ 24px, ≥ 2px surface gap
-  const labelEvery = Math.max(1, Math.ceil(buckets.length / 8));
-  const hovered = hover === null ? undefined : buckets[hover];
+  const labelEvery = Math.max(1, Math.ceil(buckets.length / (W / 140)));
 
   return (
     <div className="relative
 
-          [background:linear-gradient(_145deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_55%_),_var(--card)]
+          [background:var(--surface)]
 
           [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-ticket p-[24px]
 
-          overflow-visible mt-[4px] shadow-panel max-[600.001px]:p-[16px_10px] [&_svg]:block [&_svg]:w-full
-
-          [&_svg]:h-auto [&_svg]:max-w-full [&_svg]:overflow-visible">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Door arrivals per 15 minutes, ${buckets.length} buckets, peak ${Math.max(...buckets.map((b) => b.arrivals))}`}>
-        {ticks.map((t) => {
-          const y = PAD.top + plotH - (t / max) * plotH;
-          return (
-            <g key={t}>
-              <line className="[stroke:var(--line)] [stroke-width:1] opacity-[0.8]" x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} />
-              <text className="[fill:var(--muted-foreground)] text-[11px]" x={PAD.left - 6} y={y + 4} textAnchor="end">
-                {t.toLocaleString('en-US')}
-              </text>
-            </g>
-          );
-        })}
-        {buckets.map((b, i) => {
-          const h = (b.arrivals / max) * plotH;
-          const cx = PAD.left + slot * i + slot / 2;
-          return (
-            <g key={b.bucketUtc}>
-              <rect
-                className="[fill:transparent] cursor-pointer [outline:none]
-
-          [&:hover_+_.tw-admin-chartBar]:[fill:rgb(167,_243,_208)]
-
-          [&:focus-visible_+_.tw-admin-chartBar]:[fill:rgb(167,_243,_208)] [&:focus-visible]:[stroke:var(--fg)]
-
-          [&:focus-visible]:[stroke-width:2]"
-                x={PAD.left + slot * i}
-                y={PAD.top}
-                width={slot}
-                height={plotH}
-                tabIndex={0}
-                aria-label={`${b.label}: ${b.arrivals} arrivals`}
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover(null)}
-              />
-              {h > 0 && <path className="tw-admin-chartBar [fill:var(--accent)] [transition:opacity_150ms_var(--ease)] [&:hover]:opacity-[0.75]" d={barPath(cx - barW / 2, PAD.top + plotH - h, barW, h)} pointerEvents="none" />}
-              {i % labelEvery === 0 && (
-                <text className="[fill:var(--muted-foreground)] text-[11px]" x={cx} y={H - 8} textAnchor="middle">
-                  {b.label.replace(/\s\S+$/, '')}
+          min-w-0 overflow-visible mt-[4px] shadow-panel max-[600.001px]:p-[16px_10px]">
+      <div ref={container} className="min-w-0 overflow-x-auto">
+        <svg className="block" style={{ width: W, height: H, maxWidth: 'none' }} viewBox={`0 0 ${W} ${H}`} role="group" aria-label={`Door arrivals per 15 minutes, ${buckets.length} buckets, peak ${Math.max(...buckets.map((b) => b.arrivals))}`}>
+          {ticks.map((t) => {
+            const y = PAD.top + plotH - (t / max) * plotH;
+            return (
+              <g key={t}>
+                <line className="[stroke:var(--line)] [stroke-width:1] opacity-[0.8]" x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} />
+                <text className="[fill:var(--muted-foreground)] text-[11px]" x={PAD.left - 6} y={y + 4} textAnchor="end">
+                  {t.toLocaleString('en-US')}
                 </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
-      {hovered && hover !== null && (
-        <Alert className="absolute [pointer-events:none] [background:var(--bg-deep)] text-fg [border-width:1px]
+              </g>
+            );
+          })}
+          {buckets.map((b, i) => {
+            const h = (b.arrivals / max) * plotH;
+            const cx = PAD.left + slot * i + slot / 2;
+            return (
+              <g key={b.bucketUtc}>
+                <rect
+                  className="[fill:transparent] cursor-pointer [outline:none]
 
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
+            [&:hover_+_.tw-admin-chartBar]:[fill:rgb(167,_243,_208)]
 
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] text-[12px] p-[10px_12px]
+            [&:focus-visible_+_.tw-admin-chartBar]:[fill:rgb(167,_243,_208)] [&:focus-visible]:[stroke:var(--fg)]
 
-          rounded-control whitespace-nowrap [transform:translate(-50%,_-100%)] shadow-panel" asChild role="status"><div
-
-          style={{ left: `${((PAD.left + slot * hover + slot / 2) / W) * 100}%`, top: 12 }}
-          role="status"
-        >
-          {hovered.label} · {hovered.arrivals}
-        </div></Alert>
-      )}
+            [&:focus-visible]:[stroke-width:2]"
+                  x={PAD.left + slot * i}
+                  y={PAD.top}
+                  width={slot}
+                  height={plotH}
+                  tabIndex={0}
+                  data-bucket-utc={b.bucketUtc}
+                  role="img"
+                  aria-label={`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? 'arrival' : 'arrivals'}`}
+                  {...bind(`${labels[i]!.detail} · ${b.arrivals} ${b.arrivals === 1 ? 'arrival' : 'arrivals'}`)}
+                />
+                {h > 0 && <path className="tw-admin-chartBar [fill:var(--accent)]" d={barPath(cx - barW / 2, PAD.top + plotH - h, barW, h)} pointerEvents="none" />}
+                {i % labelEvery === 0 && (
+                  <text className="[fill:var(--muted-foreground)] text-[11px]" x={cx} y={H - 8} textAnchor="middle">
+                    {labels[i]!.axis}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {overlay}
       <details className="[&_summary]:cursor-pointer [&_summary]:min-h-[44px] [&_summary]:flex [&_summary]:items-center
 
           [&_summary]:text-link [&_summary]:text-[13px] [&_summary]:font-semibold">
@@ -128,9 +125,9 @@ export function ArrivalsChart({ buckets }: { buckets: ArrivalBucket[] }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {buckets.map((b) => (
+            {buckets.map((b, i) => (
               <TableRow key={b.bucketUtc}>
-                <TableCell>{b.label}</TableCell>
+                <TableCell>{labels[i]!.detail}</TableCell>
                 <TableCell className="tw-admin-num text-right! tabular-nums">{b.arrivals}</TableCell>
               </TableRow>
             ))}

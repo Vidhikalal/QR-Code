@@ -26,13 +26,14 @@ async function hacker(browser: Browser, participantId: string) {
 
 test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joins with its code, A picks the released track', async ({ page, browser }) => {
   await signIn(page, f.staffEmail.org1, `/admin/${f.slug}/teams`);
-  await page.getByLabel('Add tracks, one per line').fill('Best AI/ML Project\nBest Hardware Project');
-  await page.getByRole('button', { name: 'Add tracks' }).click();
-  await expect(page.getByText('✓ Tracks added.')).toBeVisible();
+  const tracks = await page.request.post(`/api/admin/${f.slug}/tracks`, {
+    data: { text: 'Best AI/ML Project\nBest Hardware Project' },
+  });
+  expect(tracks.ok()).toBe(true);
 
   // Before forming opens, the Team page says so and offers nothing.
   const a = await hacker(browser, f.p.A);
-  await a.page.getByRole('link', { name: 'Team' }).click();
+  await a.page.getByRole('link', { name: /^Team\b/ }).click();
   await expect(a.page.getByText('Teams open on hackathon day.')).toBeVisible();
   await expect(a.page.getByRole('button', { name: 'Create team' })).toHaveCount(0);
 
@@ -65,6 +66,7 @@ test('T-TEAM-07: tracks and forming from the admin page; A creates a team, B joi
   // The organizer sees the team, both members and the track.
   await page.reload();
   const team = page.getByRole('region', { name: 'Team Data Wizards' });
+  await team.locator('summary').click();
   await expect(team.getByText('Ada Fixture')).toBeVisible();
   await expect(team.getByText('Ben Fixture')).toBeVisible();
   await expect(team.getByLabel('Track of Data Wizards')).toHaveValue(/.+/);
@@ -88,20 +90,29 @@ test('T-TEAM-07: N opts into the directory, A invites by email, N accepts and bo
   await n.page.getByLabel('Looking for a team', { exact: true }).check();
   await n.page.getByRole('button', { name: 'Save directory preference' }).click();
   await expect(n.page.getByRole('status')).toContainText('Directory preference saved');
-  await expect(n.page.getByText('Create a team to invite them.')).toBeVisible();
-  await a.reload();
-  const directory = a.getByRole('region', { name: 'Teammate directory' });
+  await n.page.getByRole('link', { name: 'Find teammates in the Hacker directory' }).click();
+  await expect(n.page.getByText('Create a team to invite them.', { exact: false })).toBeVisible();
+  const ownDirectory = n.page.getByRole('region', { name: 'Hacker directory' });
+  await expect(ownDirectory.getByText('Nia Fixture')).toHaveCount(0);
+  await expect(ownDirectory.getByRole('button', { name: /Invite/ })).toHaveCount(0);
+  await a.goto('/me/hackers?looking=1');
+  const directory = a.getByRole('region', { name: 'Hacker directory' });
   await expect(directory.getByText('Nia Fixture')).toBeVisible();
-  await directory.getByRole('button', { name: 'Invite' }).click();
+  await expect(directory.getByText('Ada Fixture')).toHaveCount(0);
+  await expect(directory.getByRole('button', { name: 'Invite Ada Fixture', exact: true })).toHaveCount(0);
+  const nia = directory.getByRole('article', { name: 'Nia Fixture', exact: true });
+  await expect(nia.getByRole('button', { name: 'Invite', includeHidden: true })).not.toBeVisible();
+  await nia.locator('summary').click();
+  await nia.getByRole('button', { name: 'Invite' }).click();
   await expect(a.getByRole('status')).toContainText('Invite sent');
   expect(await consoleMailText(await emailOf(f.p.N), '/me/team')).toContain(`${E2E_ORIGIN}/me/team`);
-  await n.page.reload();
+  await n.page.goto('/me/team');
   const invites = n.page.getByRole('region', { name: 'Pending invites' });
   await expect(invites).toContainText('Data Wizards');
   await expect(invites).toContainText('Ada');
   await invites.getByRole('button', { name: 'Accept', exact: true }).click();
   await expect(n.page.getByRole('heading', { name: 'Data Wizards' })).toBeVisible();
-  await a.reload();
+  await a.goto('/me/team');
   await expect(a.getByText('Nia Fixture')).toBeVisible();
   await aContext.close();
   await n.context.close();

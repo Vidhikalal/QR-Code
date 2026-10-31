@@ -1,4 +1,5 @@
 
+import { BrandMark } from '@/components/brand-mark';
 import { Entrance } from '@/components/motion';
 import { Card } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -39,24 +40,21 @@ export default async function EmergencyPage(props: { searchParams: Promise<{ sav
     <Entrance><main className="max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[24px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
-      <div className="flex items-center justify-between gap-[16px] min-h-[44px] pb-[4px] mb-[8px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)]">
-        <Link className="inline-flex items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
+      <div className="flex items-center gap-[16px] min-h-[44px] mb-[8px]">
+        <Link className="inline-flex shrink-0 items-center min-h-[44px] text-fg font-semibold no-underline [&:hover]:text-accent" href="/me">
           ← Menu
         </Link>
-        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-muted-foreground text-[12px] tracking-[0.08em]
-
-          uppercase">{m.event.name}</span>
+        <BrandMark name={m.event.name} className="max-w-[70%]" />
+        <span aria-hidden="true" className="min-w-3 flex-1 h-px bg-[var(--edge)]" />
       </div>
       <h1>Emergency contact</h1>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="event-help" >
         <h2 id="event-help">During the event</h2>
-        <p className="whitespace-pre-line [overflow-wrap:anywhere] leading-[1.7]">{m.event.emergencyInfo || 'The organizers haven’t posted emergency info yet. Find an organizer at the venue.'}</p>
+        <p className="copy whitespace-pre-line [overflow-wrap:anywhere] leading-[1.7]">{m.event.emergencyInfo || 'The organizers haven’t posted emergency info yet. Find an organizer at the venue.'}</p>
       </section></Card>
       <Card className="[&>p]:m-0 [&>h2]:text-lg " asChild><section aria-labelledby="own-contact" >
         <h2 id="own-contact">Your emergency contact</h2>
-        <p className="m-0 text-muted-foreground text-[14px]">Who we call if something happens to you. Only the organizers see it, and it’s deleted 30 days after the event.</p>
+        <p className="copy m-0 text-muted-foreground text-[14px]">Who we call if something happens to you. Only the organizers see it, and it’s deleted 30 days after the event.</p>
         <form action={save} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 
           [&_label]:font-medium [&_h2]:m-[12px_0px_-8px] [&_h2]:pt-[16px] [&_h2]:[border-top-width:1px]

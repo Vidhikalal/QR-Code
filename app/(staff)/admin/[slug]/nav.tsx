@@ -3,8 +3,6 @@
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'motion/react';
 import { usePathname } from 'next/navigation';
-import { useSyncExternalStore } from 'react';
-import { nfcSupported } from '@/lib/scanner/nfc';
 
 const TABS = [
   ['', 'Dashboard'],
@@ -12,27 +10,19 @@ const TABS = [
   ['/teams', 'Teams'],
   ['/checkpoints', 'Checkpoints'],
   ['/staff', 'Staff'],
-  ['/sync', 'Sync'],
   ['/info', 'Info'],
   ['/export', 'Export'],
 ] as const;
-
-const subscribeNever = () => () => undefined;
 
 export function AdminNav({ slug }: { slug: string }) {
   const pathname = usePathname();
   const reduced = useReducedMotion();
   const base = `/admin/${slug}`;
-  // §11: the Tools page (the tag writer) needs Web NFC (Chrome on Android); elsewhere the tab isn't shown.
-  const nfc = useSyncExternalStore(subscribeNever, nfcSupported, () => false);
-  const tabs = nfc ? [...TABS, ['/tools', 'Tools'] as const] : TABS;
   return (
-    <nav aria-label="Admin" className="flex [justify-content:safe_center] items-center flex-nowrap gap-[10px] [overflow:auto_hidden]
-          max-w-full
- min-w-0 [scrollbar-width:thin]
-
-          [scrollbar-color:color-mix(in_srgb,_var(--accent)_30%,_transparent)_transparent]">
-      {tabs.map(([path, label]) => {
+    <nav aria-label="Admin" onFocus={(event) => event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
+      className="flex justify-start items-center flex-nowrap gap-[10px] overflow-x-auto overflow-y-hidden
+          max-w-full min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {TABS.map(([path, label]) => {
         const href = base + path;
         return (
           <Link key={label} href={href} className="tw-admin-tab relative inline-flex items-center min-h-[48px] p-[0px_16px] text-muted-foreground no-underline

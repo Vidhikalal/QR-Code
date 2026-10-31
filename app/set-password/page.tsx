@@ -1,3 +1,4 @@
+import { BrandMark } from '@/components/brand-mark';
 
 import { Entrance } from '@/components/motion';
 import { Input } from '@/components/ui/input';
@@ -46,6 +47,7 @@ export default async function SetPasswordPage({ searchParams }: { searchParams: 
     <Entrance><main className="min-h-dvh justify-center max-w-[480px] lg:pointer-fine:max-w-[760px]  m-[0px_auto] p-[48px_16px_56px] flex flex-col gap-[16px] [:where(&)_>_*]:mt-0
 
           [:where(&)_>_*]:mb-0">
+      <BrandMark />
       <h1>Set your password</h1>
       <form action={savePassword} className="grid gap-[16px] [&_label_+_:is(input,_select,_textarea)]:mt-[-10px] [&_label]:text-[14px]
 

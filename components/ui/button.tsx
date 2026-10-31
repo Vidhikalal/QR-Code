@@ -4,16 +4,16 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-solid font-sans text-base font-semibold no-underline cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-60 aria-invalid:border-destructive motion-safe:active:scale-[0.97] motion-safe:transition-transform motion-safe:duration-120 motion-safe:ease-out',
+  'inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-solid font-mono text-base font-bold no-underline cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ring/60 disabled:pointer-events-none disabled:opacity-60 aria-invalid:border-destructive motion-safe:active:scale-[0.97] motion-safe:transition-[background-color,border-color,color,transform] motion-safe:duration-160 motion-safe:ease-out',
   {
     variants: {
       variant: {
-        default: 'border-primary bg-primary text-primary-foreground hover:bg-primary/90',
-        destructive: 'border-destructive bg-destructive text-primary-foreground hover:bg-destructive/90',
-        outline: 'border-primary bg-transparent text-primary hover:bg-primary/10',
-        secondary: 'border-border bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        ghost: 'border-transparent bg-transparent text-foreground hover:bg-secondary',
-        link: 'border-transparent bg-transparent text-link underline underline-offset-4 hover:text-foreground',
+        default: 'border-2 border-primary/60 bg-primary/5 text-primary hover:border-primary hover:bg-primary hover:text-primary-foreground',
+        destructive: 'border-destructive/60 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground',
+        outline: 'rounded-sm border-border bg-transparent text-foreground hover:border-primary/60 hover:text-primary',
+        secondary: 'border-border bg-secondary text-secondary-foreground hover:border-primary/60 hover:bg-primary hover:text-primary-foreground',
+        ghost: 'border-transparent bg-transparent text-foreground hover:text-primary',
+        link: 'border-transparent bg-transparent text-link underline underline-offset-[0.18em] hover:text-primary',
       },
       size: {
         default: 'min-h-11 min-w-11 px-4 py-2',

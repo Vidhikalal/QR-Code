@@ -1,12 +1,12 @@
 'use client';
 
+import { SectionLabel } from '@/components/section-label';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableRow, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { NativeSelect } from '@/components/ui/native-select';
 
 import { useCallback, useState } from 'react';
@@ -84,9 +84,9 @@ export function Teams({ slug }: { slug: string }) {
 
           [&_.tw-admin-muted]:m-0 [&_.tw-admin-muted]:leading-[1.6]">
         <div>
-          <p className="tw-admin-eyebrow m-[0px_0px_10px] text-accent text-[11px] font-extrabold tracking-[0.14em]">EVENT MANAGEMENT</p>
+          <SectionLabel>EVENT MANAGEMENT</SectionLabel>
           <h1>Teams &amp; tracks</h1>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Organize hackers, manage tracks, and monitor team formation.</p>
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Organize hackers, manage tracks, and monitor team formation.</p>
         </div>
         <div className="flex items-center gap-[8px] pt-[8px] max-[700.001px]:pt-0">
           <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
@@ -116,7 +116,7 @@ export function Teams({ slug }: { slug: string }) {
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+          [background:var(--surface)]
 
           shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
 
@@ -224,9 +224,9 @@ export function Teams({ slug }: { slug: string }) {
 
           [&_>_.tw-admin-badge]:whitespace-nowrap">
         <div>
-          <p className="tw-admin-eyebrow m-[0px_0px_10px] text-accent text-[11px] font-extrabold tracking-[0.14em]">CONFIGURATION</p>
+          <SectionLabel>CONFIGURATION</SectionLabel>
           <h2>Tracks</h2>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Manage the categories participants can choose for their teams.</p>
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Manage the categories participants can choose for their teams.</p>
         </div>
         <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
 
@@ -305,73 +305,9 @@ export function Teams({ slug }: { slug: string }) {
           </Table>
         </div>
       )}
-      <form
-        className="flex items-end gap-[10px] w-full max-w-[none] box-border m-[20px_0px_40px] p-[16px]
-
-          [background:var(--card)] [border-width:1px] [border-style:solid] [border-top-color:var(--line)]
-
-          [border-right-color:var(--line)] [border-bottom-color:var(--line)] [border-left-color:var(--line)]
-
-          rounded-lg [box-shadow:rgba(0,_0,_0,_0.04)_0px_8px_24px] max-[600.001px]:p-[12px]
-
-          [&_.tw-admin-field]:flex [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:flex-col
-
-          [&_.tw-admin-field]:min-w-0 [&_.tw-admin-field]:gap-[8px] [&_.tw-admin-field]:text-[14px]
-
-          [&_.tw-admin-field]:font-bold [&_.tw-admin-addTrackInput]:block [&_.tw-admin-addTrackInput]:w-full
-
-          [&_.tw-admin-addTrackInput]:min-w-0 [&_.tw-admin-addTrackInput]:min-h-[40px]
-
-          [&_.tw-admin-addTrackInput]:box-border [&_.tw-admin-addTrackInput]:p-[9px_12px]
-
-          [&_.tw-admin-addTrackInput]:[border-width:1px] [&_.tw-admin-addTrackInput]:[border-style:solid]
-
-          [&_.tw-admin-addTrackInput]:[border-top-color:var(--line)]
-
-          [&_.tw-admin-addTrackInput]:[border-right-color:var(--line)]
-
-          [&_.tw-admin-addTrackInput]:[border-bottom-color:var(--line)]
-
-          [&_.tw-admin-addTrackInput]:[border-left-color:var(--line)] [&_.tw-admin-addTrackInput]:rounded-control
-
-          [&_.tw-admin-addTrackInput]:[background:var(--card)] [&_.tw-admin-addTrackInput]:text-fg
-
-          [&_.tw-admin-addTrackInput]:[font:inherit] [&_.tw-admin-addTrackInput]:[outline:none]
-
-          [&_.tw-admin-addTrackInput]:[box-shadow:none] [&_.tw-admin-addTrackInput:focus]:border-accent
-
-          [&_.tw-admin-addTrackInput:focus]:[box-shadow:0_0_0_3px_color-mix(in_srgb,_var(--accent)_12%,_transparent)]
-
-          [&_>_div]:flex [&_>_div]:[flex:0_0_auto] [&_>_div]:items-center [&_>_div]:m-0 [&_button]:min-h-[44px]
-
-          [&_button]:p-[0px_14px] [&_button]:rounded-control [&_button]:text-[14px] [&_button]:font-semibold
-
-          [&_button]:whitespace-nowrap"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const form = e.currentTarget;
-          void call('/tracks', 'POST', { text: text(new FormData(form), 'text') }).then(async (r) => {
-            if (await done(r, 'Tracks added.')) form.reset();
-          });
-        }}
-      >
-        <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-          Add tracks, one per line
-          <Textarea name="text" required className="tw-admin-addTrackInput w-full flex-1 min-w-0 box-border min-h-[40px] p-[10px_12px] [border-width:1px]
-
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
-
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-control
-
-          [background:var(--card)] text-fg [font:inherit] [outline:none] [box-shadow:none]
-          [&:focus]:border-accent
-
-          [&:focus]:[box-shadow:0_0_0_3px_color-mix(in_srgb,_var(--accent)_12%,_transparent)]" style={{ minHeight: 120 }} />
-        </Label>
-        <div>
-          <Button type="submit">Add tracks</Button>
-        </div>
-      </form>
+      {data.tracks.length === 0 && (
+        <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">No tracks yet.</p>
+      )}
 
       <div className="flex items-center justify-between gap-[20px] m-[36px_0px_20px] pb-[16px] [border-bottom-width:1px]
 
@@ -385,9 +321,9 @@ export function Teams({ slug }: { slug: string }) {
 
           [&_>_.tw-admin-badge]:whitespace-nowrap">
         <div>
-          <p className="tw-admin-eyebrow m-[0px_0px_10px] text-accent text-[11px] font-extrabold tracking-[0.14em]">TEAM MANAGEMENT</p>
+          <SectionLabel>TEAM MANAGEMENT</SectionLabel>
           <h2>All teams</h2>
-          <p className="tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Create teams, assign tracks, and manage membership.</p>
+          <p className="copy tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">Create teams, assign tracks, and manage membership.</p>
         </div>
         <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
 
@@ -406,7 +342,7 @@ export function Teams({ slug }: { slug: string }) {
 
           [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-card
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_4%,_transparent),_transparent_65%_),_var(--card)]
+          [background:var(--surface)]
 
           shadow-panel max-[700.001px]:items-stretch max-[700.001px]:gap-[12px] max-[700.001px]:p-[14px]
 
@@ -452,7 +388,7 @@ export function Teams({ slug }: { slug: string }) {
 
           [&.tw-admin-toolbar]:[border-left-color:var(--line)] [&.tw-admin-toolbar]:rounded-lg
 
-          [&.tw-admin-toolbar]:[box-shadow:rgba(0,_0,_0,_0.04)_0px_8px_24px]
+          [&.tw-admin-toolbar]:[box-shadow:var(--shadow-e1)]
 
           max-[700.001px]:[&.tw-admin-toolbar]:[grid-template-columns:1fr_1fr]
 
@@ -524,7 +460,7 @@ export function Teams({ slug }: { slug: string }) {
       {data.teams.map((t) => (
         <section key={t.id} aria-label={`Team ${t.name}`} className="tw-admin-tile
 
-          [background:linear-gradient(_135deg,_color-mix(in_srgb,_var(--accent)_6%,_transparent),_transparent_60%_),_var(--card)]
+          [background:var(--surface)]
 
           [border-width:1px] [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 
@@ -548,7 +484,7 @@ export function Teams({ slug }: { slug: string }) {
 
           [&.tw-admin-tile]:[border-left-color:var(--line)] [&.tw-admin-tile]:rounded-lg
 
-          [&.tw-admin-tile]:[box-shadow:rgba(0,_0,_0,_0.08)_0px_8px_28px]
+          [&.tw-admin-tile]:[box-shadow:var(--shadow-e2)]
 
           [&.tw-admin-tile]:[transition:border-color_160ms] [&.tw-admin-tile]:block
           [&.tw-admin-tile]:min-h-[70px]
@@ -556,17 +492,17 @@ export function Teams({ slug }: { slug: string }) {
 
           [&.tw-admin-tile:hover]:[border-color:color-mix(in_srgb,_var(--accent)_35%,_var(--line))]
 
-          [&.tw-admin-tile_>_form]:items-end [&.tw-admin-tile_>_ul]:list-none [&.tw-admin-tile_>_ul]:m-[20px_0px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_form]:items-end [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:list-none [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:m-[20px_0px]
 
-          [&.tw-admin-tile_>_ul]:p-0 [&.tw-admin-tile_>_ul]:[border-top-width:1px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:p-0 [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:[border-top-width:1px]
 
-          [&.tw-admin-tile_>_ul]:[border-top-style:solid] [&.tw-admin-tile_>_ul]:[border-top-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:[border-top-style:solid] [&.tw-admin-tile_.tw-admin-teamBody_>_ul]:[border-top-color:var(--line)]
 
-          [&.tw-admin-tile_>_ul_>_li]:p-[12px_0px] [&.tw-admin-tile_>_ul_>_li]:[border-bottom-width:1px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_ul_>_li]:p-[12px_0px] [&.tw-admin-tile_.tw-admin-teamBody_>_ul_>_li]:[border-bottom-width:1px]
 
-          [&.tw-admin-tile_>_ul_>_li]:[border-bottom-style:solid]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_ul_>_li]:[border-bottom-style:solid]
 
-          [&.tw-admin-tile_>_ul_>_li]:[border-bottom-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_ul_>_li]:[border-bottom-color:var(--line)]
 
           [&.tw-admin-tile_.tw-admin-field]:min-w-[180px] [&.tw-admin-tile_.tw-admin-muted]:text-[12px]
 
@@ -604,35 +540,35 @@ export function Teams({ slug }: { slug: string }) {
 
           max-[600.001px]:[&.tw-admin-tile_.tw-admin-teamHeaderForm_.tw-admin-field]:w-full
 
-          [&.tw-admin-tile_>_label.tw-admin-field]:flex [&.tw-admin-tile_>_label.tw-admin-field]:flex-col
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field]:flex [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field]:flex-col
 
-          [&.tw-admin-tile_>_label.tw-admin-field]:gap-[6px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field]:gap-[6px]
 
-          [&.tw-admin-tile_>_label.tw-admin-field]:w-[min(100%,_360px)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field]:w-[min(100%,_360px)]
 
-          [&.tw-admin-tile_>_label.tw-admin-field]:m-0 [&.tw-admin-tile_>_label.tw-admin-field_select]:block
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field]:m-0 [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:block
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:w-full
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:w-full
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:min-h-[44px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:min-h-[44px]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:box-border
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:box-border
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:p-[10px_36px_10px_12px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:p-[10px_36px_10px_12px]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-width:1px]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-width:1px]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-style:solid]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-style:solid]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-top-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-top-color:var(--line)]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-right-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-right-color:var(--line)]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-bottom-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-bottom-color:var(--line)]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:[border-left-color:var(--line)]
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:[border-left-color:var(--line)]
 
-          [&.tw-admin-tile_>_label.tw-admin-field_select]:rounded-md
+          [&.tw-admin-tile_.tw-admin-teamBody_>_label.tw-admin-field_select]:rounded-md
 
           [&.tw-admin-tile_.tw-admin-memberList]:m-[12px_0px_0px] [&.tw-admin-tile_.tw-admin-addMemberForm]:flex
 
@@ -683,131 +619,149 @@ export function Teams({ slug }: { slug: string }) {
           [&.tw-admin-tile_.tw-admin-teamHeaderForm_.tw-admin-input]:p-[8px_10px]
 
           [&.tw-admin-tile_.tw-admin-teamHeaderForm_.tw-admin-input]:box-border">
-          <form
-            className="tw-admin-teamHeaderForm flex items-end flex-wrap gap-[12px] pb-[18px] [border-bottom-width:1px]
+          <details className="group">
+            <summary className="flex min-h-[44px] w-full cursor-pointer list-none items-center gap-[12px] rounded-md py-[12px]
+              focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[16px] gap-y-[8px]">
+                <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">{t.name}</span>
+                <span className="min-w-0 text-[12px] text-muted-foreground [overflow-wrap:anywhere]">
+                  {data.tracks.find((track) => track.id === t.trackId)?.name ?? 'No track'}
+                </span>
+                <span className="whitespace-nowrap text-[12px] tabular-nums text-muted-foreground">{t.members.length} / 4</span>
+                <span className="tw-admin-teamCode inline-flex items-center gap-[8px] p-[8px_12px]
 
-          [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[600.001px]:items-stretch
+              [background:color-mix(in_srgb,_var(--accent)_5%,_var(--card))] [border-width:1px] [border-style:solid]
 
-          max-[600.001px]:[flex-flow:column_wrap] [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:min-w-[180px]
+              [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
 
-          max-[600.001px]:[&_.tw-admin-field]:min-w-0 max-[600.001px]:[&_.tw-admin-field]:w-full
+              [border-left-color:var(--line)] rounded-control text-[10px]! font-extrabold tracking-[0.08em]
 
-          [&_.tw-admin-muted]:[align-self:center] [&_.tw-admin-muted]:m-[0px_4px] [&_button]:whitespace-nowrap
+              whitespace-nowrap [&_strong]:text-fg [&_strong]:text-[13px] [&_strong]:tracking-[0.04em]
 
-          max-[600.001px]:[&_.tw-admin-teamCode]:[align-self:flex-start]"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void call(`/teams/${t.id}`, 'PATCH', { name: text(new FormData(e.currentTarget), 'name') }).then((r) => done(r, 'Team renamed.'));
-            }}
-          >
-            <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-              Team name
-              <Input name="name" defaultValue={t.name} required maxLength={60} className="tw-admin-input w-full" />
-            </Label>
-            <Button type="submit" variant="outline">
-              Rename
-            </Button>
-            <span className="tw-admin-teamCode inline-flex items-center gap-[8px] p-[8px_12px]
+              [&_strong]:tabular-nums tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
+                  TEAM CODE <strong>{code(t.code)}</strong>
+                </span>
+              </span>
+              <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                className="size-4 shrink-0 text-muted-foreground group-open:rotate-180 motion-safe:transition-transform">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </summary>
+            <div className="tw-admin-teamBody pb-[14px]">
+              <form
+                className="tw-admin-teamHeaderForm flex items-end flex-wrap gap-[12px] pb-[18px] [border-bottom-width:1px]
 
-          [background:color-mix(in_srgb,_var(--accent)_5%,_var(--card))] [border-width:1px] [border-style:solid]
+              [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[600.001px]:items-stretch
 
-          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+              max-[600.001px]:[flex-flow:column_wrap] [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:min-w-[180px]
 
-          [border-left-color:var(--line)] rounded-control text-[10px]! font-extrabold tracking-[0.08em]
+              max-[600.001px]:[&_.tw-admin-field]:min-w-0 max-[600.001px]:[&_.tw-admin-field]:w-full
 
-          whitespace-nowrap [&_strong]:text-fg [&_strong]:text-[13px] [&_strong]:tracking-[0.04em]
+              [&_.tw-admin-muted]:[align-self:center] [&_.tw-admin-muted]:m-[0px_4px] [&_button]:whitespace-nowrap
 
-          [&_strong]:tabular-nums tw-admin-muted text-muted-foreground text-[12px] leading-[1.7]">
-              TEAM CODE <strong>{code(t.code)}</strong>
-            </span>
-            <Button type="button" variant="ghost" className="tw-admin-danger text-destructive hover:bg-destructive/10" onClick={() => setDeleting({ kind: 'teams', id: t.id, name: t.name })}>
-              Delete team
-            </Button>
-          </form>
-          <TrackSelect
-            tracks={data.tracks}
-            label={`Track of ${t.name}`}
-            value={t.trackId}
-            onChange={(trackId) => void call(`/teams/${t.id}`, 'PATCH', { trackId }).then((r) => done(r, 'Track saved.'))}
-          />
-          <ul className="tw-admin-memberList flex flex-col gap-0 list-none m-[20px_0px] p-0 [border-top-width:1px]
-
-          [border-top-style:solid] [border-top-color:var(--line)]">
-            {t.members.map((m) => (
-              <li key={m.id} className="tw-admin-memberRow flex items-center flex-wrap gap-[12px] p-[14px_0px] [border-bottom-width:1px]
-
-          [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[600.001px]:gap-[8px]
-
-          [&_>_:first-child]:mr-[auto] [&_>_:first-child]:font-semibold [&_.tw-admin-badge]:text-[11px]
-
-          [&_button]:whitespace-nowrap">
-                <span>{m.displayName}</span>
-                {m.status !== 'accepted' && <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
-
-          [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
-
-          [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md
-
-          [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap
-          max-w-full
- [font-family:inherit] tw-admin-badgeWarn
-
-          [&.tw-admin-badgeWarn]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
-
-          [&.tw-admin-badgeWarn]:[background:color-mix(in_srgb,_var(--warn,_#fbbf24)_10%,_var(--card))]
-
-          [&.tw-admin-badgeWarn]:[color:var(--warn,_#fbbf24)]">{m.status}</Badge>}
-                <Button
-                  type="button"
-                  variant="outline"
-                  aria-label={`Remove ${m.displayName} from ${t.name}`}
-                  onClick={() => void call(`/participants/${m.id}`, 'PATCH', { teamId: null }).then((r) => done(r, `Removed ${m.displayName}.`))}
-                >
-                  Remove
+              max-[600.001px]:[&_.tw-admin-teamCode]:[align-self:flex-start]"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void call(`/teams/${t.id}`, 'PATCH', { name: text(new FormData(e.currentTarget), 'name') }).then((r) => done(r, 'Team renamed.'));
+                }}
+              >
+                <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
+                  Team name
+                  <Input name="name" defaultValue={t.name} required maxLength={60} className="tw-admin-input w-full" />
+                </Label>
+                <Button type="submit" variant="outline">
+                  Rename
                 </Button>
-              </li>
-            ))}
-          </ul>
-          {t.members.length < 4 && data.unassigned.length > 0 && (
-            <form
-              className="tw-admin-addMemberForm flex items-end flex-wrap gap-[12px] mt-[20px] p-[16px]
+                <Button type="button" variant="ghost" className="tw-admin-danger text-destructive hover:bg-destructive/10" onClick={() => setDeleting({ kind: 'teams', id: t.id, name: t.name })}>
+                  Delete team
+                </Button>
+              </form>
+              <TrackSelect
+                tracks={data.tracks}
+                label={`Track of ${t.name}`}
+                value={t.trackId}
+                onChange={(trackId) => void call(`/teams/${t.id}`, 'PATCH', { trackId }).then((r) => done(r, 'Track saved.'))}
+              />
+              <ul className="tw-admin-memberList flex flex-col gap-0 list-none m-[20px_0px] p-0 [border-top-width:1px]
 
-          [background:color-mix(in_srgb,_var(--accent)_3%,_var(--card))] [border-width:1px] [border-style:solid]
+              [border-top-style:solid] [border-top-color:var(--line)]">
+                {t.members.map((m) => (
+                  <li key={m.id} className="tw-admin-memberRow flex items-center flex-wrap gap-[12px] p-[14px_0px] [border-bottom-width:1px]
 
-          [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+              [border-bottom-style:solid] [border-bottom-color:var(--line)] max-[600.001px]:gap-[8px]
 
-          [border-left-color:var(--line)] rounded-card max-[600.001px]:items-stretch
+              [&_>_:first-child]:mr-[auto] [&_>_:first-child]:font-semibold [&_.tw-admin-badge]:text-[11px]
 
-          max-[600.001px]:[flex-flow:column_wrap] [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:min-w-[200px]
+              [&_button]:whitespace-nowrap">
+                    <span>{m.displayName}</span>
+                    {m.status !== 'accepted' && <Badge className="tw-admin-badge inline-flex items-center justify-center w-[fit-content] p-[5px_9px] [border-width:1px]
 
-          max-[600.001px]:[&_.tw-admin-field]:min-w-0 max-[600.001px]:[&_.tw-admin-field]:w-full
+              [border-style:solid] [border-top-color:var(--line)] [border-right-color:var(--line)]
 
-          [&_button]:min-h-[44px] [&_button]:whitespace-nowrap max-[600.001px]:[&_button]:w-full"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const id = text(new FormData(e.currentTarget), 'participantId');
-                void call(`/participants/${id}`, 'PATCH', { teamId: t.id }).then((r) => done(r, 'Member added.'));
-              }}
-            >
-              <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
-                Add to {t.name}
-                <NativeSelect name="participantId" required className="tw-admin-input w-full" defaultValue="">
-                  <option value="" disabled>
-                    Pick a hacker
-                  </option>
-                  {data.unassigned.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.displayName}
-                      {u.looking ? ' (looking)' : ''}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </Label>
-              <Button type="submit" className="min-h-[44px] p-[0px_12px] text-[14px]">
-                Add
-              </Button>
-            </form>
-          )}
+              [border-bottom-color:var(--line)] [border-left-color:var(--line)] rounded-md
+
+              [background:var(--raised)] text-fg text-[11px] font-semibold leading-[1.35] whitespace-nowrap
+              max-w-full
+     [font-family:inherit] tw-admin-badgeWarn
+
+              [&.tw-admin-badgeWarn]:[border-color:color-mix(in_srgb,_var(--warn,_#fbbf24)_40%,_var(--line))]
+
+              [&.tw-admin-badgeWarn]:[background:color-mix(in_srgb,_var(--warn,_#fbbf24)_10%,_var(--card))]
+
+              [&.tw-admin-badgeWarn]:[color:var(--warn,_#fbbf24)]">{m.status}</Badge>}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-label={`Remove ${m.displayName} from ${t.name}`}
+                      onClick={() => void call(`/participants/${m.id}`, 'PATCH', { teamId: null }).then((r) => done(r, `Removed ${m.displayName}.`))}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              {t.members.length < 4 && data.unassigned.length > 0 && (
+                <form
+                  className="tw-admin-addMemberForm flex items-end flex-wrap gap-[12px] mt-[20px] p-[16px]
+
+              [background:color-mix(in_srgb,_var(--accent)_3%,_var(--card))] [border-width:1px] [border-style:solid]
+
+              [border-top-color:var(--line)] [border-right-color:var(--line)] [border-bottom-color:var(--line)]
+
+              [border-left-color:var(--line)] rounded-card max-[600.001px]:items-stretch
+
+              max-[600.001px]:[flex-flow:column_wrap] [&_.tw-admin-field]:flex-1 [&_.tw-admin-field]:min-w-[200px]
+
+              max-[600.001px]:[&_.tw-admin-field]:min-w-0 max-[600.001px]:[&_.tw-admin-field]:w-full
+
+              [&_button]:min-h-[44px] [&_button]:whitespace-nowrap max-[600.001px]:[&_button]:w-full"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const id = text(new FormData(e.currentTarget), 'participantId');
+                    void call(`/participants/${id}`, 'PATCH', { teamId: t.id }).then((r) => done(r, 'Member added.'));
+                  }}
+                >
+                  <Label className="tw-admin-field grid min-w-[140px] flex-[1_1_180px] gap-2 text-sm text-muted-foreground">
+                    Add to {t.name}
+                    <NativeSelect name="participantId" required className="tw-admin-input w-full" defaultValue="">
+                      <option value="" disabled>
+                        Pick a hacker
+                      </option>
+                      {data.unassigned.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.displayName}
+                          {u.looking ? ' (looking)' : ''}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </Label>
+                  <Button type="submit" className="min-h-[44px] p-[0px_12px] text-[14px]">
+                    Add
+                  </Button>
+                </form>
+              )}
+            </div>
+          </details>
         </section>
       ))}
       {deleting && (

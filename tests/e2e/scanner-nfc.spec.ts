@@ -9,6 +9,7 @@ import {
   nfcActive,
   nfcTap,
   nfcUnreadable,
+  nfcWrites,
   saveSignedInState,
   serialOf,
   trackCameraStreams,
@@ -111,6 +112,8 @@ test('T-NFC-29: Manual search links a badge without scanning; a repeated tap is 
   await nfcTap(page, serialOf(uid));
   expect((await linked).request().postDataJSON()).toEqual({ participantId: f.p.B, uid });
   await expect(sheet).toContainText(`✓ Badge ${serialOf(uid)} linked to Ben Fixture.`);
+  expect(await nfcWrites(page)).toEqual([{ records: [{ recordType: 'url', data: `https://badges.example.test/profile/${uid}?tap` }] }]);
+  await expect(sheet).toContainText('Its profile link is on the badge.');
   const badge = await f.pool.query<{ participant_id: string }>('select participant_id from badges where event_id = $1 and uid = $2', [f.e1.id, uid]);
   expect(badge.rows).toEqual([{ participant_id: f.p.B }]);
   const benScans = async () => (await f.pool.query('select id from scans where participant_id = $1', [f.p.B])).rows;
@@ -478,3 +481,60 @@ test('T-NFC-23: with the NFC permission already granted, NFC mode starts the rea
   await expect(page.getByRole('button', { name: 'Start badge reader' })).toHaveCount(0);
   expect(await nfcActive(page)).toBe(1);
 });
+
+for (const mode of ['existing', 'failed'] as const) {
+  test(`T-NFC-29: Manual search links with a ${mode} profile write and restores the camera`, async ({ page }) => {
+    await installFakeNfc(page);
+    await trackCameraStreams(page);
+    if (mode === 'failed') await page.addInitScript(() => {
+      (window as unknown as { NDEFReader: { prototype: { write: () => Promise<void> } } }).NDEFReader.prototype.write = async () => { throw new Error('read only'); };
+    });
+    await openScanner(page);
+    await page.getByRole('button', { name: 'Manual search' }).click();
+    await page.getByPlaceholder('Type a name').fill('nia');
+    await page.getByRole('button', { name: /^(Link|Replace) badge for Nia Fixture$/ }).click();
+    const uid = randomUid();
+    await nfcTap(page, serialOf(uid), mode === 'existing' ? [`https://badges.example.test/profile/${uid}?tap`] : []);
+    const sheet = page.getByRole('dialog', { name: 'Link a badge' });
+    const suffix = mode === 'existing' ? '' : " Couldn't write its profile link: hold the badge still and tap Link badge again.";
+    await expect(sheet).toContainText(`✓ Badge ${serialOf(uid)} linked to Nia Fixture.${suffix}`);
+    expect(await nfcWrites(page)).toEqual([]);
+    expect((await f.pool.query('select participant_id from badges where uid = $1', [uid])).rows).toEqual([{ participant_id: f.p.N }]);
+    await expect(page.getByTestId('scan-result')).toBeHidden();
+    await sheet.getByRole('button', { name: 'Done' }).click();
+    await expect(page.locator('main')).toHaveAttribute('data-camera', 'ready');
+    expect(await liveCameraTracks(page)).toBe(1);
+    expect(await nfcActive(page)).toBe(0);
+  });
+}
+
+for (const cancel of ['different tag', 'close', 'timeout'] as const) {
+  test(`T-NFC-29: a pending profile write is aborted on ${cancel} and still links only the original badge`, async ({ page }) => {
+    await installFakeNfc(page, 'pending');
+    await openScanner(page);
+    await readerOn(page);
+    const scans: string[] = [];
+    page.on('request', (r) => {
+      if (r.url().endsWith('/api/scan')) scans.push(r.url());
+    });
+    await page.getByRole('button', { name: 'Manual search' }).click();
+    await page.getByPlaceholder('Type a name').fill('nia');
+    await page.getByRole('button', { name: /^(Link|Replace) badge for Nia Fixture$/ }).click();
+    const uid = randomUid();
+    const other = randomUid();
+    await nfcTap(page, serialOf(uid));
+    await expect.poll(() => nfcWrites(page)).toHaveLength(1);
+    const sheet = page.getByRole('dialog', { name: 'Link a badge' });
+    await expect(sheet).toContainText('Linking badge…');
+    if (cancel === 'different tag') await nfcTap(page, serialOf(other));
+    if (cancel === 'close') await sheet.getByRole('button', { name: 'Cancel', exact: true }).click();
+    const notice = cancel === 'close' ? page.getByRole('status') : sheet;
+    await expect(notice).toContainText(`✓ Badge ${serialOf(uid)} linked to Nia Fixture. Couldn't write its profile link: hold the badge still and tap Link badge again.`, { timeout: 10000 });
+    expect(await page.evaluate(() => (window as unknown as { __nfcWriteAborted: boolean }).__nfcWriteAborted)).toBe(true);
+    expect(await nfcWrites(page)).toEqual([{ records: [{ recordType: 'url', data: `https://badges.example.test/profile/${uid}?tap` }] }]);
+    expect((await f.pool.query('select participant_id from badges where uid = $1', [uid])).rows).toEqual([{ participant_id: f.p.N }]);
+    expect((await f.pool.query('select participant_id from badges where uid = $1', [other])).rows).toEqual([]);
+    expect(scans).toEqual([]);
+    await expect(page.getByTestId('scan-result')).toBeHidden();
+  });
+}
