@@ -4,6 +4,7 @@ import type { Database } from '@/lib/db/types.gen';
 import { drainOutbox } from '@/lib/email/drain';
 import type { EmailMessage } from '@/lib/email/provider';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
+import { emailEventName } from '@/lib/email/links';
 
 const base = {
   firstName: 'Ada',
@@ -21,6 +22,11 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
       expect(part).toContain('No reply by then counts as a no');
       expect(part).toContain(base.rsvpUrl);
     }
+  });
+
+  it('T-RSVP-11: emails give the datathon its full name (v0.11.23); other events keep theirs', () => {
+    expect(emailEventName('dashboard', 'Datathon')).toBe('Sheridan Datathon 2026');
+    expect(emailEventName('hack-day', 'Hack Day')).toBe('Hack Day');
   });
 
   it('T-RSVP-11: a reminder says so in the subject; no deadline, no deadline line; names are escaped', () => {
