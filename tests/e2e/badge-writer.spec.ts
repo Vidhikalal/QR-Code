@@ -18,12 +18,12 @@ test.afterAll(async () => {
   await f.close();
 });
 
-test('T-NFC-28: Tools is gone and without Web NFC participant linking is hidden', async ({ page }) => {
+test('T-NFC-28: Tools no longer writes or links badges and without Web NFC participant linking is hidden', async ({ page }) => {
   await page.goto(`/admin/${f.slug}`);
   await expect(page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Participants' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Tools' })).toHaveCount(0);
-  const response = await page.goto(`/admin/${f.slug}/tools`);
-  expect(response?.status()).toBe(404);
+  // v0.11.22: Tools is back, for Import CSV only (F10).
+  await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Tools', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Import CSV' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Link a badge' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /writing/i })).toHaveCount(0);
   await page.goto(`/admin/${f.slug}/participants`);
@@ -166,7 +166,6 @@ for (const mode of ['existing', 'failed', 'timeout', 'different', 'close', 'mult
       };
     }, mode);
     await page.goto(`/admin/${f.slug}/participants`);
-    await expect(page.getByRole('link', { name: 'Tools', exact: true })).toHaveCount(0);
     await page.getByRole('button', { name: /^(Link|Replace) badge for Ada Fixture$/ }).click();
     const uid = randomUid();
     const url = `${ORIGIN}/profile/${uid}?tap`;

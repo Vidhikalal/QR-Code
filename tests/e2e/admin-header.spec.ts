@@ -21,7 +21,7 @@ for (const [width, height] of [[390, 844], [1440, 900], [1920, 1080]] as const) 
     const header = page.locator('header');
     const nav = page.getByRole('navigation', { name: 'Admin' });
     const links = nav.getByRole('link');
-    await expect(links).toHaveCount(8);
+    await expect(links).toHaveCount(9); // v0.11.22: Tools is back in the header (§11).
     await expect(links.first()).toHaveAttribute('aria-current', 'page');
     await expect(header.getByText(f.e1.name, { exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -58,7 +58,7 @@ for (const [width, height] of [[390, 844], [1440, 900], [1920, 1080]] as const) 
     }
 
     await links.first().focus();
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 9; i++) {
       const link = links.nth(i);
       await expect(link).toBeFocused();
       const box = await link.boundingBox();
@@ -68,7 +68,7 @@ for (const [width, height] of [[390, 844], [1440, 900], [1920, 1080]] as const) 
       expect(box!.x).toBeGreaterThanOrEqual(navBox!.x - 1);
       expect(box!.x + box!.width).toBeLessThanOrEqual(navBox!.x + navBox!.width + 1);
       expect(await link.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('solid');
-      if (i < 7) await page.keyboard.press('Tab');
+      if (i < 8) await page.keyboard.press('Tab');
     }
     await nav.evaluate(el => { el.scrollLeft = 0; });
     await expect.poll(() => nav.evaluate(el => el.scrollLeft)).toBe(0);

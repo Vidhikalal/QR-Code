@@ -55,6 +55,19 @@ describe('Sync now (SPEC F10) through the admin API', () => {
     expect(rows).toEqual([{ actor_kind: 'staff' }]);
   });
 
+  it('T-ING-28: the Sheets API path uses the same Status filter and requires its header', async () => {
+    const accepted = sheetRow(f.slug);
+    const waitlisted = sheetRow(f.slug, { status: 'Waitlist' });
+    sheet = [header, ...[accepted, waitlisted].map((r) => [r.email, r.first_name, r.external_id, r.status])];
+    const res = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, statuses: ['accepted'] } });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ total: 1, skipped: 1, counts: { CREATED: 1 } });
+    sheet = sheet.map((row) => row.slice(0, 3));
+    const missing = await c.call('syncSheet', org, { slug: f.slug }, { body: { dryRun: true, statuses: ['waitlisted'] } });
+    expect(missing.status).toBe(422);
+    expect(missing.body).toEqual({ error: 'BAD_SHEET', message: 'Missing header: Status' });
+  });
+
   it('F10 / §11: the event reports the last applied sync time (dry runs do not count)', async () => {
     const { rows } = await f.pool.query<{ at: Date }>(`select max(created_at) as at from audit_log where action = 'sheet.sync' and event_id = $1`, [f.e1.id]);
     const res = await c.call('getEvent', org, { slug: f.slug });

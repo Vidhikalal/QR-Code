@@ -9,7 +9,7 @@ export interface SheetRowInput {
   last_name?: string;
   dietary_notes?: string;
   linkedin_url?: string;
-  /** Ignored since v0.4: the Sheet only imports applicants; acceptance comes from an RSVP Yes (F13). */
+  /** Never sets participant status (v0.4); optionally filters imports (v0.11.22). */
   status?: string;
 }
 
@@ -93,6 +93,19 @@ export function mapSheetValues(values: string[][]): Array<Required<SheetRowInput
   return data
     .map((row) => Object.fromEntries(keys.map((k) => [k, cell(row, k)])) as Required<SheetRowInput>)
     .filter((r) => keys.some((k) => r[k] !== ''));
+}
+
+export type SheetStatus = 'accepted' | 'waitlisted';
+
+export function filterSheetValues(values: string[][], statuses?: SheetStatus[]) {
+  if (statuses?.length && !values[0]?.some((header) => header.trim() === SHEET_HEADERS.status)) throw new Error(`Missing header: ${SHEET_HEADERS.status}`);
+  const rows = mapSheetValues(values);
+  if (!statuses?.length) return { rows, skipped: 0 };
+  const selected = rows.filter((row) => {
+    const status = row.status.trim().toLowerCase();
+    return statuses.some((selected) => selected === (status === 'waitlist' ? 'waitlisted' : status));
+  });
+  return { rows: selected, skipped: rows.length - selected.length };
 }
 
 // F10: organizers paste either the Sheet's id or its docs.google.com URL.
