@@ -1,6 +1,6 @@
 # Sheridan Datathon Station — Product & Technical Specification
 
-> **Status:** Draft v0.11.22 · **Owner:** Ade · **Last updated:** 2026-10-31
+> **Status:** Draft v0.11.23 · **Owner:** Ade · **Last updated:** 2026-10-31
 > The app is **Station** (Sheridan Datathon Station, `https://station.sheridandatathon.com`); it was called Passline until v0.11.21.
 
 ## 0. How to read this document
@@ -1062,7 +1062,7 @@ After a volunteer's own scan, "Undo last" is visible for 120 s. It asks for a re
 - **QR image:** embed as an inline attachment referenced by `cid:` if the provider supports it. Otherwise attach it as a normal PNG attachment as well (§17 A1). Do **not** use a `data:` URI, because many clients block them.
 - **Escape** all interpolated values. Keep the HTML well under Gmail's ~102 KB clipping threshold.
 - **Disable open and click tracking.** Tracking rewrites links, which leaks fragments into redirect logs, and adds pixels.
-- **RSVP email (F13):** subject `You're invited: {Event name} — will you be there?`; greeting, event, local date and time, venue, (v0.9) "Please reply by {closes}. No reply by then counts as a no, and your spot goes to someone on the waitlist." when there is a deadline, one "Reply to the invitation" button to `/rsvp#token`, privacy line (v0.6: mentions emergencies and the 30-day deletion). A **reminder** (v0.9) is the same email opening "A reminder…", subject `Reminder: reply by {date} — {Event name}`. Same escaping and tracking rules.
+- **RSVP email (F13):** subject `You're invited: {Event name}` (v0.11.23; it ended “— will you be there?” before); greeting, event, local date and time, venue, (v0.9) "Please reply by {closes}. No reply by then counts as a no, and your spot goes to someone on the waitlist." when there is a deadline, one "Reply to the invitation" button to `/rsvp#token`, privacy line (v0.6: mentions emergencies and the 30-day deletion). A **reminder** (v0.9) is the same email opening "A reminder…", subject `Reminder: reply by {date} — {Event name}`. Same escaping and tracking rules.
 - **Profile reminder email (F14, v0.9):** subject `Finish setting up your profile for {Event name}`; greeting, what setup asks, one "Set up your profile" button to `${APP_ORIGIN}/me/profile`, plain-text part. No token. Cancelled if the person is no longer accepted or has finished.
 - **Team invite email (F15, S11b):** subject `{Inviter first name} invited you to join {Team} at {Event}`; greeting, one sentence, one "Open your Team page" button to `${APP_ORIGIN}/me/team`, plain-text part. No join code or token. Same escaping and tracking rules. Cancel if the invitee is deleted, not accepted or has no pending invite.
 - **Staff added email (F9 step 1, v0.11.12):** to an existing account an organizer added as staff. Subject `You’re now {a volunteer | an organizer} for {Event name}`; the website's look (v0.11.21) with the **Staff access** hero title, greeting with their display name if set, the event's local date and time, what they can open, one centred "Sign in" button to `${APP_ORIGIN}/login?next=/scan/<slug>` (volunteer) or `/login?next=/admin/<slug>` (organizer), a line pointing to "Forgot or never set your password?", plain-text part. No token. Same escaping and tracking rules. Cancelled if they are no longer staff on the event.
@@ -1613,6 +1613,8 @@ Each slice ends with its tests green in CI and a short demo.
 ---
 
 ## 20. Changelog
+
+- **v0.11.23 (2026-10-31)** — The RSVP email's subject is `You're invited: {Event name}`, without “— will you be there?” (owner's request); the prod event is renamed “Sheridan Datathon 2026”, so it reads “You're invited: Sheridan Datathon 2026”. Emails come from “Sheridan Datathon” (the `EMAIL_FROM` display name). §12; T-RSVP-11 updated.
 
 - **v0.11.22 (2026-10-31)** — **Import CSV** on a **Tools** tab, back in the admin header (owner’s request): organizers import applicants from a CSV export of the Sheet, with a preview (dry run) before anything is written. It reuses Sync now’s upsert (F10) through `POST /api/admin/:slug/sync` with a new optional `csv` field, so no Google service account is needed; optional Accepted/Waitlisted checkboxes filter Sheet Status rows, refresh the preview and report skipped rows without changing participant status. F3, F10, §11; new T-ING-28 (U+I+E); T-NFC-28 now finds Tools without badge writing or linking, instead of a 404.
 

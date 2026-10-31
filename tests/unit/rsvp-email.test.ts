@@ -15,7 +15,7 @@ const base = {
 describe('RSVP email (SPEC §12, F13 v0.9)', () => {
   it('T-RSVP-11: shows the reply-by time in the event timezone and what no reply means', () => {
     const m = renderRsvpEmail(base);
-    expect(m.subject).toBe("You're invited: Datathon — will you be there?");
+    expect(m.subject).toBe("You're invited: Datathon");
     for (const part of [m.html, m.text]) {
       expect(part).toContain('Tue, Nov 3 · 11:59 PM EST');
       expect(part).toContain('No reply by then counts as a no');
