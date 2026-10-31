@@ -12,6 +12,7 @@ const TABS = [
   ['/staff', 'Staff'],
   ['/info', 'Info'],
   ['/export', 'Export'],
+  ['/tools', 'Tools'],
 ] as const;
 
 export function AdminNav({ slug }: { slug: string }) {
@@ -20,7 +21,7 @@ export function AdminNav({ slug }: { slug: string }) {
   const base = `/admin/${slug}`;
   return (
     <nav aria-label="Admin" onFocus={(event) => event.target.scrollIntoView({ block: 'nearest', inline: 'nearest' })}
-      className="flex justify-start items-center flex-nowrap gap-[10px] overflow-x-auto overflow-y-hidden
+      className="flex justify-start items-center flex-nowrap gap-[8px] overflow-x-auto overflow-y-hidden
           max-w-full min-w-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {TABS.map(([path, label]) => {
         const href = base + path;

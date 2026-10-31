@@ -41,6 +41,7 @@ describe('Sync now (SPEC F10)', () => {
     expect(dry).toEqual({
       dryRun: true,
       total: 4,
+      skipped: 0,
       // v0.4: Status is ignored (Withdrawn changes nothing); only the new first name is an update.
       counts: { UNCHANGED: 1, UPDATED: 1, CREATED: 1, 'INVALID:email': 1 },
       changes: [

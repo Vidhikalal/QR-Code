@@ -4,7 +4,7 @@ import type { Authenticate } from '@/lib/auth/session';
 import { requireStaffBySlug } from '@/lib/auth/staff';
 import { staffNames as sharedStaffNames } from '@/lib/db/staff-names';
 import type { Database, Json } from '@/lib/db/types.gen';
-import { toCsv } from '@/lib/domain/csv';
+import { parseCsv, toCsv } from '@/lib/domain/csv';
 import { bucketLabel, doorClosedWarning } from '@/lib/domain/dashboard';
 import { formatEventDateTime } from '@/lib/domain/event-time';
 import { normalizeEmail, toSearchText } from '@/lib/domain/normalize';
@@ -784,10 +784,12 @@ export function createAdminApi(deps: AdminDeps) {
     async syncSheet(request: Request, params: Params) {
       const g = await guard(request, params);
       if (g instanceof Response) return g;
-      const body = z.object({ dryRun: z.boolean() }).strict().safeParse(await readJson(request));
+      const body = z.object({ dryRun: z.boolean(), csv: z.string().max(4_000_000).optional(), statuses: z.array(z.enum(['accepted', 'waitlisted'])).max(2).optional() }).strict().safeParse(await readJson(request));
       if (!body.success) return badRequest();
+      // v0.11.22: an uploaded CSV export of the Sheet stands in for reading it through the Sheets API.
+      const { csv } = body.data;
       const { sheet_id: sheetId } = await loadEvent(g.eventId);
-      const readSheet = sheetId ? deps.sheetReader?.(sheetId) : null;
+      const readSheet = csv !== undefined ? async () => parseCsv(csv) : sheetId ? deps.sheetReader?.(sheetId) : null;
       if (!readSheet) return json({ error: 'NOT_CONFIGURED' }, 409);
       let values: string[][];
       try {
@@ -797,7 +799,7 @@ export function createAdminApi(deps: AdminDeps) {
       }
       let report: Awaited<ReturnType<typeof syncSheet>>;
       try {
-        report = await syncSheet(db, g.eventId, { dryRun: body.data.dryRun, readSheet: async () => values, actorUserId: g.userId });
+        report = await syncSheet(db, g.eventId, { dryRun: body.data.dryRun, readSheet: async () => values, actorUserId: g.userId, statuses: body.data.statuses });
       } catch (err) {
         if (err instanceof Error && err.message.startsWith('Missing header')) return json({ error: 'BAD_SHEET', message: err.message }, 422);
         throw err;

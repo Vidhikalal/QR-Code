@@ -12,6 +12,7 @@ import { renderProfileReminderEmail } from './templates/profile-reminder';
 import { renderRsvpEmail } from './templates/rsvp';
 import { renderStaffAddedEmail } from './templates/staff-added';
 import { renderTeamInviteEmail } from './templates/team-invite';
+import { emailEventName } from './links';
 
 type Db = SupabaseClient<Database>;
 type OutboxRow = Database['public']['Tables']['email_outbox']['Row'];
@@ -108,14 +109,14 @@ async function participantEmail(opts: DrainOptions, row: OutboxRow): Promise<Out
   if (participantId === null) return null;
   const { data: p, error } = await opts.db
     .from('participants')
-    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(name, venue, starts_at, timezone)')
+    .select('first_name, email, status, deleted_at, emergency_name, overnight, team_status, events(slug, name, venue, starts_at, timezone)')
     .eq('id', participantId)
     .single();
   if (error) throw new Error(`participant load failed (${error.code})`);
   const accepted = p.status === 'accepted';
   const rsvp = row.kind === 'rsvp' || row.kind === 'rsvp_reminder';
   if (p.deleted_at !== null || (rsvp ? accepted : !accepted)) return null;
-  const event = { name: p.events.name, venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
+  const event = { name: emailEventName(p.events.slug, p.events.name), venue: p.events.venue, startsAt: p.events.starts_at, timezone: p.events.timezone };
 
   let email: RenderedEmail;
   if (rsvp) {
@@ -169,6 +170,6 @@ async function staffEmail(opts: DrainOptions, row: OutboxRow): Promise<Outgoing 
   const t = z
     .object({ email: z.string(), name: z.string().nullable(), role: z.enum(['organizer', 'volunteer']), slug: z.string(), eventName: z.string(), startsAt: z.string(), timezone: z.string() })
     .parse(data);
-  const email = renderStaffAddedEmail({ name: t.name, role: t.role, event: { name: t.eventName, startsAt: t.startsAt, timezone: t.timezone }, slug: t.slug, appOrigin: opts.appOrigin });
+  const email = renderStaffAddedEmail({ name: t.name, role: t.role, event: { name: emailEventName(t.slug, t.eventName), startsAt: t.startsAt, timezone: t.timezone }, slug: t.slug, appOrigin: opts.appOrigin });
   return { to: t.email, ...email, fileLabel: toFileLabel(t.eventName, 'staff') };
 }
