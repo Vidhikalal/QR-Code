@@ -4,23 +4,29 @@ import type { Database } from '@/lib/db/types.gen';
 import { drainOutbox } from '@/lib/email/drain';
 import type { EmailMessage } from '@/lib/email/provider';
 import { renderRsvpEmail } from '@/lib/email/templates/rsvp';
+import { emailEventName } from '@/lib/email/links';
 
 const base = {
   firstName: 'Ada',
   event: { name: 'Datathon', venue: 'HMC Campus', startsAt: '2026-11-07T14:00:00Z', timezone: 'America/Toronto' },
-  rsvpUrl: 'https://passline.example.com/rsvp#Ab3_-xYz0123456789abcdefGHIJKLMN',
+  rsvpUrl: 'https://station.example.com/rsvp#Ab3_-xYz0123456789abcdefGHIJKLMN',
   closesAt: '2026-11-04T04:59:00Z', // Nov 3, 11:59 PM EST
 };
 
 describe('RSVP email (SPEC §12, F13 v0.9)', () => {
   it('T-RSVP-11: shows the reply-by time in the event timezone and what no reply means', () => {
     const m = renderRsvpEmail(base);
-    expect(m.subject).toBe("You're invited: Datathon — will you be there?");
+    expect(m.subject).toBe("You're invited: Datathon");
     for (const part of [m.html, m.text]) {
       expect(part).toContain('Tue, Nov 3 · 11:59 PM EST');
       expect(part).toContain('No reply by then counts as a no');
       expect(part).toContain(base.rsvpUrl);
     }
+  });
+
+  it('T-RSVP-11: emails give the datathon its full name (v0.11.23); other events keep theirs', () => {
+    expect(emailEventName('dashboard', 'Datathon')).toBe('Sheridan Datathon 2026');
+    expect(emailEventName('hack-day', 'Hack Day')).toBe('Hack Day');
   });
 
   it('T-RSVP-11: a reminder says so in the subject; no deadline, no deadline line; names are escaped', () => {
@@ -48,8 +54,8 @@ describe('RSVP email (SPEC §12, F13 v0.9)', () => {
     const result = await drainOutbox({
       db: fake as unknown as SupabaseClient<Database>,
       provider: { name: 'mock', send: async (m) => (sent.push(m), { id: 'x' }) },
-      appOrigin: 'https://passline.example.com',
-      from: 'Passline <p@example.test>',
+      appOrigin: 'https://station.example.com',
+      from: 'Station <p@example.test>',
       passSecret: 'x'.repeat(32),
     });
     expect(result).toMatchObject({ claimed: 1, cancelled: 1, sent: 0 });

@@ -6,7 +6,7 @@ import { createStandardFixture, type StandardFixture } from '../fixtures/standar
 const ORG = authStatePath('admin-org');
 const VOL = authStatePath('admin-vol');
 const OTHER_ORG = authStatePath('admin-other-org');
-const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/info', '/export'];
+const PAGES = ['', '/participants', '/teams', '/checkpoints', '/staff', '/info', '/export', '/tools'];
 
 test.describe.configure({ mode: 'serial' });
 test.use({ storageState: ORG });
@@ -226,6 +226,52 @@ test('T-ADM-09: Add attendee with "Not RSVPed yet" adds a pending applicant; Sen
   await expect(page.getByRole('status')).toHaveText('✓ RSVP revoked. They’re back to not RSVPed yet.');
   await expect(nora).not.toContainText('RSVP sent');
   await expect(nora.getByRole('button', { name: 'Revoke RSVP' })).toHaveCount(0);
+});
+
+test('T-ING-28: Tools → Import CSV previews the Sheet export, filters by Status, then adds the new people as not RSVPed yet', async ({ page }) => {
+  const id = (n: number) => `csv-${n}-${f.slug}`;
+  const csv = [
+    'Timestamp,First Name,Last Name,Email Address,Applicant ID,Status,Sync Status',
+    `2026-10-01,Cora,"Csv, Jr",cora-${f.slug}@example.test,${id(1)},Accepted,`,
+    `2026-10-01,Cyrus,Csv,cyrus-${f.slug}@example.test,${id(2)},Accepted,`,
+    `2026-10-01,Nomail,Csv,,${id(3)},Accepted,`,
+    `2026-10-01,Celine,Csv,celine-${f.slug}@example.test,${id(4)},Waitlisted,`,
+  ].join('\r\n');
+  await page.goto(`/admin/${f.slug}/participants`);
+  await expect(page.getByRole('button', { name: 'Import CSV' })).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Tools', exact: true }).click();
+  await expect(page).toHaveURL(`/admin/${f.slug}/tools`);
+  const panel = page.getByRole('region', { name: 'Import CSV' });
+  await expect(panel.getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
+  await expect(panel.getByRole('checkbox', { name: 'Accepted', exact: true })).not.toBeChecked();
+  await expect(panel.getByRole('checkbox', { name: 'Waitlisted', exact: true })).not.toBeChecked();
+  await panel.getByLabel('CSV file').setInputFiles({ name: 'applicants.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const preview = panel.getByRole('status');
+  await expect(preview).toContainText('4 rows in the file');
+  await expect(preview).toContainText('3 new, added as not RSVPed yet');
+  await panel.getByRole('checkbox', { name: 'Accepted', exact: true }).check();
+  await expect(preview).toContainText('4 rows in the file');
+  await expect(preview).toContainText('1 skipped: Status not selected');
+  await expect(preview).toContainText('2 new, added as not RSVPed yet');
+  await expect(preview).toContainText('1 skipped: missing or invalid Applicant ID, email or name');
+  await panel.getByRole('checkbox', { name: 'Accepted', exact: true }).uncheck();
+  await expect(preview).toContainText('3 new, added as not RSVPed yet');
+  await expect(preview).not.toContainText('Status not selected');
+  await panel.getByRole('checkbox', { name: 'Accepted', exact: true }).check();
+  await expect(preview).toContainText('1 skipped: Status not selected');
+  // A dry run: nothing is written until Import.
+  expect((await f.pool.query('select 1 from participants where external_id = $1', [id(1)])).rowCount).toBe(0);
+  await panel.getByRole('button', { name: 'Import 2' }).click();
+  await expect(panel.getByRole('status')).toContainText('✓ Imported 3 rows: 2 new, added as not RSVPed yet');
+  await expect(panel.getByRole('status')).toContainText('1 skipped: Status not selected');
+  expect((await f.pool.query('select 1 from participants where external_id = $1', [id(4)])).rowCount).toBe(0);
+  await panel.getByRole('link', { name: 'Open Participants →' }).click();
+  await expect(page.getByRole('row', { name: /Cora Csv, Jr/ })).toContainText('pending');
+  await expect(page.getByRole('row', { name: /Cyrus Csv/ })).not.toContainText('RSVP sent');
+
+  await page.goto(`/admin/${f.slug}/tools`);
+  await panel.getByLabel('CSV file').setInputFiles({ name: 'bad.csv', mimeType: 'text/csv', buffer: Buffer.from('Email Address,First Name\r\nx@y.co,X') });
+  await expect(panel.getByRole('alert')).toHaveText('✕ Missing header: Applicant ID');
 });
 
 test('T-ADM-10: Checkpoints → People lists who was scanned there; Remove voids one, and they can be scanned again', async ({ page }) => {
