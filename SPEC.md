@@ -430,7 +430,7 @@ A profile is **finished** once the emergency contact, `overnight` and `team_stat
 
 ```sql
 alter table participants
-  add column directory_opt_in boolean not null default false,
+  add column directory_opt_in boolean not null default false,  -- default true since v0.11.19
   add column bio text check (length(bio) between 1 and 280),
   add column pace text check (pace in ('competitive','balanced','casual'));
 ```
@@ -679,7 +679,7 @@ An organizer adds a walk-in with name and email (source `walk_in`, status `accep
 ### F16 — Hacker directory (S13)
 
 1. **Open Hackers** from the menu, `/me/hackers`. `loadMyEvent()` confirms a signed-in, accepted, undeleted attendee in their selected event, with F14's 30-day window, before any directory query. Signed-out visitors go to login; waitlisted, withdrawn and other ineligible viewers get 404. No route accepts a participant id for reading; the event and viewer email come from the session. It is private, never public.
-2. **Opt in** in the RSVP onboarding's networking step (`/me/profile?setup=1`, step 4), or the full profile networking form later. **List me in the Hacker directory** is off by default, independent of badge sharing and Looking. Pace and bio are optional and can be saved before opting in. Opting out removes the full card on the next read.
+2. **Opt in** in the RSVP onboarding's networking step (`/me/profile?setup=1`, step 4), or the full profile networking form later. **List me in the Hacker directory** is on by default (v0.11.19, owner's decision; it was off before), independent of badge sharing and Looking. Pace and bio are optional and can be saved before opting in. Opting out removes the full card on the next read.
 3. **Browse** accepted, undeleted, opted-in hackers in the same event, including yourself marked **(you)** with no actions. Each card shows name; pace: **Going for the win** (`competitive`), **Balanced** (`balanced`), **Here to learn and meet people** (`casual`); plain-text bio with line breaks; actual team name (**In a team: {name}**), otherwise **Looking for a team** if looking, or **Going solo**. Missing pace says **Pace not set**. Networking links use the existing normalized LinkedIn, Discord username (badge Copy pattern) and website (`rel="nofollow ugc"`); self cards have no contact actions.
 4. **Find people** with a name search normalized using `toSearchText` (I-12), a **Looking for a team** filter and a pace filter. Apply filters submits a GET form. Name ascending is fixed; at most 500 rows per Looking/all directory query, with deterministic id tie-break, before name/pace filtering. Browsing is available before forming opens and after it closes within the F14 window.
 5. **Looking for teammates:** the Looking filter also returns accepted, undeleted Looking hackers without a team who have not opted into the full directory: **id and name only**, with no bio, pace, networking or other profile fields. A pace filter excludes these rows. Invite appears only for another Looking hacker without a team when your team has fewer than 4 members and forming is open before the event ends; `team_invite()` rechecks every rule, including self-invite refusal. Received invites stay on Team (F15).
@@ -1465,7 +1465,7 @@ Target: at least 95% of attempts under 3 s.
 | T-DIR-01 | Profile parser: missing, blank, lengths, CRLF, pace choices, HTML-like text | Missing unchanged, blank clears, bio ≤280, enum pace, text preserved | U |
 | T-DIR-02 | Full/Looking directory: other event, non-consenting, waitlisted, withdrawn, tombstoned targets; safe field list | Full consent only; Looking adds names only; no private fields | I |
 | T-DIR-03 | Waitlisted/withdrawn/unknown viewer, forged event | No directory access; myEvent returns null | I |
-| T-DIR-04 | Own-row save, constraints, partial/blank save, audit, tombstone | Defaults off; own only; no PII audit; tombstone clears all three fields | I |
+| T-DIR-04 | Own-row save, constraints, partial/blank save, audit, tombstone | Defaults on (v0.11.19); own only; no PII audit; tombstone clears all three fields | I |
 | T-DIR-05 | Walkthrough networking opt-in → menu → directory → filters and contact → profile opt-out | Self has no actions, normalized search, pace/Looking filters, LinkedIn/website and Discord Copy; escaped bio; no private data in HTML; responsive | E |
 | T-DIR-06 | Signed-out, waitlisted and withdrawn viewers open /me/hackers | Login / 404 respectively | E |
 
@@ -1494,7 +1494,7 @@ Target: at least 95% of attempts under 3 s.
   - The Google Form MUST include a collection notice covering what is collected, why (event admission, food, attendance analytics), who sees it (club organizers and volunteers), and retention.
   - Follow the college's student-organization data policies.
   - Retention: existing photos, dietary notes, emergency contacts (v0.6), allergies and accessibility needs (v0.9) are deleted 30 days after the event; participant PII 12 months after; aggregate stats are kept.
-  - The Hacker directory (F16) is private to accepted attendees of the selected event, **off by default**, with consent independent of public badge sharing. It shows name, pace, bio, actual team status and chosen networking links only. Looking without full consent remains names only under its filter. Bio, pace and directory consent follow participant PII retention (12 months); they are cleared immediately by the tombstone. Directory access ends 30 days after the event.
+  - The Hacker directory (F16) is private to accepted attendees of the selected event, **on by default** (v0.11.19; attendees switch it off on their profile), with consent independent of public badge sharing. It shows name, pace, bio, actual team status and chosen networking links only. Looking without full consent remains names only under its filter. Bio, pace and directory consent follow participant PII retention (12 months); they are cleared immediately by the tombstone. Directory access ends 30 days after the event.
   - Deletion requests are handled through the admin tombstone.
   - The badge profile (v0.9) is public and on by default; participants switch it off or on on their pass page or `/me/profile`, where they can also set their LinkedIn (v0.5). Anyone who taps their badge sees only their name and the links they set: LinkedIn, Discord username and website (v0.9.2). The Google Form's notice should say so.
 - **Logging:**
@@ -1609,6 +1609,7 @@ Each slice ends with its tests green in CI and a short demo.
 
 ## 20. Changelog
 
+- **v0.11.19 (2026-10-31)** — Owner's requests. Hacker directory listing is on by default (migration `20261031014344_directory_on_by_default`: new default, and switched on for people who never saved the networking form; anyone who did keeps their choice). The networking form is ordered LinkedIn, Discord, website, bio, pace, then directory listing and badge sharing, without the explanatory copy. Schedule: the busier day gets a wider column, and each event opens a detail dialog instead of the hover card. F14, F16, §5.7, §15; T-ME-11, T-DIR-02/04/05 and T-TEAM-05 updated.
 - **v0.11.18 (2026-10-30)** — Hacker profile moves to the end of the hacker menu, and its tabs are ordered Networking, The event, Health and access (owner’s request). The RSVP walkthrough order is unchanged. F14; T-ME-07/10 updated.
 - **v0.11.17 (2026-10-30)** — Hacker menu order is Hackers, Schedule, Team, Hacker profile, Emergency contact (owner’s request). The emergency contact leaves the Hacker profile (tabs and RSVP walkthrough, now 3 steps) and is set only on the Emergency contact page; it stays required, so the profile links there while it is missing. Profile setup no longer requires the contact (`parseProfileInput`). F14; T-ME-07/09/10, T-RSVP-05 and T-DIR-05 updated.
 - **v0.11.16 (2026-10-30)** — The hacker Schedule matches the Hacker Package poster: category columns instead of side-by-side overlap lanes, free-standing slots span the day, and overlaps stack on top of each other; Team formation counts as Hacking (it sits in the Hacking Begins block on the poster). F14; T-ME-11 updated.
